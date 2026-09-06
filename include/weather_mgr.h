@@ -19,3 +19,5 @@ extern bool gWeatherHasData;
 
 void weatherInit();
 bool weatherUpdate(float lat, float lon);
+bool forceWeatherUpdate();
+void handleApiWeatherSync();

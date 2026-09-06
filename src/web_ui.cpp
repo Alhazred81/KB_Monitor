@@ -96,6 +96,13 @@ extern void handleSensStatus();
 extern void handleSensTest();
 extern void handleSaveWeatherCfg();
 extern void handleTestWeatherAlert();
+extern void handleApiI2cScan();
+extern bool forceWeatherUpdate();
+extern void handleApiWeatherSync();
+extern Aht20State gAht20;
+extern Bmp280State gBmp280;
+extern String aht20ValueText();
+extern String bmp280ValueText();
 
 // --- Wi-Fi Beállítások (STA Hálózat) ---
 extern void handleSaveWifi();
@@ -127,6 +134,14 @@ extern void handleRegSummary();
 extern void handleRegSave();
 extern void handleRegCancel();
 
+// --- Szenzoerértékek ---
+extern String windSpeedValueText();
+extern String windDirValueText();
+extern String shtValueText();
+extern String rainValueText();
+extern String mpuValueText();
+extern String ahtBmpValueText();
+extern String ltrValueText();
 
 // =================================================================================
 // HELYI HANDLER FÜGGVÉNYEK
@@ -149,7 +164,7 @@ void handleRoot() {
   String html = htmlHead("Főoldal", "1");
 
   html += "<style>"
-          ".dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }"
+          ".dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }"
           ".dot-g { background-color: #22c55e; box-shadow: 0 0 4px rgba(34,197,94,0.6); }"
           ".dot-y { background-color: #eab308; box-shadow: 0 0 4px rgba(234,179,8,0.6); }"
           ".dot-r { background-color: #ef4444; box-shadow: 0 0 4px rgba(239,68,68,0.6); }"
@@ -218,28 +233,36 @@ void handleRoot() {
   }
   html += "</div>";
 
-  // 3. Szenzorok kártya
+  // 3. Szenzorok kártya (Élő adatokkal)
   html += "<div class='card'>";
   html += "<h2 style='font-size:14px; margin-bottom:8px;'>🌡 Aktív Szenzorok</h2>";
   html += "<div style='flex:1;'>";
 
   int activeCount = 0;
-  auto addSensRow = [&](String name, bool enabled, unsigned long lastRead) {
+  auto addSensRow = [&](String name, bool enabled, unsigned long lastRead, String liveValue) {
     if (!enabled) return;
     activeCount++;
     String dot = "dot-g";
-    String val = "OK";
-    if (lastRead == 0) { dot = "dot-y"; val = "Nincs adat"; }
+    String val = liveValue;
+    
+    if (lastRead == 0) { 
+        dot = "dot-y"; 
+        val = "Mérés folyamatban..."; 
+    } else if (val.length() == 0) { 
+        dot = "dot-r"; 
+        val = "Olvasási hiba"; 
+    }
     html += "<div class='compact-row'><span><span class='dot " + dot + "'></span>" + name + "</span><b>" + val + "</b></div>";
   };
 
-  addSensRow("Belső Hő/Pára", gSht.enabled, gSht.lastGoodRead);
-  addSensRow("Szélsebesség", gWindSpeed.enabled, gWindSpeed.lastGoodRead);
-  addSensRow("Szélirány", gWindDir.enabled, gWindDir.lastGoodRead);
-  addSensRow("Csapadék", gRain.enabled, gRain.lastPoll);
-  addSensRow("Külső Hő/Nyomás", gAhtBmp.enabled, gAhtBmp.lastGoodRead);
-  addSensRow("UV Index", gLtr.enabled, gLtr.lastGoodRead);
-  addSensRow("Mérleg Dőlés", gMpu.enabled, gMpu.lastGoodRead);
+  addSensRow("Belső Hő/Pára", gSht.enabled, gSht.lastGoodRead, shtValueText());
+  addSensRow("Szélsebesség", gWindSpeed.enabled, gWindSpeed.lastGoodRead, windSpeedValueText());
+  addSensRow("Szélirány", gWindDir.enabled, gWindDir.lastGoodRead, windDirValueText());
+  addSensRow("Csapadék", gRain.enabled, gRain.lastPoll, rainValueText());
+  addSensRow("AHT20 Hő/Pára", gAht20.enabled, gAht20.lastGoodRead, aht20ValueText());
+  addSensRow("BMP280 Nyomás", gBmp280.enabled, gBmp280.lastGoodRead, bmp280ValueText());
+  addSensRow("UV Index", gLtr.enabled, gLtr.lastGoodRead, ltrValueText());
+  addSensRow("Mérleg Dőlés", gMpu.enabled, gMpu.lastGoodRead, mpuValueText());
 
   if (activeCount == 0) {
     html += "<p class='hint' style='margin:4px 0; font-size:12px;'>Nincs bekapcsolt szenzor.</p>";
@@ -253,8 +276,13 @@ void handleRoot() {
 
   // 4. Időjárás kártya
   html += "<div class='card'>";
-  html += "<h2 style='font-size:14px; margin-bottom:8px;'>🌤 Időjárás & Előrejelzés</h2>";
-  html += "<div style='font-size:12px; margin-bottom:6px;'><b>Rendszeridő:</b> " + (gTime.synced ? gTime.localTime : "Nincs szinkron") + "</div>";
+  html += "<h2 style='font-size:14px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;'>";
+  html += "<span>🌤 Időjárás & Előrejelzés</span>";
+  if (gData.active) {
+    html += "<button class='sec' style='padding:2px 8px; font-size:10px; margin:0;' onclick=\"this.innerText='Töltés...'; fetch('/api/weathersync').then(()=>setTimeout(()=>location.reload(), 3000));\">Frissítés</button>";
+  }
+  html += "</h2>";
+  html += String("<div style='font-size:12px; margin-bottom:6px;'><b>NTP Szinkron:</b> ") + (gTime.synced ? "Aktív" : "Várakozás") + "</div>";
   html += "<hr style='border:0; border-top:1px solid var(--border); margin:6px 0;'>";
 
   html += "<div style='flex:1;'>";
@@ -289,14 +317,28 @@ void handleRoot() {
     html += "</div>";
     html += "<p class='hint' style='margin-top:8px; margin-bottom:0; font-size:11px;'>Frissítve: " + ageText(gLastWeatherSync) + "</p>";
   } else {
-    html += "<p class='hint' style='margin:0; font-size:12px;'>Nincs időjárás adat.</p>";
+    html += "<p class='hint' style='margin:0; font-size:12px;'>Nincs elérhető időjárás adat.</p>";
   }
   html += "</div></div>";
 
-  // 5. Naptár
+  // 5. Naptár (beépített kompakt órával és NTP/GSM/GNSS pöttyökkel)
   html += getCalendarCardHtml();
 
   html += "</div>"; // dash-grid vége
+
+  // JavaScript az élő órához és a 10mp-es főoldal frissítéshez
+  html += "<script>"
+          "function updateClock() {"
+          "  var d = new Date();"
+          "  var h = String(d.getHours()).padStart(2, '0');"
+          "  var m = String(d.getMinutes()).padStart(2, '0');"
+          "  var el = document.getElementById('liveClock');"
+          "  if(el) el.innerText = h + ':' + m;"
+          "}"
+          "setInterval(updateClock, 1000);"
+          "updateClock();"
+          "setTimeout(function(){ location.reload(); }, 10000);"
+          "</script>";
 
   html += htmlFoot();
   server.send(200, "text/html", html);
@@ -377,6 +419,8 @@ void webBegin() {
   server.on("/senstest", HTTP_POST, handleSensTest);
   server.on("/saveweathercfg", HTTP_POST, handleSaveWeatherCfg);
   server.on("/testweatheralert", HTTP_POST, handleTestWeatherAlert);
+  server.on("/api/i2cscan", HTTP_GET, handleApiI2cScan);
+  server.on("/api/weathersync", HTTP_GET, handleApiWeatherSync);
 
   // --- Wi-Fi Beállítások ---
   server.on("/savewifi", HTTP_POST, handleSaveWifi);

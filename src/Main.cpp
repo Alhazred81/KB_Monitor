@@ -48,7 +48,6 @@ WindDirState   gWindDir;
 ShtSensorState gSht;
 RainSensorState gRain;
 Mpu6050State    gMpu;
-Aht20Bmp280State gAhtBmp;
 Ltr390State      gLtr;
 String         gApSSID    = "";
 String         gApPass    = DEFAULT_AP_PASS;

@@ -21,9 +21,11 @@ String gLastSensTestRaw    = "";
 // ─── I2C Címek ───────────────────────────────────────────────
 #define MPU6050_ADDR 0x68
 #define AHT20_ADDR   0x38
-#define BMP280_ADDR  0x76
+#define BMP280_ADDR  0x77
 #define LTR390_ADDR  0x53
 
+Aht20State  gAht20;
+Bmp280State gBmp280;
 
 // ─── Függvények megvalósítása ────────────────────────────────
 
@@ -91,7 +93,7 @@ void rs485SetDirection(bool transmit) {
 }
 
 bool modbusReadHoldingRegisters(uint8_t slaveAddr, uint16_t startReg, uint8_t count,
-                                 uint16_t* outValues, String& rawHexOut, String& errOut) {
+                                   uint16_t* outValues, String& rawHexOut, String& errOut) {
   if(!gRs485Initialized) rs485Init();
 
   uint8_t req[8];
@@ -286,87 +288,142 @@ void mpu6050Poll() {
 
 void i2c2Init() {
   Wire1.begin(SENS_I2C2_SDA_DEFAULT, SENS_I2C2_SCL_DEFAULT);
+  
+  // AHT20 init
   Wire1.beginTransmission(AHT20_ADDR);
   Wire1.write(0xBE); Wire1.write(0x08); Wire1.write(0x00);
   Wire1.endTransmission();
   delay(10);
+
+  // BMP280 init
+  Wire1.beginTransmission(BMP280_ADDR);
+  Wire1.write(0xF4); Wire1.write(0x27); 
+  Wire1.endTransmission();
+  delay(10);
+
+  // LTR390 init
   Wire1.beginTransmission(LTR390_ADDR);
   Wire1.write(0x00); Wire1.write(0x0A); 
   Wire1.endTransmission();
 }
 
-void ahtBmpPoll() {
-  if(!gAhtBmp.enabled) return;
-  gAhtBmp.lastPoll = millis();
+void aht20Poll() {
+  if(!gAht20.enabled) return;
+  gAht20.lastPoll = millis();
 
   Wire1.beginTransmission(AHT20_ADDR);
   Wire1.write(0xAC); Wire1.write(0x33); Wire1.write(0x00);
-  bool aOk = (Wire1.endTransmission() == 0);
+  if(Wire1.endTransmission() != 0) {
+    gAht20.lastReadOk = false;
+    gAht20.lastError = "AHT20 (0x38) nem válaszol I2C2-n.";
+    return;
+  }
   delay(80);
 
-  if(aOk) {
-    uint8_t n = Wire1.requestFrom((int)AHT20_ADDR, 6);
-    if(n >= 6) {
-      uint8_t d[6];
-      for(int i = 0; i < 6; i++) d[i] = Wire1.read();
-      uint32_t rawHum = ((uint32_t)d[1] << 12) | ((uint32_t)d[2] << 4) | (d[3] >> 4);
-      uint32_t rawTemp = (((uint32_t)d[3] & 0x0F) << 16) | ((uint32_t)d[4] << 8) | d[5];
-      gAhtBmp.ahtHumidityPct = (rawHum / 1048576.0f) * 100.0f;
-      gAhtBmp.ahtTempC = (rawTemp / 1048576.0f) * 200.0f - 50.0f;
-      gAhtBmp.ahtOk = true;
-    } else {
-      gAhtBmp.ahtOk = false;
-    }
-  } else {
-    gAhtBmp.ahtOk = false;
+  uint8_t n = Wire1.requestFrom((int)AHT20_ADDR, 6);
+  if(n < 6) {
+    gAht20.lastReadOk = false;
+    gAht20.lastError = "Hiányos AHT20 válasz.";
+    return;
   }
 
+  uint8_t d[6];
+  for(int i = 0; i < 6; i++) d[i] = Wire1.read();
+  uint32_t rawHum = ((uint32_t)d[1] << 12) | ((uint32_t)d[2] << 4) | (d[3] >> 4);
+  uint32_t rawTemp = (((uint32_t)d[3] & 0x0F) << 16) | ((uint32_t)d[4] << 8) | d[5];
+
+  gAht20.humidityPct = (rawHum / 1048576.0f) * 100.0f;
+  gAht20.tempC = (rawTemp / 1048576.0f) * 200.0f - 50.0f;
+  gAht20.lastReadOk = true;
+  gAht20.lastGoodRead = millis();
+  gAht20.lastError = "";
+}
+
+void bmp280Poll() {
+  if(!gBmp280.enabled) return;
+  gBmp280.lastPoll = millis();
+
+  // 1. Kalibrációs adatok beolvasása a BMP280-ból (0x88-tól 24 bájt)
+  Wire1.beginTransmission(BMP280_ADDR);
+  Wire1.write(0x88);
+  if(Wire1.endTransmission(false) != 0 || Wire1.requestFrom((int)BMP280_ADDR, 24) < 24) {
+    gBmp280.lastReadOk = false;
+    gBmp280.lastError = "BMP280 kalibráció olvasási hiba.";
+    return;
+  }
+
+  uint16_t dig_T1 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_T2 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_T3 = Wire1.read() | (Wire1.read() << 8);
+
+  uint16_t dig_P1 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_P2 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_P3 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_P4 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_P5 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_P6 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_P7 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_P8 = Wire1.read() | (Wire1.read() << 8);
+  int16_t  dig_P9 = Wire1.read() | (Wire1.read() << 8);
+
+  // 2. Mérés indítása (Normal mode, temp x1, press x1)
   Wire1.beginTransmission(BMP280_ADDR);
   Wire1.write(0xF4); Wire1.write(0x27); 
-  bool bOk = (Wire1.endTransmission() == 0);
-  delay(10);
+  if(Wire1.endTransmission() != 0) {
+    gBmp280.lastReadOk = false;
+    gBmp280.lastError = "BMP280 nem válaszol.";
+    return;
+  }
+  delay(20);
 
-  if(bOk) {
-    Wire1.beginTransmission(BMP280_ADDR);
-    Wire1.write(0xF7); 
-    if(Wire1.endTransmission(false) == 0) {
-      uint8_t n = Wire1.requestFrom((int)BMP280_ADDR, 6);
-      if(n >= 6) {
-        uint8_t d[6];
-        for(int i = 0; i < 6; i++) d[i] = Wire1.read();
-        int32_t rawPress = ((int32_t)d[0] << 12) | ((int32_t)d[1] << 4) | (d[2] >> 4);
-        int32_t rawTemp  = ((int32_t)d[3] << 12) | ((int32_t)d[4] << 4) | (d[5] >> 4);
-        gAhtBmp.bmpTempC = rawTemp / 5120.0f; 
-        gAhtBmp.bmpPressureHpa = rawPress / 256.0f / 100.0f; 
-        gAhtBmp.bmpOk = true;
-      } else {
-        gAhtBmp.bmpOk = false;
-      }
-    } else {
-      gAhtBmp.bmpOk = false;
-    }
-  } else {
-    gAhtBmp.bmpOk = false;
+  // 3. Adatok beolvasása (0xF7-től 6 bájt: nyomás + hőmérséklet)
+  Wire1.beginTransmission(BMP280_ADDR);
+  Wire1.write(0xF7); 
+  if(Wire1.endTransmission(false) != 0 || Wire1.requestFrom((int)BMP280_ADDR, 6) < 6) {
+    gBmp280.lastReadOk = false;
+    gBmp280.lastError = "BMP280 adatolvasási hiba.";
+    return;
   }
 
-  gAhtBmp.lastReadOk = gAhtBmp.ahtOk || gAhtBmp.bmpOk;
-  if(gAhtBmp.lastReadOk) gAhtBmp.lastGoodRead = millis();
-  if(!gAhtBmp.ahtOk && !gAhtBmp.bmpOk) {
-    gAhtBmp.lastError = "Sem az AHT20 (0x38), sem a BMP280 (0x76) nem valaszol I2C2-n.";
-  } else if(!gAhtBmp.ahtOk) {
-    gAhtBmp.lastError = "Az AHT20 (0x38) nem valaszol, a BMP280 igen.";
-  } else if(!gAhtBmp.bmpOk) {
-    gAhtBmp.lastError = "A BMP280 (0x76) nem valaszol, az AHT20 igen.";
+  uint32_t adc_p = ((uint32_t)Wire1.read() << 12) | ((uint32_t)Wire1.read() << 4) | (Wire1.read() >> 4);
+  int32_t  adc_t = ((int32_t)Wire1.read() << 12) | ((int32_t)Wire1.read() << 4) | (Wire1.read() >> 4);
+
+  // 4. Bosch hivatalos hőmérséklet kompenzációs képlete
+  int32_t var1 = ((((adc_t >> 3) - ((int32_t)dig_T1 << 1))) * ((int32_t)dig_T2)) >> 11;
+  int32_t var2 = (((((adc_t >> 4) - ((int32_t)dig_T1)) * ((adc_t >> 4) - ((int32_t)dig_T1))) >> 12) * ((int32_t)dig_T3)) >> 14;
+  int32_t t_fine = var1 + var2;
+  float tempC = (t_fine * 5 + 128) >> 8;
+  gBmp280.tempC = tempC / 100.0f;
+
+  // 5. Bosch hivatalos nyomás kompenzációs képlete
+  int64_t p_var1, p_var2, p;
+  p_var1 = ((int64_t)t_fine) - 128000;
+  p_var2 = p_var1 * p_var1 * (int64_t)dig_P6;
+  p_var2 = p_var2 + ((p_var1 * (int64_t)dig_P5) << 17);
+  p_var2 = p_var2 + (((int64_t)dig_P4) << 35);
+  p_var1 = ((p_var1 * p_var1 * (int64_t)dig_P3) >> 8) + ((p_var1 * (int64_t)dig_P2) << 12);
+  p_var1 = (((int64_t)1 << 47) + p_var1) * ((int64_t)dig_P1) >> 33;
+  
+  if (p_var1 == 0) {
+    gBmp280.pressureHpa = 0; // Nullával való osztás elkerülése
   } else {
-    gAhtBmp.lastError = "";
+    p = 1048576 - adc_p;
+    p = (((p << 31) - p_var2) * 3125) / p_var1;
+    p_var1 = (((int64_t)dig_P9) * (p >> 13) * (p >> 13)) >> 25;
+    p_var2 = (((int64_t)dig_P8) * p) >> 19;
+    p = ((p + p_var1 + p_var2) >> 8) + (((int64_t)dig_P7) << 4);
+    gBmp280.pressureHpa = ((float)p / 256.0f) / 100.0f;
   }
+
+  gBmp280.lastReadOk = true;
+  gBmp280.lastGoodRead = millis();
+  gBmp280.lastError = "";
 }
 
 void ltr390Poll() {
   if(!gLtr.enabled) return;
   gLtr.lastPoll = millis();
 
-  // 1. Átkapcsolás ALS (látható fény) módba (0x02)
   Wire1.beginTransmission(LTR390_ADDR);
   Wire1.write(0x00);
   Wire1.write(0x02);
@@ -375,9 +432,8 @@ void ltr390Poll() {
     gLtr.lastError = "I2C2 nem valaszol (LTR-390 hiba).";
     return;
   }
-  delay(100); // 100ms várakozás a mérés elkészültére
+  delay(100);
 
-  // ALS kiolvasása
   Wire1.beginTransmission(LTR390_ADDR);
   Wire1.write(0x0D);
   Wire1.endTransmission();
@@ -387,14 +443,12 @@ void ltr390Poll() {
     gLtr.lux = (0.6f * alsRaw) / 3.0f; 
   }
 
-  // 2. Átkapcsolás UVS (UV) módba (0x0A)
   Wire1.beginTransmission(LTR390_ADDR);
   Wire1.write(0x00);
   Wire1.write(0x0A);
   Wire1.endTransmission();
-  delay(100); // 100ms várakozás a mérés elkészültére
+  delay(100);
 
-  // UVS kiolvasása
   Wire1.beginTransmission(LTR390_ADDR);
   Wire1.write(0x10);
   Wire1.endTransmission();
@@ -411,10 +465,10 @@ void ltr390Poll() {
 
 void sensorsApplyEnabled() {
   bool anyRs485 = sensEnabled(SENS_BIT_WINDSPEED) || sensEnabled(SENS_BIT_WINDDIR) ||
-                  sensEnabled(SENS_BIT_SHT) || (sensEnabled(SENS_BIT_RAIN) && gRain.isModbus);
+                 sensEnabled(SENS_BIT_SHT) || (sensEnabled(SENS_BIT_RAIN) && gRain.isModbus);
   if(anyRs485 && !gRs485Initialized) rs485Init();
   if(sensEnabled(SENS_BIT_MPU6050) && !gI2c1Initialized) { mpu6050Init(); gI2c1Initialized = true; }
-  if((sensEnabled(SENS_BIT_AHT20BMP280) || sensEnabled(SENS_BIT_LTR390)) && !gI2c2Initialized) {
+  if((sensEnabled(SENS_BIT_AHT20) || sensEnabled(SENS_BIT_BMP280) || sensEnabled(SENS_BIT_LTR390)) && !gI2c2Initialized) {
     i2c2Init(); gI2c2Initialized = true;
   }
   gWindSpeed.enabled = sensEnabled(SENS_BIT_WINDSPEED);
@@ -422,7 +476,8 @@ void sensorsApplyEnabled() {
   gSht.enabled     = sensEnabled(SENS_BIT_SHT);
   gRain.enabled    = sensEnabled(SENS_BIT_RAIN);
   gMpu.enabled     = sensEnabled(SENS_BIT_MPU6050);
-  gAhtBmp.enabled  = sensEnabled(SENS_BIT_AHT20BMP280);
+  gAht20.enabled   = sensEnabled(SENS_BIT_AHT20);
+  gBmp280.enabled  = sensEnabled(SENS_BIT_BMP280);
   gLtr.enabled     = sensEnabled(SENS_BIT_LTR390);
 }
 
@@ -451,7 +506,7 @@ void sensTestRun(const String& which) {
     uint16_t vals[2]; String err, raw;
     bool ok = modbusReadHoldingRegisters(gSht.modbusAddr, 0x0000, 2, vals, raw, err);
     gLastSensTestRaw = raw;
-    if(ok) { gLastSensTestOk = true; gLastSensTestResult = "OK: " + String(vals[1]/10.0f,1) + " C, " + String(vals[0]/10.0f,0) + "% (cim " + String(gSht.modbusAddr) + ")"; }
+    if(ok) { gLastSensTestOk = true; gLastSensTestResult = "OK: " + String(vals[1]/10.0f,1) + " °C, " + String(vals[0]/10.0f,0) + "% RH (cím " + String(gSht.modbusAddr) + ")"; }
     else   { gLastSensTestResult = err; }
   }
   else if(which == "rain") {
@@ -473,11 +528,17 @@ void sensTestRun(const String& which) {
     gLastSensTestOk = gMpu.lastReadOk;
     gLastSensTestResult = gMpu.lastReadOk ? "OK (I2C1)" : gMpu.lastError;
   }
-  else if(which == "ahtbmp") {
+  else if(which == "aht20") {
     if(!gI2c2Initialized) { i2c2Init(); gI2c2Initialized = true; }
-    ahtBmpPoll();
-    gLastSensTestOk = gAhtBmp.lastReadOk;
-    gLastSensTestResult = gAhtBmp.lastReadOk ? "OK (I2C2)" : gAhtBmp.lastError;
+    aht20Poll();
+    gLastSensTestOk = gAht20.lastReadOk;
+    gLastSensTestResult = gAht20.lastReadOk ? "OK (I2C2)" : gAht20.lastError;
+  }
+  else if(which == "bmp280") {
+    if(!gI2c2Initialized) { i2c2Init(); gI2c2Initialized = true; }
+    bmp280Poll();
+    gLastSensTestOk = gBmp280.lastReadOk;
+    gLastSensTestResult = gBmp280.lastReadOk ? "OK (I2C2)" : gBmp280.lastError;
   }
   else if(which == "ltr") {
     if(!gI2c2Initialized) { i2c2Init(); gI2c2Initialized = true; }
@@ -494,16 +555,46 @@ void sensorsLoop() {
   if(millis() - gLastSensorPoll < SENS_POLL_INTERVAL_MS) return;
   gLastSensorPoll = millis();
 
-  for(uint8_t tries = 0; tries < 7; tries++) {
+  for(uint8_t tries = 0; tries < 8; tries++) {
     uint8_t step = gSensorPollStep;
-    gSensorPollStep = (gSensorPollStep + 1) % 7;
+    gSensorPollStep = (gSensorPollStep + 1) % 8;
 
     if(step == 0 && gWindSpeed.enabled) { windSpeedPoll(); return; }
     if(step == 1 && gWindDir.enabled)   { windDirPoll(); return; }
     if(step == 2 && gSht.enabled)       { shtSensorPoll(); return; }
     if(step == 3 && gRain.enabled)      { rainSensorPoll(); return; }
     if(step == 4 && gMpu.enabled)       { mpu6050Poll(); return; }
-    if(step == 5 && gAhtBmp.enabled)    { ahtBmpPoll(); return; }
-    if(step == 6 && gLtr.enabled)       { ltr390Poll(); return; }
+    if(step == 5 && gAht20.enabled)     { aht20Poll(); return; }
+    if(step == 6 && gBmp280.enabled)    { bmp280Poll(); return; }
+    if(step == 7 && gLtr.enabled)       { ltr390Poll(); return; }
   }
+}
+
+String performI2cScan() {
+  String out = "";
+  
+  auto scanBus = [](TwoWire& w, const String& name, uint8_t sda, uint8_t scl, bool& initFlag) -> String {
+    if(!initFlag) {
+      w.begin(sda, scl);
+      initFlag = true;
+    }
+    String res = "--- " + name + " (SDA: " + String(sda) + ", SCL: " + String(scl) + ") ---\n";
+    int count = 0;
+    for (byte i = 1; i < 127; i++) {
+      w.beginTransmission(i);
+      if (w.endTransmission() == 0) {
+        res += "Eszköz található címen: 0x";
+        if (i < 16) res += "0";
+        res += String(i, HEX) + "\n";
+        count++;
+      }
+    }
+    if (count == 0) res += "Nincs I2C eszkoz a buszon.\n";
+    return res + "\n";
+  };
+
+  out += scanBus(Wire, "I2C1 (MPU6050)", SENS_I2C1_SDA_DEFAULT, SENS_I2C1_SCL_DEFAULT, gI2c1Initialized);
+  out += scanBus(Wire1, "I2C2 (Külső szenzorok)", SENS_I2C2_SDA_DEFAULT, SENS_I2C2_SCL_DEFAULT, gI2c2Initialized);
+  
+  return out;
 }

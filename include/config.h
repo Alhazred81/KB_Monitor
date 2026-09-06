@@ -90,10 +90,11 @@
 #define SENS_POLL_INTERVAL_MS   3000UL
 
 // Szenzor bitmask pozicioi
-#define SENS_BIT_WINDSPEED    0
-#define SENS_BIT_WINDDIR      1
-#define SENS_BIT_SHT          2
-#define SENS_BIT_RAIN         3
-#define SENS_BIT_MPU6050      4
-#define SENS_BIT_AHT20BMP280  5
-#define SENS_BIT_LTR390       6
+#define SENS_BIT_WINDSPEED   0
+#define SENS_BIT_WINDDIR     1
+#define SENS_BIT_SHT         2
+#define SENS_BIT_RAIN        3
+#define SENS_BIT_MPU6050     4
+#define SENS_BIT_AHT20       5
+#define SENS_BIT_BMP280      6
+#define SENS_BIT_LTR390      7

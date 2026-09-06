@@ -10,7 +10,8 @@ extern WindDirState gWindDir;
 extern ShtSensorState gSht;
 extern RainSensorState gRain;
 extern Mpu6050State gMpu;
-extern Aht20Bmp280State gAhtBmp;
+extern Aht20State gAht20;
+extern Bmp280State gBmp280;
 extern Ltr390State gLtr;
 extern uint32_t gSensRs485Baud;
 extern bool gRs485Initialized;
@@ -73,7 +74,7 @@ String windDirValueText() {
 String shtValueText() {
     if(!gSht.enabled) return "";
     if(!gSht.lastReadOk && gSht.lastGoodRead == 0) return "";
-    return String(gSht.tempC, 1) + " C, " + String(gSht.humidityPct, 0) + "%";
+    return String(gSht.tempC, 1) + " °C, " + String(gSht.humidityPct, 0) + "% RH";
 }
 
 String rainValueText() {
@@ -87,13 +88,16 @@ String mpuValueText() {
     return String(gMpu.accelX,2)+","+String(gMpu.accelY,2)+","+String(gMpu.accelZ,2)+" g";
 }
 
-String ahtBmpValueText() {
-    if(!gAhtBmp.enabled) return "";
-    if(!gAhtBmp.lastReadOk && gAhtBmp.lastGoodRead == 0) return "";
-    String s = "";
-    if(gAhtBmp.ahtOk) s += String(gAhtBmp.ahtTempC,1) + "C " + String(gAhtBmp.ahtHumidityPct,0) + "%";
-    if(gAhtBmp.bmpOk) { if(s.length()) s += " | "; s += String(gAhtBmp.bmpPressureHpa,0) + "hPa"; }
-    return s;
+String aht20ValueText() {
+    if(!gAht20.enabled) return "";
+    if(!gAht20.lastReadOk && gAht20.lastGoodRead == 0) return "";
+    return String(gAht20.tempC, 1) + " °C, " + String(gAht20.humidityPct, 0) + "% RH";
+}
+
+String bmp280ValueText() {
+    if(!gBmp280.enabled) return "";
+    if(!gBmp280.lastReadOk && gBmp280.lastGoodRead == 0) return "";
+    return String(gBmp280.tempC, 1) + " C, " + String(gBmp280.pressureHpa, 0) + " hPa";
 }
 
 String ltrValueText() {
@@ -108,13 +112,27 @@ void handleSensors() {
     if (!checkPinGuard()) return;
     String html = htmlHead("Szenzorok", "7");
 
+    html += "<script>"
+            "function copyElement(id){"
+              "var e=document.getElementById(id);"
+              "if(!e)return;"
+              "var text = e.innerText;"
+              "navigator.clipboard.writeText(text).then(function() {"
+                "alert('Vágólapra másolva!');"
+              "}).catch(function(err) {"
+                "alert('Másolás sikertelen.');"
+              "});"
+            "}"
+            "</script>";
+
     html += "<div class='card wide'><h2>Allapot</h2>";
     html += sensorRowHtml("windspeed", "Szelsebesseg", gWindSpeed.enabled, gWindSpeed.lastGoodRead>0, gWindSpeed.lastReadOk, windSpeedValueText());
     html += sensorRowHtml("winddir", "Szelirany", gWindDir.enabled, gWindDir.lastGoodRead>0, gWindDir.lastReadOk, windDirValueText());
     html += sensorRowHtml("sht", "SHT57 ho/para", gSht.enabled, gSht.lastGoodRead>0, gSht.lastReadOk, shtValueText());
     html += sensorRowHtml("rain", "Esoszenzor", gRain.enabled, gRain.lastPoll>0, true, rainValueText());
     html += sensorRowHtml("mpu", "MPU6050 (I2C1)", gMpu.enabled, gMpu.lastGoodRead>0, gMpu.lastReadOk, mpuValueText());
-    html += sensorRowHtml("ahtbmp", "AHT20+BMP280 (I2C2)", gAhtBmp.enabled, gAhtBmp.lastGoodRead>0, gAhtBmp.lastReadOk, ahtBmpValueText());
+    html += sensorRowHtml("aht20", "AHT20 Hő/Pára (I2C2)", gAht20.enabled, gAht20.lastGoodRead>0, gAht20.lastReadOk, aht20ValueText());
+    html += sensorRowHtml("bmp280", "BMP280 Nyomás (I2C2)", gBmp280.enabled, gBmp280.lastGoodRead>0, gBmp280.lastReadOk, bmp280ValueText());
     html += sensorRowHtml("ltr", "LTR-390 UV (I2C2)", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText());
     html += "</div>";
 
@@ -161,8 +179,11 @@ void handleSensors() {
             "<input type='hidden' name='which' value='mpu'>"
             "<button class='sec'>MPU6050 teszt</button></form>"
             "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='ahtbmp'>"
-            "<button class='sec'>AHT20/BMP teszt</button></form>"
+            "<input type='hidden' name='which' value='aht20'>"
+            "<button class='sec'>AHT20 teszt</button></form>"
+            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
+            "<input type='hidden' name='which' value='bmp280'>"
+            "<button class='sec'>BMP280 teszt</button></form>"
             "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
             "<input type='hidden' name='which' value='ltr'>"
             "<button class='sec'>LTR-390 teszt</button></form>"
@@ -175,6 +196,14 @@ void handleSensors() {
         }
     }
     html += "</div>";
+
+    // I2C Scanner Kártya
+    html += "<div class='card wide'>"
+            "<h2>I2C Scanner <button class='sec' style='padding:4px 8px;font-size:11px;float:right;margin-top:-2px' onclick='copyElement(\"i2cScanBox\")'>Másolás</button></h2>"
+            "<p class='hint'>Lekérdezi a buszokra (I2C1 és I2C2) csatlakoztatott eszközök hardveres címeit.</p>"
+            "<button class='sec' style='width:100%; margin-bottom:10px;' onclick='runI2cScan(this)'>🔎 I2C Buszok Szkennelése</button>"
+            "<div class='diag' id='i2cScanBox' style='min-height:80px; font-family:monospace; white-space:pre-wrap;'>Nyomd meg a gombot a szkenneléshez...</div>"
+            "</div>";
 
     html += R"js(<script>
 function sensToggle(key, on){
@@ -202,6 +231,20 @@ function sensPoll(){
             }
         }
     }).catch(function(){});
+}
+function runI2cScan(btn) {
+    var orig = btn.innerText;
+    btn.innerText = 'Szkennelés...';
+    btn.disabled = true;
+    document.getElementById('i2cScanBox').innerText = 'Keresés folyamatban a buszokon...';
+    fetch('/api/i2cscan').then(r=>r.text()).then(txt=>{
+        document.getElementById('i2cScanBox').innerText = txt;
+    }).catch(e=>{
+        document.getElementById('i2cScanBox').innerText = 'Hiba a lekérdezés során: ' + e;
+    }).finally(()=>{
+        btn.innerText = orig;
+        btn.disabled = false;
+    });
 }
 setInterval(sensPoll, 3000);
 </script>)js";
@@ -256,7 +299,8 @@ void handleSensToggle() {
     else if(key == "sht") bit = SENS_BIT_SHT;
     else if(key == "rain") bit = SENS_BIT_RAIN;
     else if(key == "mpu") bit = SENS_BIT_MPU6050;
-    else if(key == "ahtbmp") bit = SENS_BIT_AHT20BMP280;
+    else if(key == "aht20") bit = SENS_BIT_AHT20;
+    else if(key == "bmp280") bit = SENS_BIT_BMP280;
     else if(key == "ltr") bit = SENS_BIT_LTR390;
 
     if(bit < 0) {
@@ -264,7 +308,6 @@ void handleSensToggle() {
         return;
     }
 
-    // Beállítjuk és alkalmazzuk az új állapotot
     sensSetEnabled((uint8_t)bit, on);
     sensorsApplyEnabled();
     saveSensorConfig();
@@ -272,7 +315,6 @@ void handleSensToggle() {
     String diagMsg = "Szenzor '" + key + "': " + (on ? "bekapcsolva" : "kikapcsolva");
     String serialMsg = "[SENSORS] " + key + (on ? " bekapcsolva" : " kikapcsolva");
 
-    // Ha bekapcsoltuk, csinálunk egy gyors tesztet!
     if(on) {
         sensTestRun(key); 
         if(gLastSensTestOk) {
@@ -284,7 +326,6 @@ void handleSensToggle() {
         }
     }
 
-    // Kiírás a Serial monitorra és a webes diagnosztikába
     Serial.println(serialMsg);
     diagAdd(diagMsg);
     server.send(200, "text/plain", "ok");
@@ -297,7 +338,8 @@ void handleSensStatus() {
     json += sensStatusJsonEntry("sht", gSht.enabled, gSht.lastGoodRead>0, gSht.lastReadOk, shtValueText()) + ",";
     json += sensStatusJsonEntry("rain", gRain.enabled, gRain.lastPoll>0, true, rainValueText()) + ",";
     json += sensStatusJsonEntry("mpu", gMpu.enabled, gMpu.lastGoodRead>0, gMpu.lastReadOk, mpuValueText()) + ",";
-    json += sensStatusJsonEntry("ahtbmp", gAhtBmp.enabled, gAhtBmp.lastGoodRead>0, gAhtBmp.lastReadOk, ahtBmpValueText()) + ",";
+    json += sensStatusJsonEntry("aht20", gAht20.enabled, gAht20.lastGoodRead>0, gAht20.lastReadOk, aht20ValueText()) + ",";
+    json += sensStatusJsonEntry("bmp280", gBmp280.enabled, gBmp280.lastGoodRead>0, gBmp280.lastReadOk, bmp280ValueText()) + ",";
     json += sensStatusJsonEntry("ltr", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText());
     json += "}";
     server.send(200, "application/json", json);
@@ -311,4 +353,15 @@ void handleSensTest() {
     diagAdd("Szenzor teszt (" + server.arg("which") + "): " + gLastSensTestResult);
     server.sendHeader("Location","/sensors");
     server.send(302);
+}
+
+void handleApiI2cScan() {
+    if (!checkPinGuard()) return;
+    String res = performI2cScan();
+    
+    Serial.println("\n========== 🔎 I2C SCANNER EREDMÉNY ==========");
+    Serial.print(res);
+    Serial.println("=============================================\n");
+    
+    server.send(200, "text/plain", res);
 }

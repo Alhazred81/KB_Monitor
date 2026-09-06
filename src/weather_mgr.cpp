@@ -201,21 +201,41 @@ bool weatherUpdate(float lat, float lon) {
 
 void backgroundTaskLoop() {
   static unsigned long lastCheckTime = 0;
-  if (millis() - lastCheckTime < 30000UL) return;
+  if (millis() - lastCheckTime < 10000UL) return; // 10 másodpercenként próbálkozzon
   lastCheckTime = millis();
-
-  if (!gTime.synced) return;
 
   unsigned long nowMillis = millis();
   unsigned long twelveHours = 12UL * 3600UL * 1000UL;
 
+  // Ha még sosem szinkronizáltunk, vagy eltelt 12 óra
   if (gLastWeatherSync == 0 || (nowMillis - gLastWeatherSync > twelveHours)) {
     float activeLat = gGnss.fix ? gGnss.lat : gGnss.assistLat;
     float activeLon = gGnss.fix ? gGnss.lon : gGnss.assistLon;
 
     if (activeLat != 0.0 && activeLon != 0.0) {
-      Serial.println(F("[SYSTEM] Utemezett idojaras-szinkronizacio inditasa a hatterben..."));
+      Serial.println(F("[SYSTEM] Időjárás-szinkronizáció indítása..."));
       weatherUpdate(activeLat, activeLon);
     }
+  }
+}
+
+bool forceWeatherUpdate() {
+  float activeLat = gGnss.fix ? gGnss.lat : gGnss.assistLat;
+  float activeLon = gGnss.fix ? gGnss.lon : gGnss.assistLon;
+
+  if (activeLat != 0.0 && activeLon != 0.0) {
+    Serial.println(F("[SYSTEM] Kézi időjárás-szinkronizáció indítása webről..."));
+    return weatherUpdate(activeLat, activeLon);
+  }
+  
+  Serial.println(F("[WEATHER] HIBA: Nincsenek koordináták a letöltéshez!"));
+  return false;
+}
+
+void handleApiWeatherSync() {
+  if (forceWeatherUpdate()) {
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(500, "text/plain", "Hiba a letoltes vagy a koordinatak soran.");
   }
 }

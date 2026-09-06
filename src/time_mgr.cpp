@@ -20,11 +20,15 @@ String formatLocalTime() {
 }
 
 void ntpStart() {
-  // A függvény neve szándékosan maradt ntpStart, hogy a main.cpp-t ne kelljen átírni!
-  Serial.println(F("[TIME] Várakozás a modem hálózati idejére..."));
+  Serial.println(F("[TIME] Időszinkronizáció indítása (Wi-Fi NTP + Modem fallback)..."));
   gTime.started = true;
   gTime.synced = false;
   gTime.lastCheck = 0;
+
+  // Beállítjuk az ESP32 saját SNTP kliensét és a hazai időzónát (CET/CEST)
+  configTime(3600, 3600, "pool.ntp.org", "time.nist.gov", "time.google.com");
+  setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+  tzset();
 }
 
 void ntpLoop() {
@@ -40,10 +44,19 @@ void ntpLoop() {
     return;
   }
 
-  // Amíg a modem nincs a hálózaton (READY), nem bombázzuk az AT paranccsal
+  // 1. Elsődleges próbálkozás: ESP32 beépített SNTP (ha van aktív Wi-Fi / internet)
+  struct tm tmInfo;
+  if (getLocalTime(&tmInfo, 5)) {
+    gTime.synced = true;
+    gTime.localTime = formatLocalTime();
+    Serial.println("[TIME] Időszinkron OK (Wi-Fi NTP-ről): " + gTime.localTime);
+    return;
+  }
+
+  // 2. Másodlagos próbálkozás: Modem hálózati ideje (AT+CCLK), ha a modem kész van
   if (!gModem.ready) return;
 
-  // Szinkronizáció előtt 10 másodpercenként próbálkozunk
+  // Szinkronizáció előtt 10 másodpercenként próbálkozunk a modemmel
   if(millis() - gTime.lastCheck < 10000UL) return;
   gTime.lastCheck = millis();
 
