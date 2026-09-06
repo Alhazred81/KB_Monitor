@@ -53,9 +53,9 @@ String sensorRowHtml(const String& sensorKey, const String& label, bool enabled,
 
 String sensStatusJsonEntry(const String& key, bool enabled, bool hasEverRead, bool isOk, const String& value) {
     return "\"" + key + "\":{\"enabled\":" + String(enabled?"true":"false") + 
-           ",\"hasEverRead\":" + String(hasEverRead?"true":"false") + 
-           ",\"ok\":" + String(isOk?"true":"false") + 
-           ",\"value\":\"" + value + "\"}";
+            ",\"hasEverRead\":" + String(hasEverRead?"true":"false") + 
+            ",\"ok\":" + String(isOk?"true":"false") + 
+            ",\"value\":\"" + value + "\"}";
 }
 
 String windSpeedValueText() {
@@ -99,7 +99,7 @@ String ahtBmpValueText() {
 String ltrValueText() {
     if(!gLtr.enabled) return "";
     if(!gLtr.lastReadOk && gLtr.lastGoodRead == 0) return "";
-    return "UVI " + String(gLtr.uvIndex, 1);
+    return "UVI " + String(gLtr.uvIndex, 1) + " | " + String(gLtr.lux, 1) + " lx";
 }
 
 // --- Handler-ek ---
@@ -157,6 +157,15 @@ void handleSensors() {
             "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
             "<input type='hidden' name='which' value='rain'>"
             "<button class='sec'>Eso teszt</button></form>"
+            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
+            "<input type='hidden' name='which' value='mpu'>"
+            "<button class='sec'>MPU6050 teszt</button></form>"
+            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
+            "<input type='hidden' name='which' value='ahtbmp'>"
+            "<button class='sec'>AHT20/BMP teszt</button></form>"
+            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
+            "<input type='hidden' name='which' value='ltr'>"
+            "<button class='sec'>LTR-390 teszt</button></form>"
             "</div>";
     if(gLastSensTestResult.length()) {
         html += "<div class='msg " + String(gLastSensTestOk ? "ok" : "err") + "' style='margin-top:10px'>"
@@ -255,10 +264,29 @@ void handleSensToggle() {
         return;
     }
 
+    // Beállítjuk és alkalmazzuk az új állapotot
     sensSetEnabled((uint8_t)bit, on);
     sensorsApplyEnabled();
     saveSensorConfig();
-    diagAdd("Szenzor '" + key + "': " + (on ? "bekapcsolva" : "kikapcsolva"));
+
+    String diagMsg = "Szenzor '" + key + "': " + (on ? "bekapcsolva" : "kikapcsolva");
+    String serialMsg = "[SENSORS] " + key + (on ? " bekapcsolva" : " kikapcsolva");
+
+    // Ha bekapcsoltuk, csinálunk egy gyors tesztet!
+    if(on) {
+        sensTestRun(key); 
+        if(gLastSensTestOk) {
+            diagMsg += " (Komm. OK)";
+            serialMsg += " -> Kommunikacio: OK";
+        } else {
+            diagMsg += " (HIBA)";
+            serialMsg += " -> HIBA: " + gLastSensTestResult;
+        }
+    }
+
+    // Kiírás a Serial monitorra és a webes diagnosztikába
+    Serial.println(serialMsg);
+    diagAdd(diagMsg);
     server.send(200, "text/plain", "ok");
 }
 

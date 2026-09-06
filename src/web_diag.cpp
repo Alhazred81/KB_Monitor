@@ -1,7 +1,6 @@
-// web_diag.cpp 
-
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h> 
 #include "espnow.h"
@@ -25,6 +24,33 @@ extern String modemApplyExpertConfig(const String& cnmp, const String& cgsms, co
 extern void modemResetExpertConfig();
 extern void sendWaitPage(const String& title, const String& message, const String& nextUrl, int waitSeconds);
 
+// --- ESP-NOW Tesztüzem Globális / Perzisztens Változók ---
+unsigned long gEspNowSleepSec = 60;    // Alapértelmezett mélyalvás (mp)
+unsigned long gEspNowListenMs = 5000;   // Alapértelmezett hallgatózási idő (ms)
+uint32_t gEspNowErrorCount = 0;        // Hibás mérések száma
+
+void loadEspNowTestConfig() {
+  Preferences prefs;
+  prefs.begin("esp_test", true);
+  gEspNowSleepSec = prefs.getULong("sleep_sec", 60);
+  gEspNowListenMs = prefs.getULong("listen_ms", 5000);
+  gEspNowErrorCount = prefs.getUInt("err_count", 0);
+  prefs.end();
+}
+
+void saveEspNowTestConfig(unsigned long sleepSec, unsigned long listenMs, uint32_t errCount) {
+  Preferences prefs;
+  prefs.begin("esp_test", false);
+  prefs.putULong("sleep_sec", sleepSec);
+  prefs.putULong("listen_ms", listenMs);
+  prefs.putUInt("err_count", errCount);
+  prefs.end();
+  
+  gEspNowSleepSec = sleepSec;
+  gEspNowListenMs = listenMs;
+  gEspNowErrorCount = errCount;
+}
+
 void handleEspRestart() {
   String html = htmlHead("Rendszer Újraindítás", "5");
   html += "<div class='card' style='text-align:center; padding:30px;'>";
@@ -41,7 +67,26 @@ void handleEspRestart() {
 
 void handleExpert() {
   if (!checkPinGuard()) return;
+  loadEspNowTestConfig(); // Értékek betöltése a Preferences-ből
+  
   String html = htmlHead("Expert Konfig", "8");
+
+  // --- ESP-NOW TESZTÜZEM KÁRTYA ---
+  html += "<div class='card wide'>"
+          "<h2>📡 ESP-NOW Tesztüzem & Alvás Beállítások</h2>"
+          "<form action='/expert-esp-save' method='POST'>"
+          "<label>Mélyalvás időtartama (másodperc)</label>"
+          "<input type='number' name='sleep_sec' value='" + String(gEspNowSleepSec) + "' min='1' required style='margin-bottom:12px;'>"
+          
+          "<label>Hallgatózási idő (milliszekundum)</label>"
+          "<input type='number' name='listen_ms' value='" + String(gEspNowListenMs) + "' min='100' step='100' required style='margin-bottom:12px;'>"
+          
+          "<label>Hibás mérések száma (Statisztika / Számláló)</label>"
+          "<input type='number' name='err_count' value='" + String(gEspNowErrorCount) + "' min='0' required style='margin-bottom:15px;'>"
+          
+          "<button type='submit'>ESP-NOW Teszt Paraméterek Mentése</button>"
+          "</form>"
+          "</div>";
 
   html += "<div class='card wide'>"
           "<form action='/expertpost' method='POST'>"
@@ -86,6 +131,19 @@ void handleExpert() {
           "<button class='danger'>ESP32 Teljes Újraindítás</button></form>";
   html += htmlFoot();
   server.send(200, "text/html", html);
+}
+
+void handleExpertEspSave() {
+  if (server.hasArg("sleep_sec") && server.hasArg("listen_ms") && server.hasArg("err_count")) {
+    unsigned long sSec = server.arg("sleep_sec").toInt();
+    unsigned long lMs = server.arg("listen_ms").toInt();
+    uint32_t eCount = server.arg("err_count").toInt();
+    
+    saveEspNowTestConfig(sSec, lMs, eCount);
+    diagAdd("ESP-NOW tesztüzem paraméterek mentve (Alvás: " + String(sSec) + "s, Hallgatás: " + String(lMs) + "ms, Hibák: " + String(eCount) + ")");
+  }
+  server.sendHeader("Location", "/expert", true);
+  server.send(302, "text/plain", "");
 }
 
 void handleExpertPost() {
@@ -400,7 +458,7 @@ void handleDeleteHive() {
     return;
   }
 
-  DynamicJsonDocument doc(4096);
+  JsonDocument doc;
   File file = LittleFS.open("/hives.json", "r");
   if (file) {
     deserializeJson(doc, file);
@@ -433,7 +491,7 @@ void handleDeleteHive() {
 void handleAddDummyHive() {
   if (!checkPinGuard()) return;
 
-  DynamicJsonDocument doc(4096);
+  JsonDocument doc;
   File file = LittleFS.open("/hives.json", "r");
   if (file) {
     deserializeJson(doc, file);
@@ -443,7 +501,7 @@ void handleAddDummyHive() {
   }
   
   JsonArray arr = doc.as<JsonArray>();
-  JsonObject newHive = arr.createNestedObject();
+  JsonObject newHive = arr.add<JsonObject>();
   
   String dummyId = "TEST_" + String(random(1000, 9999));
   newHive["id"] = dummyId;
@@ -457,7 +515,7 @@ void handleAddDummyHive() {
   newHive["lon"] = 19.043500 + lonOffset;
   newHive["boxes"] = 3;
   
-  JsonArray tags = newHive.createNestedArray("nfcTags");
+  JsonArray tags = newHive["nfcTags"].to<JsonArray>();
   tags.add("DUMMY_TAG_1");
 
   File outFile = LittleFS.open("/hives.json", "w");

@@ -77,13 +77,14 @@ struct Aht20Bmp280State {
 };
 
 struct Ltr390State {
-  bool    enabled     = false;
-  bool    lastReadOk  = false;
-  uint32_t uvRaw      = 0;
-  float   uvIndex     = 0;
-  unsigned long lastPoll = 0;
-  unsigned long lastGoodRead = 0;
-  String  lastError   = "";
+    bool enabled;
+    bool lastReadOk;
+    unsigned long lastPoll;
+    unsigned long lastGoodRead;
+    String lastError;
+    uint32_t uvRaw;
+    float uvIndex;
+    float lux; // <-- EZ A SOR HIÁNYZIK!
 };
 
 // Struktúrák extern hivatkozásai (a main.cpp-ben vannak definiálva)

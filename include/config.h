@@ -9,7 +9,6 @@
 #define MODEM_RI      33
 
 // ─── LED / Panelverzió opciók ───────────────────────────────
-// LED mód: 0=GPIO12 (V1.0), 1=GPIO13 (V1.1 alt.), 2=Egyeni GPIO, 3=AT halozati LED
 #define LED_MODE_V10        0
 #define LED_MODE_V11        1
 #define LED_MODE_CUSTOM     2
@@ -24,7 +23,6 @@
 #define AP_PREFIX        "Server-"
 #define DEFAULT_AP_PASS  "12345678"
 #define DEFAULT_CHANNEL  11
-#define ADDR_AP_SSID 270  // 32 bájt az AP SSID-nek
 
 // ─── SMS ────────────────────────────────────────────────────
 #define SMS_COOLDOWN_MS  30000UL
@@ -37,27 +35,9 @@
 
 // ─── STA (kliens) WiFi mód ────────────────────────────────────
 #define STA_CONNECT_TIMEOUT_MS   15000UL
-#define STA_RETRY_INTERVAL_MS    30000UL   // sikertelen csatlakozás után ennyit vár, mielőtt AP-ra esik vissza
+#define STA_RETRY_INTERVAL_MS    30000UL
 
-// ─── EEPROM layout (256 byte) ───────────────────────────────
-//   0.. 31  – AP jelszó titkosítva       (32 byte, 4×XTEA blokk)
-//  32.. 32  – WiFi csatorna              (1 byte)
-//  33.. 33  – PIN flag                   (1 byte, 0xA5 = webről mentett)
-//  34.. 41  – XTEA titkosított SIM PIN   (8 byte)
-//  42.. 61  – SIM CCID                   (20 byte, null-term)
-//  62.. 62  – CCID flag                  (1 byte, 0xA5 = van mentett CCID)
-//  63.. 63  – LED mód                    (1 byte, 0-3, ld. fent)
-//  64.. 64  – Egyéni GPIO pin szám       (1 byte, csak LED_MODE_CUSTOM esetén)
-//  65.. 65  – STA flag                   (1 byte, 0xA5 = van mentett STA WiFi)
-//  66..161  – STA SSID titkosítva        (96 byte, 12×XTEA blokk, max 95 char)
-// 162..225  – STA jelszó titkosítva      (64 byte, 8×XTEA blokk, max 63 char)
-// 226..234  – GNSS kiindulo koordinata   (flag+lat+lon, 9 byte)
-// 235..235  – SMS inbox limit            (1 byte, 1-50, 0/0xFF = alapertelmezett)
-// 236..236  – Ntfy startup flag          (1 byte)
-// 237..252  – Riport időpontok           (16 byte)
-// 253..253  – GNSS ellenőrzés napok      (1 byte)
-// 254..254  – AP SSID rejtés flag        (1 byte) – HOZZÁADVA
-// 255       – fenntartva
+// ─── EEPROM layout (512 byte) ───────────────────────────────
 #define EEPROM_SIZE          512
 #define ADDR_AP_PASS         0   // 32 byte
 #define ADDR_CHANNEL        32   //  1 byte
@@ -88,6 +68,7 @@
 #define ADDR_SENS_ADDR_SHT       264
 #define ADDR_SENS_ADDR_RAIN      265
 #define ADDR_SENS_RAIN_MODE      266
+#define ADDR_AP_SSID             270 // 32 byte
 
 #define MAGIC_BYTE          0xA5
 

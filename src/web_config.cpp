@@ -7,7 +7,7 @@
 #include "web_config.h"
 #include "web_common.h"
 #include "NtfyClient.h"
-#include "wifi_sta.h" // A kliens hálózatkezeléshez
+#include "wifi_sta.h"
 
 extern WebServer server;
 extern bool checkPinGuard();
@@ -44,7 +44,6 @@ void handleCfg() {
       html += "<div class='msg err'>" + htmlEscape(gSta.lastError) + "</div>";
     }
     
-    // Ha a keresőből jövünk vissza, automatikusan kitölti az SSID-t
     String autoFillSsid = server.hasArg("set_ssid") ? server.arg("set_ssid") : gSta.targetSSID;
     
     html += "<form action='/staconnect' method='POST' style='margin-top:10px;'>";
@@ -81,7 +80,6 @@ void handleCfg() {
   }
   html += "</select>";
 
-  // ESP-NOW információs blokk külön sorokká bontva
   html += "<div style='margin-top:15px; padding-top:10px; border-top:1px solid var(--border); font-size:13px;'>";
   html += "<span class='k'>ESP-NOW Státusz:</span> <span class='v g'>Aktív (Csatorna: " + String(gApChannel) + ")</span><br>";
   html += "<span class='k'>Gateway MAC-cím:</span> <span class='v' style='font-family:monospace;'>" + String(macStr) + "</span><br>";
@@ -178,11 +176,9 @@ void handleCfg() {
   server.send(200, "text/html", html);
 }
 
-// --- WiFi Kliens / Hálózatkereső Handler Függvények ---
-
 void handleWifiScan() {
   if (!checkPinGuard()) return;
-  wifiScan(); // Blokkol néhány másodpercig, amíg keres
+  wifiScan();
   
   String html = htmlHead("WiFi Keresés", "4");
   html += "<div class='card wide'><h2>Elérhető WiFi hálózatok</h2>";
@@ -224,8 +220,6 @@ void handleStaDisconnect() {
   server.sendHeader("Location", "/cfg", true);
   server.send(302, "text/plain", "");
 }
-
-// --- Mentési Handler-ek ---
 
 void handleSaveWeatherCfg() {
   Preferences prefsW;

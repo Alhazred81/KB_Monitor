@@ -366,22 +366,44 @@ void ltr390Poll() {
   if(!gLtr.enabled) return;
   gLtr.lastPoll = millis();
 
+  // 1. Átkapcsolás ALS (látható fény) módba (0x02)
   Wire1.beginTransmission(LTR390_ADDR);
-  Wire1.write(0x10); 
-  if(Wire1.endTransmission(false) != 0) {
+  Wire1.write(0x00);
+  Wire1.write(0x02);
+  if(Wire1.endTransmission() != 0) {
     gLtr.lastReadOk = false;
-    gLtr.lastError = "I2C2 nem valaszol (nincs eszkoz a 0x53 cimen?).";
+    gLtr.lastError = "I2C2 nem valaszol (LTR-390 hiba).";
     return;
   }
-  uint8_t n = Wire1.requestFrom((int)LTR390_ADDR, 3);
-  if(n < 3) {
-    gLtr.lastReadOk = false;
-    gLtr.lastError = "Hianyos I2C2 valasz (" + String(n) + "/3 byte).";
-    return;
+  delay(100); // 100ms várakozás a mérés elkészültére
+
+  // ALS kiolvasása
+  Wire1.beginTransmission(LTR390_ADDR);
+  Wire1.write(0x0D);
+  Wire1.endTransmission();
+  if(Wire1.requestFrom((int)LTR390_ADDR, 3) >= 3) {
+    uint32_t b0 = Wire1.read(), b1 = Wire1.read(), b2 = Wire1.read();
+    uint32_t alsRaw = (b2 << 16) | (b1 << 8) | b0;
+    gLtr.lux = (0.6f * alsRaw) / 3.0f; 
   }
-  uint8_t b0 = Wire1.read(), b1 = Wire1.read(), b2 = Wire1.read();
-  gLtr.uvRaw = ((uint32_t)b2 << 16) | ((uint32_t)b1 << 8) | b0;
-  gLtr.uvIndex = gLtr.uvRaw / 2300.0f;
+
+  // 2. Átkapcsolás UVS (UV) módba (0x0A)
+  Wire1.beginTransmission(LTR390_ADDR);
+  Wire1.write(0x00);
+  Wire1.write(0x0A);
+  Wire1.endTransmission();
+  delay(100); // 100ms várakozás a mérés elkészültére
+
+  // UVS kiolvasása
+  Wire1.beginTransmission(LTR390_ADDR);
+  Wire1.write(0x10);
+  Wire1.endTransmission();
+  if(Wire1.requestFrom((int)LTR390_ADDR, 3) >= 3) {
+    uint32_t uv0 = Wire1.read(), uv1 = Wire1.read(), uv2 = Wire1.read();
+    gLtr.uvRaw = (uv2 << 16) | (uv1 << 8) | uv0;
+    gLtr.uvIndex = gLtr.uvRaw / 2300.0f;
+  }
+
   gLtr.lastReadOk = true;
   gLtr.lastGoodRead = millis();
   gLtr.lastError = "";
@@ -444,6 +466,24 @@ void sensTestRun(const String& which) {
       gLastSensTestOk = true;
       gLastSensTestResult = "OK: analog nyers ertek " + String(raw) + " (GPIO" + String(SENS_RAIN_PIN_DEFAULT) + ")";
     }
+  }
+  else if(which == "mpu") {
+    if(!gI2c1Initialized) { mpu6050Init(); gI2c1Initialized = true; }
+    mpu6050Poll();
+    gLastSensTestOk = gMpu.lastReadOk;
+    gLastSensTestResult = gMpu.lastReadOk ? "OK (I2C1)" : gMpu.lastError;
+  }
+  else if(which == "ahtbmp") {
+    if(!gI2c2Initialized) { i2c2Init(); gI2c2Initialized = true; }
+    ahtBmpPoll();
+    gLastSensTestOk = gAhtBmp.lastReadOk;
+    gLastSensTestResult = gAhtBmp.lastReadOk ? "OK (I2C2)" : gAhtBmp.lastError;
+  }
+  else if(which == "ltr") {
+    if(!gI2c2Initialized) { i2c2Init(); gI2c2Initialized = true; }
+    ltr390Poll();
+    gLastSensTestOk = gLtr.lastReadOk;
+    gLastSensTestResult = gLtr.lastReadOk ? "OK (I2C2)" : gLtr.lastError;
   }
   else {
     gLastSensTestResult = "Ismeretlen szenzor: " + which;
