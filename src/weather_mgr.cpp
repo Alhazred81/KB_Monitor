@@ -1,5 +1,3 @@
-//weather_mgr.cpp
-
 #include "weather_mgr.h"
 #include <ArduinoJson.h>
 
@@ -13,13 +11,12 @@
 #include "gnss_mgr.h"
 #include "time_mgr.h"
 #include "NtfyClient.h"
-#include <WebServer.h>
+#include <ESPAsyncWebServer.h>
 
 extern TinyGsm modem; 
 extern GnssState gGnss;
 extern TimeState gTime;
-extern WebServer server;
-extern NtfyClient ntfy; // <-- Itt a deklaráció a main.cpp-ben lévő ntfy-hoz
+extern NtfyClient ntfy; 
 
 DailyForecast gForecast[3];
 unsigned long gLastWeatherSync = 0;
@@ -57,9 +54,7 @@ bool weatherUpdate(float lat, float lon) {
   bool headersEnded = false;
   
   while (client.connected() && millis() - timeout < 10000L) {
-    server.handleClient();
     yield();
-    
     while (client.available()) {
       String line = client.readStringUntil('\n');
       line.trim();
@@ -82,9 +77,7 @@ bool weatherUpdate(float lat, float lon) {
 
   uint32_t readTimeout = millis();
   while ((client.connected() || client.available()) && millis() - readTimeout < 20000L) {
-    server.handleClient();
     yield();
-
     if (!client.available()) continue;
 
     String chunkSizeLine = client.readStringUntil('\n');
@@ -96,9 +89,7 @@ bool weatherUpdate(float lat, float lon) {
 
     int currentRead = 0;
     while (currentRead < chunkSize && millis() - readTimeout < 20000L) {
-      server.handleClient();
       yield();
-      
       if (client.available()) {
         int toRead = client.available();
         if (toRead > chunkSize - currentRead) {
@@ -183,13 +174,9 @@ bool weatherUpdate(float lat, float lon) {
 
   if (severeWeatherDetected) {
     Serial.println(F("[WEATHER] 🧊⚡ FIGYELEM: Extrém időjárás (Vihar / Jég) várható a következő napokban!"));
-    
     bool sent = ntfy.send("Az elorejelzes alapjan veszelyes idojaras (vihar/jeg) kozeleg!", "VIGYÁZAT: Vihar vagy Jégeső!", (NtfyPriority)5);
-    if (sent) {
-      Serial.println(F("[WEATHER] Vihar riasztás sikeresen elküldve ntfy-on!"));
-    } else {
-      Serial.println(F("[WEATHER] HIBA: Nem sikerült elküldeni a vihar riasztást ntfy-on."));
-    }
+    if (sent) Serial.println(F("[WEATHER] Vihar riasztás sikeresen elküldve ntfy-on!"));
+    else Serial.println(F("[WEATHER] HIBA: Nem sikerült elküldeni a vihar riasztást ntfy-on."));
   }
 
   gWeatherHasData = true;
@@ -201,13 +188,12 @@ bool weatherUpdate(float lat, float lon) {
 
 void backgroundTaskLoop() {
   static unsigned long lastCheckTime = 0;
-  if (millis() - lastCheckTime < 10000UL) return; // 10 másodpercenként próbálkozzon
+  if (millis() - lastCheckTime < 10000UL) return; 
   lastCheckTime = millis();
 
   unsigned long nowMillis = millis();
   unsigned long twelveHours = 12UL * 3600UL * 1000UL;
 
-  // Ha még sosem szinkronizáltunk, vagy eltelt 12 óra
   if (gLastWeatherSync == 0 || (nowMillis - gLastWeatherSync > twelveHours)) {
     float activeLat = gGnss.fix ? gGnss.lat : gGnss.assistLat;
     float activeLon = gGnss.fix ? gGnss.lon : gGnss.assistLon;
@@ -232,10 +218,10 @@ bool forceWeatherUpdate() {
   return false;
 }
 
-void handleApiWeatherSync() {
+void handleApiWeatherSync(AsyncWebServerRequest *request) {
   if (forceWeatherUpdate()) {
-    server.send(200, "text/plain", "OK");
+    request->send(200, "text/plain", "OK");
   } else {
-    server.send(500, "text/plain", "Hiba a letoltes vagy a koordinatak soran.");
+    request->send(500, "text/plain", "Hiba a letoltes vagy a koordinatak soran.");
   }
 }

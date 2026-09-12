@@ -1,6 +1,4 @@
 #pragma once
-#include <Arduino.h>
+#include <ESPAsyncWebServer.h>
 
-// A Készletek (Itatók és Etetők) nézet kezelőfüggvénye
-void handleSupply();
-
+void handleSupply(AsyncWebServerRequest *request);

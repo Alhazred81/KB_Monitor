@@ -1,4 +1,8 @@
-#include "espnow_mgr.h"
+#include "config.h"
+
+#if CURRENT_DEVICE_ROLE == ROLE_SERVER
+
+#include "connections_mgr.h"
 
 HiveRecord gHiveRecords[MAX_ESP_NOW_HIVES];
 int gHiveCount = 0;
@@ -45,3 +49,5 @@ void initEspNowGateway(uint8_t channel) {
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
   Serial.printf("[ESP-NOW] Gateway elindult a %d. csatornan.\n", channel);
 }
+
+#endif // ROLE_SERVER

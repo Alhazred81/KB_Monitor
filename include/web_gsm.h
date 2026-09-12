@@ -1,18 +1,12 @@
-//web_gsm.h
+#pragma once
+#include <ESPAsyncWebServer.h>
 
-#ifndef WEB_GSM_H
-#define WEB_GSM_H
-
-#include <Arduino.h>
-
-void handleGsm();
-void handleDoSms();
-void handleSmsStatus();
-void handleDoCall();
-void handleHangup();
-void handleSetSmsc();
-void handleNetAuto();
-void handleNetScan();
-void handleNetManual();
-
-#endif
+void handleGsm(AsyncWebServerRequest *request);
+void handleDoSms(AsyncWebServerRequest *request);
+void handleSmsStatus(AsyncWebServerRequest *request);
+void handleDoCall(AsyncWebServerRequest *request);
+void handleHangup(AsyncWebServerRequest *request);
+void handleSetSmsc(AsyncWebServerRequest *request);
+void handleNetAuto(AsyncWebServerRequest *request);
+void handleNetScan(AsyncWebServerRequest *request);
+void handleNetManual(AsyncWebServerRequest *request);

@@ -1,24 +1,15 @@
-//web_iot.h 
+#pragma once
+#include <ESPAsyncWebServer.h>
 
-#ifndef WEB_IOT_H
-#define WEB_IOT_H
-
-#include <Arduino.h>
-
-void handleIot();
-void handleDataOn();
-void handleDataOff();
-void handleDataPing();
-
-void handleNtfySend();
-void handleNtfyPoll();
-void handleSaveNtfy();
-
-void handleSaveReport();
-void handleTestReport();
+void handleIot(AsyncWebServerRequest *request);
+void handleDataOn(AsyncWebServerRequest *request);
+void handleDataOff(AsyncWebServerRequest *request);
+void handleDataPing(AsyncWebServerRequest *request);
+void handleNtfySend(AsyncWebServerRequest *request);
+void handleNtfyPoll(AsyncWebServerRequest *request);
+void handleSaveNtfy(AsyncWebServerRequest *request);
+void handleSaveReport(AsyncWebServerRequest *request);
+void handleTestReport(AsyncWebServerRequest *request);
 void checkAndSendScheduledReport();
-
 void saveReportConfig(const String& times);
 String loadReportConfig();
-
-#endif

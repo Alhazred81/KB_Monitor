@@ -1,9 +1,10 @@
 #include "web_theme.h"
 #include "web_common.h"
 #include <Arduino.h>
-#include <WebServer.h>
 
-extern WebServer server;
+// Megjegyzés: Az extern AsyncWebServer server; példány a web_common.h-ból/cpp-ből jön, 
+// a régi WebServer.h inclusion-t teljesen eltávolítottuk az aszinkron kompatibilitás miatt.
+
 extern String macSuffix();
 
 // Behúzzuk a globális változót a módváltáshoz
@@ -47,8 +48,8 @@ String htmlFoot() {
   return "</div></body></html>";
 }
 
-// ─── CSS Stíluslap (C++ nézetekhez) ───────────────────────────
-void handleCss() {
+// ─── CSS Stíluslap (Aszinkron szerver kezeléssel) ───────────────
+void handleCss(AsyncWebServerRequest *request) {
   String css = R"css(
     :root{--bg:#05050a;--nav:#0d0d1a;--card:#141428;--txt:#e0e0e0;--txt2:#888;
     --border:#2a2a40;--accent:#4d4dff;--ok:#00cc66;--warn:#ff9900;--err:#ff3333}
@@ -132,5 +133,5 @@ void handleCss() {
     white-space:nowrap;z-index:10;margin-left:8px;color:var(--txt)}
     .pin-info.open .pin-bubble {display:block}
   )css";
-  server.send(200, "text/css", css);
+  request->send(200, "text/css", css);
 }

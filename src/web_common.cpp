@@ -1,298 +1,328 @@
-// web_common.cpp
-
+#include "config.h"
 #include <Arduino.h>
-#include <WebServer.h>
+#include <ESPAsyncWebServer.h>
+#include <DNSServer.h>
+#include <Preferences.h>
+#include <WiFi.h>
 #include "web_common.h"
+#include "web_theme.h"
+#include "web_ui.h"
+
+AsyncWebServer server(80);
+extern DNSServer dnsServer;
+Preferences prefs;
+String fullMac;
 
 #define DIAG_MAX 20
-
 static String diagLog[DIAG_MAX];
 static int diagHead = 0;
 static int diagCount = 0;
 
-extern WebServer server;
-extern String loadPin(); 
+#if CURRENT_DEVICE_ROLE == ROLE_SERVER
+  extern String loadPin(); 
+#endif
 
-// Deklaráljuk a külső HTML generáló függvényeket, hogy a sendWaitPage lássa őket
-extern String htmlHead(const String& title, const String& activeTab);
-extern String htmlFoot();
+void initWeb() {
+    WiFi.mode(WIFI_AP_STA);
+    Serial.println("[WEB] WiFi mód beállítva: WIFI_AP_STA");
+    
+    prefs.begin("wifi_cfg", false); 
+    String staSsid = prefs.getString("sta_ssid", "");
+    String staPass = prefs.getString("sta_pass", "");
 
-bool checkPinGuard() {
-  if (loadPin().length() == 0) {
-    server.sendHeader("Location", "/cfg");
-    server.send(302);
-    return false;
-  }
-  return true;
+    fullMac = WiFi.macAddress();
+    String macClean = fullMac;
+    macClean.replace(":", "");
+    String defaultSSID = "Monitor_" + macClean.substring(macClean.length() - 4);
+    String currentSSID = prefs.getString("ap_ssid", defaultSSID);
+    String currentPass = prefs.getString("ap_pass", DEFAULT_AP_PASS);
+    prefs.end();
+
+    if (staSsid.length() > 0) {
+        Serial.printf("[WEB] Csatlakozás hálózathoz: %s\n", staSsid.c_str());
+        WiFi.begin(staSsid.c_str(), staPass.c_str());
+        
+        int attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+            delay(500);
+            Serial.print(".");
+            attempts++;
+        }
+        Serial.println();
+    }
+
+    WiFi.softAP(currentSSID.c_str(), currentPass.c_str());
+    Serial.printf("[WEB] AP elindult. SSID: %s\n", currentSSID.c_str());
+
+    dnsServer.start(DNS_PORT_NUM, "*", WiFi.softAPIP());
+    Serial.println("[WEB] DNS szerver (Captive Portal) elindítva.");
+
+    webBegin();
+    server.begin();
+    Serial.println("[WEB] Aszinkron Webszerver elindítva.");
 }
 
-String stateRow(const String& key, const String& val, const String& cls) {
-  String s = "<div class='row'><span class='k'>";
-  s += key;
-  s += "</span><span class='v ";
-  s += cls;
-  s += "'>";
-  s += val;
-  s += "</span></div>";
-  return s;
+void loopWeb() {
+    dnsServer.processNextRequest();
 }
 
 void diagAdd(const String& line) {
-  Serial.println("[DIAG] " + line);
-  diagLog[diagHead] = line;
-  diagHead = (diagHead + 1) % DIAG_MAX;
-  if(diagCount < DIAG_MAX) diagCount++;
+    Serial.println("[DIAG] " + line);
+    diagLog[diagHead] = line;
+    diagHead = (diagHead + 1) % DIAG_MAX;
+    if(diagCount < DIAG_MAX) diagCount++;
 }
 
 String diagDump() {
-  String out = "";
-  int start = (diagCount < DIAG_MAX) ? 0 : diagHead;
+    String out = "";
+    int start = (diagCount < DIAG_MAX) ? 0 : diagHead;
+    for(int i = 0; i < diagCount; i++) {
+        out += diagLog[(start + i) % DIAG_MAX] + "\n";
+    }
+    return out;
+}
 
-  for(int i = 0; i < diagCount; i++) {
-    out += diagLog[(start + i) % DIAG_MAX] + "\n";
-  }
-
-  return out;
+String stateRow(const String& key, const String& val, const String& cls) {
+    return "<div class='row'><span class='k'>" + key + "</span><span class='v " + cls + "'>" + val + "</span></div>";
 }
 
 String htmlEscape(const String& in) {
-  String out; out.reserve(in.length());
-  for(size_t i=0;i<in.length();i++){
-    char c = in[i];
-    switch(c){
-      case '<':  out += "&lt;";   break;
-      case '>':  out += "&gt;";   break;
-      case '&':  out += "&amp;";  break;
-      case '"':  out += "&quot;"; break;
-      case '\'': out += "&#39;";  break;
-      default:
-        if((uint8_t)c >= 0x20 && (uint8_t)c < 0x7F) out += c;
-        break;
+    String out; out.reserve(in.length());
+    for(size_t i=0;i<in.length();i++){
+        char c = in[i];
+        switch(c){
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '&': out += "&amp;"; break;
+            case '"': out += "&quot;"; break;
+            case '\'': out += "&#39;"; break;
+            default: if((uint8_t)c >= 0x20 && (uint8_t)c < 0x7F) out += c; break;
+        }
     }
-  }
-  return out;
+    return out;
 }
 
 String jsEscape(const String& in) {
-  String out; out.reserve(in.length());
-  for(size_t i=0;i<in.length();i++){
-    char c = in[i];
-    switch(c){
-      case '"':  out += "\\\""; break;
-      case '\\': out += "\\\\"; break;
-      case '\n': out += "\\n";  break;
-      case '\r': break;
-      default:
-        if((uint8_t)c >= 0x20 && (uint8_t)c < 0x7F) out += c;
-        break;
+    String out; out.reserve(in.length());
+    for(size_t i=0;i<in.length();i++){
+        char c = in[i];
+        switch(c){
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': break;
+            default: if((uint8_t)c >= 0x20 && (uint8_t)c < 0x7F) out += c; break;
+        }
     }
-  }
-  return out;
+    return out;
 }
 
 String satText(int value) {
-  return value >= 0 ? String(value) : "n/a";
+    return value >= 0 ? String(value) : "n/a";
 }
 
 String ageText(unsigned long stamp) {
-  if(stamp == 0) return "meg nem";
-  unsigned long s = (millis() - stamp) / 1000UL;
-  if(s < 60) return String(s) + " s";
-  return String(s / 60) + " p " + String(s % 60) + " s";
+    if(stamp == 0) return "meg nem";
+    unsigned long s = (millis() - stamp) / 1000UL;
+    if(s < 60) return String(s) + " s";
+    return String(s / 60) + " p " + String(s % 60) + " s";
 }
 
 String sigBar(int q) {
-  if(q==99||q==0) return "<span style='color:var(--err)'>Nincs jel</span>";
-  int pct = (q*100)/31;
-  String col = (q>=15?"var(--ok)":q>=7?"var(--warn)":"var(--err)");
-  String s = String("<span style='color:")+col+"'>"+String(q)+"/31 ("+String(pct)+"%)</span>";
-  return s;
+    if(q==99||q==0) return "<span style='color:var(--err)'>Nincs jel</span>";
+    int pct = (q*100)/31;
+    String col = (q>=15?"var(--ok)":q>=7?"var(--warn)":"var(--err)");
+    return "<span style='color:" + col + "'>" + String(q) + "/31 (" + String(pct) + "%)</span>";
 }
 
 String normalizeAtCommand(String cmd) {
-  cmd.trim();
-  if(cmd.length() == 0) return "AT";
-  cmd.toUpperCase();
-  if(cmd == "AT") return "AT";
-  if(cmd.startsWith("AT")) return cmd;
-  if(cmd.startsWith("+")) return "AT" + cmd;
-  return "AT" + cmd;
+    cmd.trim();
+    if(cmd.length() == 0) return "AT";
+    cmd.toUpperCase();
+    if(cmd == "AT" || cmd.startsWith("AT")) return cmd;
+    if(cmd.startsWith("+")) return "AT" + cmd;
+    return "AT" + cmd;
 }
 
 int base64DecodeChar(char c) {
-  if(c >= 'A' && c <= 'Z') return c - 'A';
-  if(c >= 'a' && c <= 'z') return c - 'a' + 26;
-  if(c >= '0' && c <= '9') return c - '0' + 52;
-  if(c == '+') return 62;
-  if(c == '/') return 63;
-  return -1;
+    if(c >= 'A' && c <= 'Z') return c - 'A';
+    if(c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if(c >= '0' && c <= '9') return c - '0' + 52;
+    if(c == '+') return 62;
+    if(c == '/') return 63;
+    return -1;
 }
 
 static const char B64_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 String base64Encode(const uint8_t* data, size_t len) {
-  String out;
-  out.reserve(((len + 2) / 3) * 4);
-  size_t i = 0;
-  while(i + 3 <= len) {
-    uint32_t n = ((uint32_t)data[i] << 16) | ((uint32_t)data[i+1] << 8) | data[i+2];
-    out += B64_CHARS[(n >> 18) & 0x3F];
-    out += B64_CHARS[(n >> 12) & 0x3F];
-    out += B64_CHARS[(n >> 6)  & 0x3F];
-    out += B64_CHARS[n & 0x3F];
-    i += 3;
-  }
-  size_t rem = len - i;
-  if(rem == 1) {
-    uint32_t n = (uint32_t)data[i] << 16;
-    out += B64_CHARS[(n >> 18) & 0x3F];
-    out += B64_CHARS[(n >> 12) & 0x3F];
-    out += "==";
-  } else if(rem == 2) {
-    uint32_t n = ((uint32_t)data[i] << 16) | ((uint32_t)data[i+1] << 8);
-    out += B64_CHARS[(n >> 18) & 0x3F];
-    out += B64_CHARS[(n >> 12) & 0x3F];
-    out += B64_CHARS[(n >> 6)  & 0x3F];
-    out += "=";
-  }
-  return out;
+    String out;
+    out.reserve(((len + 2) / 3) * 4);
+    size_t i = 0;
+    while(i + 3 <= len) {
+        uint32_t n = ((uint32_t)data[i] << 16) | ((uint32_t)data[i+1] << 8) | data[i+2];
+        out += B64_CHARS[(n >> 18) & 0x3F];
+        out += B64_CHARS[(n >> 12) & 0x3F];
+        out += B64_CHARS[(n >> 6)  & 0x3F];
+        out += B64_CHARS[n & 0x3F];
+        i += 3;
+    }
+    size_t rem = len - i;
+    if(rem == 1) {
+        uint32_t n = (uint32_t)data[i] << 16;
+        out += B64_CHARS[(n >> 18) & 0x3F];
+        out += B64_CHARS[(n >> 12) & 0x3F];
+        out += "==";
+    } else if(rem == 2) {
+        uint32_t n = ((uint32_t)data[i] << 16) | ((uint32_t)data[i+1] << 8);
+        out += B64_CHARS[(n >> 18) & 0x3F];
+        out += B64_CHARS[(n >> 12) & 0x3F];
+        out += B64_CHARS[(n >> 6)  & 0x3F];
+        out += "=";
+    }
+    return out;
 }
 
 size_t base64Decode(const String& in, uint8_t* buf, size_t maxLen) {
-  size_t outLen = 0;
-  int vals[4]; int vi = 0;
-  for(size_t i = 0; i < in.length() && outLen < maxLen; i++) {
-    char c = in[i];
-    if(c == '=' || c == '\n' || c == '\r' || c == ' ') continue;
-    int v = base64DecodeChar(c);
-    if(v < 0) continue;
-    vals[vi++] = v;
-    if(vi == 4) {
-      uint32_t n = ((uint32_t)vals[0] << 18) | ((uint32_t)vals[1] << 12) | ((uint32_t)vals[2] << 6) | vals[3];
-      if(outLen < maxLen) buf[outLen++] = (n >> 16) & 0xFF;
-      if(outLen < maxLen) buf[outLen++] = (n >> 8) & 0xFF;
-      if(outLen < maxLen) buf[outLen++] = n & 0xFF;
-      vi = 0;
+    size_t outLen = 0;
+    int vals[4]; int vi = 0;
+    for(size_t i = 0; i < in.length() && outLen < maxLen; i++) {
+        char c = in[i];
+        if(c == '=' || c == '\n' || c == '\r' || c == ' ') continue;
+        int v = base64DecodeChar(c);
+        if(v < 0) continue;
+        vals[vi++] = v;
+        if(vi == 4) {
+            uint32_t n = ((uint32_t)vals[0] << 18) | ((uint32_t)vals[1] << 12) | ((uint32_t)vals[2] << 6) | vals[3];
+            if(outLen < maxLen) buf[outLen++] = (n >> 16) & 0xFF;
+            if(outLen < maxLen) buf[outLen++] = (n >> 8) & 0xFF;
+            if(outLen < maxLen) buf[outLen++] = n & 0xFF;
+            vi = 0;
+        }
     }
-  }
-  if(vi >= 2) {
-    uint32_t n = ((uint32_t)vals[0] << 18) | ((uint32_t)vals[1] << 12);
-    if(vi >= 2 && outLen < maxLen) buf[outLen++] = (n >> 16) & 0xFF;
-    if(vi >= 3) {
-      n |= (uint32_t)vals[2] << 6;
-      if(outLen < maxLen) buf[outLen++] = (n >> 8) & 0xFF;
+    if(vi >= 2) {
+        uint32_t n = ((uint32_t)vals[0] << 18) | ((uint32_t)vals[1] << 12);
+        if(vi >= 2 && outLen < maxLen) buf[outLen++] = (n >> 16) & 0xFF;
+        if(vi >= 3) {
+            n |= (uint32_t)vals[2] << 6;
+            if(outLen < maxLen) buf[outLen++] = (n >> 8) & 0xFF;
+        }
     }
-  }
-  return outLen;
+    return outLen;
 }
 
 String phoneInputBlock(const String& btnId, const String& prefix) {
-  String fmtId = prefix + "Fmt";
-  String hiddenId = prefix + "Hidden";
-  String hintId = prefix + "Hint";
-  String h = "<label>Telefonszam</label>"
-    "<div style='display:flex;gap:6px;align-items:center'>"
-    "<span style='background:#0a0a18;border:1px solid var(--border);border-radius:10px;"
-    "padding:10px 10px;font-size:14px;color:var(--txt2);white-space:nowrap'>+36</span>"
-    "<input type='text' id='" + fmtId + "' inputmode='numeric' placeholder='30 123 4567' "
-    "maxlength='12' oninput='fmtNum_" + prefix + "(this)' autocomplete='tel-national' style='flex:1'>"
-    "</div>"
-    "<input type='hidden' name='num' id='" + hiddenId + "'>"
-    "<div class='hint' id='" + hintId + "'>Add meg a szamot ekezet es +36 nelkul, pl. 30 123 4567</div>";
-  h += "<script>function fmtNum_" + prefix + "(el){"
-    "var digits = el.value.replace(/\\D/g,'').substring(0,9);"
-    "var out = '';"
-    "if(digits.length>0) out += digits.substring(0,2);"
-    "if(digits.length>2)  out += ' ' + digits.substring(2,5);"
-    "if(digits.length>5)  out += ' ' + digits.substring(5,9);"
-    "el.value = out;"
-    "document.getElementById('" + hiddenId + "').value = '+36' + digits;"
-    "var hint = document.getElementById('" + hintId + "');"
-    "var btn  = document.getElementById('" + btnId + "');"
-    "if(digits.length === 9){"
-      "hint.style.color='var(--ok)';"
-      "hint.innerText='+36 ' + out + ' - rendben';"
-      "if(btn) btn.disabled = false;"
-    "} else {"
-      "hint.style.color='var(--txt3)';"
-      "hint.innerText='Meg ' + (9-digits.length) + ' szamjegy hianyzik.';"
-      "if(btn) btn.disabled = true;"
+    String fmtId = prefix + "Fmt";
+    String hiddenId = prefix + "Hidden";
+    String hintId = prefix + "Hint";
+    String h = "<label>Telefonszam</label>"
+      "<div style='display:flex;gap:6px;align-items:center'>"
+      "<span style='background:#0a0a18;border:1px solid var(--border);border-radius:10px;"
+      "padding:10px 10px;font-size:14px;color:var(--txt2);white-space:nowrap'>+36</span>"
+      "<input type='text' id='" + fmtId + "' inputmode='numeric' placeholder='30 123 4567' "
+      "maxlength='12' oninput='fmtNum_" + prefix + "(this)' autocomplete='tel-national' style='flex:1'>"
+      "</div>"
+      "<input type='hidden' name='num' id='" + hiddenId + "'>"
+      "<div class='hint' id='" + hintId + "'>Add meg a szamot ekezet es +36 nelkul, pl. 30 123 4567</div>";
+    h += "<script>function fmtNum_" + prefix + "(el){"
+      "var digits = el.value.replace(/\\D/g,'').substring(0,9);"
+      "var out = '';"
+      "if(digits.length>0) out += digits.substring(0,2);"
+      "if(digits.length>2)  out += ' ' + digits.substring(2,5);"
+      "if(digits.length>5)  out += ' ' + digits.substring(5,9);"
+      "el.value = out;"
+      "document.getElementById('" + hiddenId + "').value = '+36' + digits;"
+      "var hint = document.getElementById('" + hintId + "');"
+      "var btn  = document.getElementById('" + btnId + "');"
+      "if(digits.length === 9){"
+        "hint.style.color='var(--ok)';"
+        "hint.innerText='+36 ' + out + ' - rendben';"
+        "if(btn) btn.disabled = false;"
+      "} else {"
+        "hint.style.color='var(--txt3)';"
+        "hint.innerText='Meg ' + (9-digits.length) + ' szamjegy hianyzik.';"
+        "if(btn) btn.disabled = true;"
+      "}"
     "}"
-  "}"
-  "function prepNum_" + prefix + "(){"
-    "var digits = document.getElementById('" + fmtId + "').value.replace(/\\D/g,'');"
-    "return digits.length === 9;"
-  "}</script>";
-  return h;
+    "function prepNum_" + prefix + "(){"
+      "var digits = document.getElementById('" + fmtId + "').value.replace(/\\D/g,'');"
+      "return digits.length === 9;"
+    "}</script>";
+    return h;
 }
 
 String smartErrorBox(const String& err) {
-  if(err.length() == 0) return "";
+    if(err.length() == 0) return "";
+    String target = "";       
+    String actionLabel = "";  
 
-  String target = "";       
-  String actionLabel = "";  
+    if(err.indexOf("PIN") >= 0 || err.indexOf("SIM hiba") >= 0 || err.indexOf("PUK") >= 0 || err.indexOf("nincs mentve") >= 0) {
+        target = "/cfg";
+        actionLabel = "Ugras a PIN beallitasahoz &#8250;";
+    } else if(err.indexOf("halozat") >= 0 || err.indexOf("Halozat") >= 0 || err.indexOf("antenna") >= 0 || err.indexOf("jel") >= 0) {
+        target = "/diag";
+        actionLabel = "Diagnosztika megnyitasa &#8250;";
+    }
 
-  if(err.indexOf("PIN") >= 0 || err.indexOf("SIM hiba") >= 0 ||
-     err.indexOf("PUK") >= 0 || err.indexOf("nincs mentve") >= 0) {
-    target = "/cfg";
-    actionLabel = "Ugras a PIN beallitasahoz &#8250;";
-  } else if(err.indexOf("halozat") >= 0 || err.indexOf("Halozat") >= 0 ||
-            err.indexOf("antenna") >= 0 || err.indexOf("jel") >= 0) {
-    target = "/diag";
-    actionLabel = "Diagnosztika megnyitasa &#8250;";
-  }
-
-  String box = "<div class='msg err'";
-  if(target.length()) box += " style='cursor:pointer' onclick=\"location.href='" + target + "'\"";
-  box += ">";
-  box += err;
-  if(target.length()) {
-    box += "<div style='margin-top:6px;font-weight:700;text-decoration:underline'>";
-    box += actionLabel;
+    String box = "<div class='msg err'";
+    if(target.length()) box += " style='cursor:pointer' onclick=\"location.href='" + target + "'\"";
+    box += ">" + err;
+    if(target.length()) {
+        box += "<div style='margin-top:6px;font-weight:700;text-decoration:underline'>" + actionLabel + "</div>";
+    }
     box += "</div>";
-  }
-  box += "</div>";
-  return box;
+    return box;
 }
 
 String compassAbbrev(float deg) {
-  const char* dirs[] = {"E","EK","K","DK","D","DNy","Ny","ENy"};
-  int idx = (int)((deg + 22.5f) / 45.0f) % 8;
-  if(idx < 0) idx += 8;
-  return String(dirs[idx]);
+    const char* dirs[] = {"E","EK","K","DK","D","DNy","Ny","ENy"};
+    int idx = (int)((deg + 22.5f) / 45.0f) % 8;
+    if(idx < 0) idx += 8;
+    return String(dirs[idx]);
 }
 
-void sendWaitPage(const String& title, const String& message, const String& nextUrl, int waitSeconds) {
-  String html = htmlHead(title, "");
-  html += "<style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>";
-  html += "<div style='display:flex; justify-content:center; padding-top:40px;'>";
-  html += "<div class='card' style='text-align:center; padding:40px 20px; max-width:400px; width:100%;'>";
-  html += "<h2 style='font-size:18px; margin-bottom:15px;'>" + title + "</h2>";
-  html += "<div style='font-size:40px; margin:20px 0; display:inline-block; animation:spin 3s linear infinite;'>⚙️</div>";
-  html += "<p style='font-size:14px; color:var(--txt); margin-bottom:20px;'>" + message + "</p>";
-  html += "<div class='msg warn' id='countdown' style='font-size:14px; font-weight:bold;'>Hátravan max: " + String(waitSeconds) + " mp</div>";
-  html += "</div></div>";
-  html += "<script>";
-  
-  html += "var w = " + String(waitSeconds) + ";";
-  html += "var t = setInterval(function(){ "
-          "  w--; "
-          "  if(w > 0) document.getElementById('countdown').innerText = 'Hátravan max: ' + w + ' mp'; "
-          "  else location.href='" + nextUrl + "'; "
-          "}, 1000);";
+#if CURRENT_DEVICE_ROLE == ROLE_SERVER
 
-  html += "var p = setInterval(function(){"
-          "  fetch('/modemstatus').then(function(r){return r.json();}).then(function(d){"
-          "    if(d && d.inProgress === false) { "
-          "      clearInterval(t); clearInterval(p);"
-          "      document.getElementById('countdown').innerText = 'Kész! Átirányítás...';"
-          "      document.getElementById('countdown').className = 'msg ok';"
-          "      setTimeout(function(){ location.href='" + nextUrl + "'; }, 500);"
-          "    }"
-          "  }).catch(function(){});"
-          "}, 3000);";
-          
-  html += "</script>";
-  html += htmlFoot();
-  server.send(200, "text/html", html);
+bool checkPinGuard(AsyncWebServerRequest *request) {
+    if (loadPin().length() == 0) {
+        request->redirect("/cfg");
+        return false;
+    }
+    return true;
 }
+
+void sendWaitPage(AsyncWebServerRequest *request, const String& title, const String& message, const String& nextUrl, int waitSeconds) {
+    String html = htmlHead(title, "");
+    html += "<style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>";
+    html += "<div style='display:flex; justify-content:center; padding-top:40px;'>";
+    html += "<div class='card' style='text-align:center; padding:40px 20px; max-width:400px; width:100%;'>";
+    html += "<h2 style='font-size:18px; margin-bottom:15px;'>" + title + "</h2>";
+    html += "<div style='font-size:40px; margin:20px 0; display:inline-block; animation:spin 3s linear infinite;'>⚙️</div>";
+    html += "<p style='font-size:14px; color:var(--txt); margin-bottom:20px;'>" + message + "</p>";
+    html += "<div class='msg warn' id='countdown' style='font-size:14px; font-weight:bold;'>Hátravan max: " + String(waitSeconds) + " mp</div>";
+    html += "</div></div>";
+    html += "<script>";
+    html += "var w = " + String(waitSeconds) + ";";
+    html += "var t = setInterval(function(){ "
+            "  w--; "
+            "  if(w > 0) document.getElementById('countdown').innerText = 'Hátravan max: ' + w + ' mp'; "
+            "  else location.href='" + nextUrl + "'; "
+            "}, 1000);";
+
+    html += "var p = setInterval(function(){"
+            "  fetch('/api/modemstatus').then(function(r){return r.json();}).then(function(d){"
+            "    if(d && d.inProgress === false) { "
+            "      clearInterval(t); clearInterval(p);"
+            "      document.getElementById('countdown').innerText = 'Kész! Átirányítás...';"
+            "      document.getElementById('countdown').className = 'msg ok';"
+            "      setTimeout(function(){ location.href='" + nextUrl + "'; }, 500);"
+            "    }"
+            "  }).catch(function(){});"
+            "}, 3000);";
+            
+    html += "</script>";
+    html += htmlFoot();
+    request->send(200, "text/html", html);
+}
+
+#endif

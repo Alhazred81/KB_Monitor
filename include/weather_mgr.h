@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <ESPAsyncWebServer.h>
 
 struct ForecastBlock {
   float tempMin = 99.0;
@@ -10,7 +11,7 @@ struct ForecastBlock {
 
 struct DailyForecast {
   String dateStr;
-  ForecastBlock blocks[4]; // 0: 00-06, 1: 06-12, 2: 12-18, 3: 18-00
+  ForecastBlock blocks[4];
 };
 
 extern DailyForecast gForecast[3];
@@ -20,4 +21,4 @@ extern bool gWeatherHasData;
 void weatherInit();
 bool weatherUpdate(float lat, float lon);
 bool forceWeatherUpdate();
-void handleApiWeatherSync();
+void handleApiWeatherSync(AsyncWebServerRequest *request);

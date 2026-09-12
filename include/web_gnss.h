@@ -1,13 +1,7 @@
-//web_gnss.h
+#pragma once
+#include <ESPAsyncWebServer.h>
 
-#ifndef WEB_GNSS_H
-#define WEB_GNSS_H
-
-#include <Arduino.h>
-
-void handleGnss();
-void handleGnssStatus();
-void handleGnssAssist();
-void handleGnssCtl();
-
-#endif
+void handleGnss(AsyncWebServerRequest *request);
+void handleGnssStatus(AsyncWebServerRequest *request);
+void handleGnssAssist(AsyncWebServerRequest *request);
+void handleGnssCtl(AsyncWebServerRequest *request);

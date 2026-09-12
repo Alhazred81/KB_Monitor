@@ -1,10 +1,8 @@
-//web_theme.h
-
 #pragma once
-
 #include <Arduino.h>
-#include <WebServer.h>
+#include <ESPAsyncWebServer.h>
 
-extern const char CSS[] PROGMEM;
-
-void handleCss();
+// Globálisan elérhetővé tesszük a HTML generálókat
+String htmlHead(const String& title, const String& activeTab);
+String htmlFoot();
+void handleCss(AsyncWebServerRequest *request);

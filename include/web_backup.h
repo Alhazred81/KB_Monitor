@@ -1,6 +1,5 @@
-//web_backup.h
-
 #pragma once
+#include <ESPAsyncWebServer.h>
 
-void handleEepromBackup();
-void handleEepromRestore();
+void handleEepromBackup(AsyncWebServerRequest *request);
+void handleEepromRestore(AsyncWebServerRequest *request);

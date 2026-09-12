@@ -1,21 +1,15 @@
-//web_config.h
+#pragma once
+#include <ESPAsyncWebServer.h>
 
-#ifndef WEB_CONFIG_H
-#define WEB_CONFIG_H
-
-#include <Arduino.h>
-
-void handleCfg();
-void handleWifiScan();
-void handleStaConnect();
-void handleStaDisconnect();
-void handleSaveWifi();
-void handleTestSavePin();
-void handleConfirmSavePin();
-void handleSavePin();
-void handleChangePin();
-void handleSavePanelVer();
-void handleLedTrigger();
-void handleLedAuto();
-
-#endif
+void handleCfg(AsyncWebServerRequest *request);
+void handleWifiScan(AsyncWebServerRequest *request);
+void handleStaConnect(AsyncWebServerRequest *request);
+void handleStaDisconnect(AsyncWebServerRequest *request);
+void handleSaveWifi(AsyncWebServerRequest *request);
+void handleTestSavePin(AsyncWebServerRequest *request);
+void handleConfirmSavePin(AsyncWebServerRequest *request);
+void handleSavePin(AsyncWebServerRequest *request);
+void handleChangePin(AsyncWebServerRequest *request);
+void handleSavePanelVer(AsyncWebServerRequest *request);
+void handleLedTrigger(AsyncWebServerRequest *request);
+void handleLedAuto(AsyncWebServerRequest *request);

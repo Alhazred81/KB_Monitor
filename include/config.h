@@ -8,6 +8,17 @@
 #define MODEM_DTR     25
 #define MODEM_RI      33
 
+// ─── LoRa SX1262 Pinout & Konfiguráció (Szerver) ─────────────
+#define LORA_NSS      18
+#define LORA_SCK       5
+#define LORA_MISO     19
+#define LORA_MOSI     27
+#define LORA_DIO1     26
+#define LORA_RST      14
+#define LORA_BUSY     33
+#define LORA_RXEN    RADIOLIB_NC
+#define LORA_TXEN    RADIOLIB_NC
+
 // ─── LED / Panelverzió opciók ───────────────────────────────
 #define LED_MODE_V10        0
 #define LED_MODE_V11        1
@@ -36,6 +47,9 @@
 // ─── STA (kliens) WiFi mód ────────────────────────────────────
 #define STA_CONNECT_TIMEOUT_MS   15000UL
 #define STA_RETRY_INTERVAL_MS    30000UL
+
+// ─── ESP-NOW Korlátok ───────────────────────────────────────
+#define MAX_ESP_NOW_HIVES 10
 
 // ─── EEPROM layout (512 byte) ───────────────────────────────
 #define EEPROM_SIZE          512
@@ -98,3 +112,15 @@
 #define SENS_BIT_AHT20       5
 #define SENS_BIT_BMP280      6
 #define SENS_BIT_LTR390      7
+
+#define WAKE_PIN 39 // Vagy a kívánt GPIO pin száma a mélyalvás ébresztéséhez
+
+// ─── Spektrum / FFT & I2S Paraméterek (Szerver) ─────────────
+#define FFT_SAMPLES          512
+#define FFT_SAMPLING_FREQ    8000.0
+#define I2S_PORT             ((i2s_port_t)0)
+#define I2S_SCK_PIN          33
+#define I2S_WS_PIN           25
+#define I2S_SD_PIN           32
+#define WAKE_PIN             39
+#define DNS_PORT_NUM         53

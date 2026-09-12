@@ -1,21 +1,17 @@
-//web_sensors.h
-
-#ifndef WEB_SENSORS_H
-#define WEB_SENSORS_H
-
+#pragma once
 #include <Arduino.h>
+#include <ESPAsyncWebServer.h>
 
-void handleSensors();
-void handleSensConfig();
-void handleSensToggle();
-void handleSensStatus();
-void handleSensTest();
-void handleApiI2cScan();
+void handleSensors(AsyncWebServerRequest *request);
+void handleSensConfig(AsyncWebServerRequest *request);
+void handleSensToggle(AsyncWebServerRequest *request);
+void handleSensStatus(AsyncWebServerRequest *request);
+void handleSensTest(AsyncWebServerRequest *request);
+void handleApiI2cScan(AsyncWebServerRequest *request);
+
 String aht20ValueText();
 String bmp280ValueText();
+String ltrValueText();
 
-// Segédfüggvények deklarálása, hogy lássa őket a web_ui
 String sensorRowHtml(const String& sensorKey, const String& label, bool enabled, bool hasEverRead, bool isOk, const String& valueText, const String& pinInfo = "");
 String sensStatusJsonEntry(const String& key, bool enabled, bool hasEverRead, bool isOk, const String& value);
-
-#endif

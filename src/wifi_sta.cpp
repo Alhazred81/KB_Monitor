@@ -1,5 +1,5 @@
 #include "wifi_sta.h"
-#include "espnow_mgr.h"
+#include "connections_mgr.h" // <-- JAVÍTVA: espnow_mgr.h helyett!
 
 WifiStaState gSta;
 ScannedNet gScanResults[MAX_SCAN_RESULTS];
@@ -7,7 +7,7 @@ int gScanCount = 0;
 unsigned long gLastScan = 0;
 unsigned long gLastStaCheck = 0;
 
-extern uint8_t gApChannel; // A main.cpp-bol jon
+extern uint8_t gApChannel;
 
 void wifiScan() {
   Serial.println(F("[WIFISTA] Halozatok keresese..."));
@@ -61,7 +61,9 @@ void wifiStaLoop() {
     uint8_t currentChannel = WiFi.channel();
     Serial.printf("[WIFISTA] Aktiv csatorna STA mod utan: %d\n", currentChannel);
     
-    initEspNowGateway(currentChannel);
+    #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+      initEspNowGateway(currentChannel);
+    #endif
     
     ntpStart();
     saveStaCreds(gSta.targetSSID, gSta.targetPass);
@@ -74,15 +76,16 @@ void wifiStaLoop() {
   if(millis() - gSta.connectStarted > STA_CONNECT_TIMEOUT_MS){
     Serial.println(F("[WIFISTA] Csatlakozas idotullepes, vissza AP modba."));
     gSta.mode = NetMode::STA_FAILED;
-    gSta.lastError = "Nem sikerult csatlakozni (" + gSta.targetSSID +
-                     ") - idotullepes vagy hibas jelszo.";
+    gSta.lastError = "Nem sikerult csatlakozni (" + gSta.targetSSID + ") - idotullepes vagy hibas jelszo.";
     gSta.lastAttempt = millis();
 
     WiFi.disconnect(true);
     WiFi.mode(WIFI_AP);
     startAP();
     
-    initEspNowGateway(gApChannel);
+    #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+      initEspNowGateway(gApChannel);
+    #endif
   }
 }
 
@@ -104,7 +107,9 @@ void wifiStaDisconnect() {
   WiFi.mode(WIFI_AP);
   startAP();
   
-  initEspNowGateway(gApChannel);
+  #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+    initEspNowGateway(gApChannel);
+  #endif
 }
 
 void wifiStaWatchdog() {
@@ -120,7 +125,9 @@ void wifiStaWatchdog() {
     WiFi.mode(WIFI_AP);
     startAP();
     
-    initEspNowGateway(gApChannel);
+    #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+      initEspNowGateway(gApChannel);
+    #endif
   }
 }
 
@@ -158,4 +165,3 @@ void saveApConfig(const String& ssid, const String& pass, uint8_t channel, bool 
 bool loadApHide() {
   return EEPROM.read(ADDR_AP_HIDE) == 1;
 }
-

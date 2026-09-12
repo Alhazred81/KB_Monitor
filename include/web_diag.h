@@ -1,23 +1,19 @@
-#ifndef WEB_DIAG_H
-#define WEB_DIAG_H
+#pragma once
+#include <ESPAsyncWebServer.h>
 
-void handleEspRestart();
-void handleExpert();
-void handleExpertPost();
-void handleExpertReset();
-void handleExpertFullReset();
-void handleDiag();
-void handleAtAjax();
-void handleAtStatus();
-void handleModemStatus();
-void handleReinit();
-
-void handleGetHivesJson();
-void handleDeleteHive();
-void handleAddDummyHive();
-void handleAtStatusSerial(); 
-
-void handleApiEspNowLog();
-void handleApiEspNowClear();
-
-#endif
+void handleEspRestart(AsyncWebServerRequest *request);
+void handleExpert(AsyncWebServerRequest *request);
+void handleExpertPost(AsyncWebServerRequest *request);
+void handleExpertReset(AsyncWebServerRequest *request);
+void handleExpertFullReset(AsyncWebServerRequest *request);
+void handleDiag(AsyncWebServerRequest *request);
+void handleAtAjax(AsyncWebServerRequest *request);
+void handleAtStatus(AsyncWebServerRequest *request);
+void handleModemStatus(AsyncWebServerRequest *request);
+void handleReinit(AsyncWebServerRequest *request);
+void handleGetHivesJson(AsyncWebServerRequest *request);
+void handleDeleteHive(AsyncWebServerRequest *request);
+void handleAddDummyHive(AsyncWebServerRequest *request);
+void handleAtStatusSerial(AsyncWebServerRequest *request);
+void handleApiEspNowLog(AsyncWebServerRequest *request);
+void handleApiEspNowClear(AsyncWebServerRequest *request);

@@ -1,22 +1,7 @@
- // WEB_HIVES_H
-
-#ifndef WEB_HIVES_H
-#define WEB_HIVES_H
-
+#pragma once
 #include <Arduino.h>
+#include <ESPAsyncWebServer.h>
 
-// --- Korábbi kaptárkezelő funkciók ---
-void handleHives();
-void handleHiveView();
-void handleEvaluation();
-void handleTreatment();
-void handleGetTreatmentsJson();
-void handleEvaluatePost();
-void handleGetEvaluationsJson();
-void handleGetColonyFunctionsJson();
-void handleGetDiseasesJson();
-
-// --- KAPTÁR REGISZTRÁCIÓS VARÁZSLÓ ---
 struct HiveRegistrationContext {
   bool active = false;
   String hiveId = "";
@@ -30,13 +15,12 @@ struct HiveRegistrationContext {
 
 extern HiveRegistrationContext gRegCtx;
 
-void handleRegStart();
-void handleRegNfc();
-void handleRegQueen();
-void handleRegSurvey();
-void handleApiSurveyStatus();
-void handleRegSummary();
-void handleRegSave();
-void handleRegCancel();
-
-#endif
+void handleHives(AsyncWebServerRequest *request);
+void handleRegStart(AsyncWebServerRequest *request);
+void handleRegNfc(AsyncWebServerRequest *request);
+void handleRegQueen(AsyncWebServerRequest *request);
+void handleRegSurvey(AsyncWebServerRequest *request);
+void handleApiSurveyStatus(AsyncWebServerRequest *request);
+void handleRegSummary(AsyncWebServerRequest *request);
+void handleRegSave(AsyncWebServerRequest *request);
+void handleRegCancel(AsyncWebServerRequest *request);

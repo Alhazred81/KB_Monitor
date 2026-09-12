@@ -8,7 +8,6 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WebServer.h>
 #include <DNSServer.h>
 #include <EEPROM.h>
 #include <LittleFS.h>
@@ -18,7 +17,7 @@
 #include "modem_mgr.h"
 #include "NtfyClient.h"
 #include "sensors.h"
-#include "server_receiver.h"
+#include "connections.h"
 #include "time_mgr.h"
 #include "weather_mgr.h"
 #include "web_ui.h"
@@ -36,7 +35,6 @@ bool gDelayedWifiStarted = false;
 
 NtfyClient     ntfy(modemSerial, "kb_sim7000g_balazs", "ntfy.sh");
 
-WebServer      server(80);
 DNSServer      dnsServer;
 
 ModemState     gModem;
@@ -301,7 +299,7 @@ void loop() {
   if(gSta.mode == NetMode::AP || gSta.mode == NetMode::STA_CONNECTING) {
     dnsServer.processNextRequest();
   }
-  server.handleClient();
+  loopWeb();
 
   if (!gDelayedWifiStarted && gModem.ready) {
     static unsigned long modemStableTime = 0;

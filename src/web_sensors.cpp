@@ -1,10 +1,8 @@
 #include "web_sensors.h"
 #include "sensors.h"
 #include "web_common.h"
-#include <WebServer.h>
+#include "web_theme.h"
 
-// --- Globális változók és extern deklarációk ---
-extern WebServer server;
 extern WindSpeedState gWindSpeed;
 extern WindDirState gWindDir;
 extern ShtSensorState gSht;
@@ -19,15 +17,17 @@ extern String gLastSensTestResult;
 extern bool gLastSensTestOk;
 extern String gLastSensTestRaw;
 
-// --- Külső függvények a web_ui.cpp-ből ---
-extern bool checkPinGuard();
+#if CURRENT_DEVICE_ROLE == ROLE_SERVER
+  extern bool checkPinGuard(AsyncWebServerRequest *request);
+#else
+  bool checkPinGuard(AsyncWebServerRequest *request) { return true; }
+#endif
+
 extern void sensSetEnabled(uint8_t bit, bool on);
 extern void sensorsApplyEnabled();
 extern void saveSensorConfig();
 extern void rs485Init();
-extern String compassAbbrev(int deg);
-
-// --- Segédfüggvények ---
+extern String compassAbbrev(float deg);
 
 String sensorRowHtml(const String& sensorKey, const String& label, bool enabled, bool hasEverRead, bool isOk, const String& valueText, const String& pinInfo) {
     String color = "gray";
@@ -106,24 +106,11 @@ String ltrValueText() {
     return "UVI " + String(gLtr.uvIndex, 1) + " | " + String(gLtr.lux, 1) + " lx";
 }
 
-// --- Handler-ek ---
-
-void handleSensors() {
-    if (!checkPinGuard()) return;
+void handleSensors(AsyncWebServerRequest *request) {
+    if (!checkPinGuard(request)) return;
     String html = htmlHead("Szenzorok", "7");
 
-    html += "<script>"
-            "function copyElement(id){"
-              "var e=document.getElementById(id);"
-              "if(!e)return;"
-              "var text = e.innerText;"
-              "navigator.clipboard.writeText(text).then(function() {"
-                "alert('Vágólapra másolva!');"
-              "}).catch(function(err) {"
-                "alert('Másolás sikertelen.');"
-              "});"
-            "}"
-            "</script>";
+    html += "<script>function copyElement(id){ var e=document.getElementById(id); if(!e)return; var text = e.innerText; navigator.clipboard.writeText(text).then(function() { alert('Vágólapra másolva!'); }).catch(function(err) { alert('Másolás sikertelen.'); }); }</script>";
 
     html += "<div class='card wide'><h2>Allapot</h2>";
     html += sensorRowHtml("windspeed", "Szelsebesseg", gWindSpeed.enabled, gWindSpeed.lastGoodRead>0, gWindSpeed.lastReadOk, windSpeedValueText());
@@ -136,162 +123,99 @@ void handleSensors() {
     html += sensorRowHtml("ltr", "LTR-390 UV (I2C2)", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText());
     html += "</div>";
 
-    html += "<div class='card wide'><h2>RS485 / Modbus beallitasok</h2>"
-            "<form action='/sensconfig' method='POST'>"
-            "<label>RS485 baudrate</label>"
-            "<select name='baud'>";
+    html += "<div class='card wide'><h2>RS485 / Modbus beallitasok</h2><form action='/sensconfig' method='POST'><label>RS485 baudrate</label><select name='baud'>";
     const long bauds[] = {1200,2400,4800,9600,19200,38400,57600,115200};
     for(int i=0;i<8;i++){
-        html += "<option value='" + String(bauds[i]) + "'";
-        if((long)gSensRs485Baud == bauds[i]) html += " selected";
-        html += ">" + String(bauds[i]) + "</option>";
+        html += "<option value='" + String(bauds[i]) + "'" + ((long)gSensRs485Baud == bauds[i] ? " selected" : "") + ">" + String(bauds[i]) + "</option>";
     }
-    html += "</select>"
-            "<label>Szelsebesseg Modbus cim</label>"
-            "<input type='number' name='addr_windspeed' min='1' max='247' value='" + String(gWindSpeed.modbusAddr) + "'>"
-            "<label>Szelirany Modbus cim</label>"
-            "<input type='number' name='addr_winddir' min='1' max='247' value='" + String(gWindDir.modbusAddr) + "'>"
-            "<label>SHT57 Modbus cim</label>"
-            "<input type='number' name='addr_sht' min='1' max='247' value='" + String(gSht.modbusAddr) + "'>"
-            "<div class='cb-row'><input type='checkbox' name='rain_modbus' id='rmCb'"
-            + String(gRain.isModbus ? " checked" : "") + "><label for='rmCb'>Esoszenzor RS485/Modbus modban (kulonben analog bemenet)</label></div>"
-            "<label>Esoszenzor Modbus cim (csak ha fent bepipalva)</label>"
-            "<input type='number' name='addr_rain' min='1' max='247' value='" + String(gRain.modbusAddr) + "'>"
-            "<button class='sec'>Mentes</button>"
-            "</form></div>";
+    html += "</select><label>Szelsebesseg Modbus cim</label><input type='number' name='addr_windspeed' min='1' max='247' value='" + String(gWindSpeed.modbusAddr) + "'>";
+    html += "<label>Szelirany Modbus cim</label><input type='number' name='addr_winddir' min='1' max='247' value='" + String(gWindDir.modbusAddr) + "'>";
+    html += "<label>SHT57 Modbus cim</label><input type='number' name='addr_sht' min='1' max='247' value='" + String(gSht.modbusAddr) + "'>";
+    html += "<div class='cb-row'><input type='checkbox' name='rain_modbus' id='rmCb'" + String(gRain.isModbus ? " checked" : "") + "><label for='rmCb'>Esoszenzor RS485/Modbus modban (kulonben analog bemenet)</label></div>";
+    html += "<label>Esoszenzor Modbus cim</label><input type='number' name='addr_rain' min='1' max='247' value='" + String(gRain.modbusAddr) + "'><button class='sec'>Mentes</button></form></div>";
 
-    html += "<div class='card wide'><h2>Tesztelés</h2>"
-            "<p class='hint'>Azonnali, egyszeri lekerdezes a kivalasztott eszkozre.</p>"
-            "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px'>"
-            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='windspeed'>"
-            "<button class='sec'>Szelsebesseg teszt</button></form>"
-            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='winddir'>"
-            "<button class='sec'>Szelirany teszt</button></form>"
-            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='sht'>"
-            "<button class='sec'>SHT57 teszt</button></form>"
-            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='rain'>"
-            "<button class='sec'>Eso teszt</button></form>"
-            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='mpu'>"
-            "<button class='sec'>MPU6050 teszt</button></form>"
-            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='aht20'>"
-            "<button class='sec'>AHT20 teszt</button></form>"
-            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='bmp280'>"
-            "<button class='sec'>BMP280 teszt</button></form>"
-            "<form action='/senstest' method='POST' style='flex:1;min-width:120px'>"
-            "<input type='hidden' name='which' value='ltr'>"
-            "<button class='sec'>LTR-390 teszt</button></form>"
-            "</div>";
+    html += "<div class='card wide'><h2>Tesztelés</h2><p class='hint'>Azonnali, egyszeri lekerdezes a kivalasztott eszkozre.</p><div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px'>";
+    const char* tests[] = {"windspeed", "winddir", "sht", "rain", "mpu", "aht20", "bmp280", "ltr"};
+    const char* labels[] = {"Szelsebesseg teszt", "Szelirany teszt", "SHT57 teszt", "Eso teszt", "MPU6050 teszt", "AHT20 teszt", "BMP280 teszt", "LTR-390 teszt"};
+    for(int i=0; i<8; i++) {
+        html += "<form action='/senstest' method='POST' style='flex:1;min-width:120px'><input type='hidden' name='which' value='" + String(tests[i]) + "'><button class='sec'>" + String(labels[i]) + "</button></form>";
+    }
+    html += "</div>";
     if(gLastSensTestResult.length()) {
-        html += "<div class='msg " + String(gLastSensTestOk ? "ok" : "err") + "' style='margin-top:10px'>"
-                + htmlEscape(gLastSensTestResult) + "</div>";
-        if(gLastSensTestRaw.length()) {
-            html += "<div class='diag' style='margin-top:6px'>Nyers Modbus valasz: " + htmlEscape(gLastSensTestRaw) + "</div>";
-        }
+        html += "<div class='msg " + String(gLastSensTestOk ? "ok" : "err") + "' style='margin-top:10px'>" + htmlEscape(gLastSensTestResult) + "</div>";
+        if(gLastSensTestRaw.length()) html += "<div class='diag' style='margin-top:6px'>Nyers Modbus valasz: " + htmlEscape(gLastSensTestRaw) + "</div>";
     }
     html += "</div>";
 
-    // I2C Scanner Kártya
-    html += "<div class='card wide'>"
-            "<h2>I2C Scanner <button class='sec' style='padding:4px 8px;font-size:11px;float:right;margin-top:-2px' onclick='copyElement(\"i2cScanBox\")'>Másolás</button></h2>"
-            "<p class='hint'>Lekérdezi a buszokra (I2C1 és I2C2) csatlakoztatott eszközök hardveres címeit.</p>"
-            "<button class='sec' style='width:100%; margin-bottom:10px;' onclick='runI2cScan(this)'>🔎 I2C Buszok Szkennelése</button>"
-            "<div class='diag' id='i2cScanBox' style='min-height:80px; font-family:monospace; white-space:pre-wrap;'>Nyomd meg a gombot a szkenneléshez...</div>"
-            "</div>";
+    html += "<div class='card wide'><h2>I2C Scanner <button class='sec' style='padding:4px 8px;font-size:11px;float:right;margin-top:-2px' onclick='copyElement(\"i2cScanBox\")'>Másolás</button></h2>";
+    html += "<p class='hint'>Lekérdezi a buszokra (I2C1 és I2C2) csatlakoztatott eszközök hardveres címeit.</p>";
+    html += "<button class='sec' style='width:100%; margin-bottom:10px;' onclick='runI2cScan(this)'>🔎 I2C Buszok Szkennelése</button>";
+    html += "<div class='diag' id='i2cScanBox' style='min-height:80px; font-family:monospace; white-space:pre-wrap;'>Nyomd meg a gombot a szkenneléshez...</div></div>";
 
     html += R"js(<script>
-function sensToggle(key, on){
-    fetch('/senstoggle', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:'key='+encodeURIComponent(key)+'&on='+(on?'1':'0')});
-}
+function sensToggle(key, on){ fetch('/senstoggle', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'key='+encodeURIComponent(key)+'&on='+(on?'1':'0')}); }
 function sensPoll(){
-    fetch('/sensstatus').then(function(r){return r.json();}).then(function(d){
+    fetch('/sensstatus').then(r=>r.json()).then(d=>{
         for(var key in d){
-            var row = document.getElementById('sensRow_'+key);
-            if(!row) continue;
-            var val = document.getElementById('sensVal_'+key);
-            var chk = document.getElementById('sensChk_'+key);
+            var row = document.getElementById('sensRow_'+key); if(!row) continue;
+            var val = document.getElementById('sensVal_'+key); var chk = document.getElementById('sensChk_'+key);
             var s = d[key];
-            if(val){
-                val.innerText = s.value || (s.enabled ? 'meres folyamatban...' : 'kikapcsolva');
-                val.className = 'sens-value' + (s.value ? '' : ' dim');
-            }
+            if(val){ val.innerText = s.value || (s.enabled ? 'meres folyamatban...' : 'kikapcsolva'); val.className = 'sens-value' + (s.value ? '' : ' dim'); }
             if(chk) chk.checked = s.enabled;
             var toggle = row.querySelector('.sens-toggle');
-            if(toggle){
-                var color = '#555';
-                if(s.enabled) color = !s.hasEverRead ? 'var(--warn)' : (s.ok ? 'var(--ok)' : 'var(--err)');
-                toggle.style.setProperty('--sens-color', color);
-            }
+            if(toggle){ var color = '#555'; if(s.enabled) color = !s.hasEverRead ? 'var(--warn)' : (s.ok ? 'var(--ok)' : 'var(--err)'); toggle.style.setProperty('--sens-color', color); }
         }
-    }).catch(function(){});
+    }).catch(e=>{});
 }
 function runI2cScan(btn) {
-    var orig = btn.innerText;
-    btn.innerText = 'Szkennelés...';
-    btn.disabled = true;
-    document.getElementById('i2cScanBox').innerText = 'Keresés folyamatban a buszokon...';
-    fetch('/api/i2cscan').then(r=>r.text()).then(txt=>{
-        document.getElementById('i2cScanBox').innerText = txt;
-    }).catch(e=>{
-        document.getElementById('i2cScanBox').innerText = 'Hiba a lekérdezés során: ' + e;
-    }).finally(()=>{
-        btn.innerText = orig;
-        btn.disabled = false;
-    });
+    var orig = btn.innerText; btn.innerText = 'Szkennelés...'; btn.disabled = true; document.getElementById('i2cScanBox').innerText = 'Keresés folyamatban a buszokon...';
+    fetch('/api/i2cscan').then(r=>r.text()).then(txt=>{ document.getElementById('i2cScanBox').innerText = txt; }).catch(e=>{ document.getElementById('i2cScanBox').innerText = 'Hiba: ' + e; }).finally(()=>{ btn.innerText = orig; btn.disabled = false; });
 }
 setInterval(sensPoll, 3000);
 </script>)js";
 
     html += htmlFoot();
-    server.send(200, "text/html", html);
+    request->send(200, "text/html", html);
 }
 
-void handleSensConfig() {
-    if(server.hasArg("baud")) {
-        long b = server.arg("baud").toInt();
+void handleSensConfig(AsyncWebServerRequest *request) {
+    if(request->hasParam("baud", true)) {
+        long b = request->getParam("baud", true)->value().toInt();
         if(b >= 1200 && b <= 921600) {
             gSensRs485Baud = (uint32_t)b;
-            if(gRs485Initialized) { rs485Init(); }
+            if(gRs485Initialized) rs485Init(); 
         }
     }
-    if(server.hasArg("addr_windspeed")) {
-        int v = server.arg("addr_windspeed").toInt();
+    if(request->hasParam("addr_windspeed", true)) {
+        int v = request->getParam("addr_windspeed", true)->value().toInt();
         if(v >= 1 && v <= 247) gWindSpeed.modbusAddr = (uint8_t)v;
     }
-    if(server.hasArg("addr_winddir")) {
-        int v = server.arg("addr_winddir").toInt();
+    if(request->hasParam("addr_winddir", true)) {
+        int v = request->getParam("addr_winddir", true)->value().toInt();
         if(v >= 1 && v <= 247) gWindDir.modbusAddr = (uint8_t)v;
     }
-    if(server.hasArg("addr_sht")) {
-        int v = server.arg("addr_sht").toInt();
+    if(request->hasParam("addr_sht", true)) {
+        int v = request->getParam("addr_sht", true)->value().toInt();
         if(v >= 1 && v <= 247) gSht.modbusAddr = (uint8_t)v;
     }
-    if(server.hasArg("addr_rain")) {
-        int v = server.arg("addr_rain").toInt();
+    if(request->hasParam("addr_rain", true)) {
+        int v = request->getParam("addr_rain", true)->value().toInt();
         if(v >= 1 && v <= 247) gRain.modbusAddr = (uint8_t)v;
     }
-    gRain.isModbus = server.hasArg("rain_modbus");
+    gRain.isModbus = request->hasParam("rain_modbus", true);
 
     saveSensorConfig();
     diagAdd("Szenzor RS485/Modbus beallitasok mentve.");
-    server.sendHeader("Location","/sensors");
-    server.send(302);
+    request->redirect("/sensors");
 }
 
-void handleSensToggle() {
-    if(!server.hasArg("key") || !server.hasArg("on")) {
-        server.send(400, "text/plain", "hianyzo parameter");
+void handleSensToggle(AsyncWebServerRequest *request) {
+    if(!request->hasParam("key", true) || !request->hasParam("on", true)) {
+        request->send(400, "text/plain", "hianyzo parameter");
         return;
     }
-    String key = server.arg("key");
-    bool on = server.arg("on") == "1";
+    String key = request->getParam("key", true)->value();
+    bool on = request->getParam("on", true)->value() == "1";
 
     int bit = -1;
     if(key == "windspeed") bit = SENS_BIT_WINDSPEED;
@@ -304,7 +228,7 @@ void handleSensToggle() {
     else if(key == "ltr") bit = SENS_BIT_LTR390;
 
     if(bit < 0) {
-        server.send(400, "text/plain", "ismeretlen szenzor");
+        request->send(400, "text/plain", "ismeretlen szenzor");
         return;
     }
 
@@ -313,25 +237,16 @@ void handleSensToggle() {
     saveSensorConfig();
 
     String diagMsg = "Szenzor '" + key + "': " + (on ? "bekapcsolva" : "kikapcsolva");
-    String serialMsg = "[SENSORS] " + key + (on ? " bekapcsolva" : " kikapcsolva");
-
     if(on) {
         sensTestRun(key); 
-        if(gLastSensTestOk) {
-            diagMsg += " (Komm. OK)";
-            serialMsg += " -> Kommunikacio: OK";
-        } else {
-            diagMsg += " (HIBA)";
-            serialMsg += " -> HIBA: " + gLastSensTestResult;
-        }
+        if(gLastSensTestOk) diagMsg += " (Komm. OK)";
+        else diagMsg += " (HIBA)";
     }
-
-    Serial.println(serialMsg);
     diagAdd(diagMsg);
-    server.send(200, "text/plain", "ok");
+    request->send(200, "text/plain", "ok");
 }
 
-void handleSensStatus() {
+void handleSensStatus(AsyncWebServerRequest *request) {
     String json = "{";
     json += sensStatusJsonEntry("windspeed", gWindSpeed.enabled, gWindSpeed.lastGoodRead>0, gWindSpeed.lastReadOk, windSpeedValueText()) + ",";
     json += sensStatusJsonEntry("winddir", gWindDir.enabled, gWindDir.lastGoodRead>0, gWindDir.lastReadOk, windDirValueText()) + ",";
@@ -342,26 +257,21 @@ void handleSensStatus() {
     json += sensStatusJsonEntry("bmp280", gBmp280.enabled, gBmp280.lastGoodRead>0, gBmp280.lastReadOk, bmp280ValueText()) + ",";
     json += sensStatusJsonEntry("ltr", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText());
     json += "}";
-    server.send(200, "application/json", json);
+    request->send(200, "application/json", json);
 }
 
-void handleSensTest() {
-    if(!server.hasArg("which")) {
-        server.sendHeader("Location","/sensors"); server.send(302); return;
+void handleSensTest(AsyncWebServerRequest *request) {
+    if(!request->hasParam("which", true)) {
+        request->redirect("/sensors"); return;
     }
-    sensTestRun(server.arg("which"));
-    diagAdd("Szenzor teszt (" + server.arg("which") + "): " + gLastSensTestResult);
-    server.sendHeader("Location","/sensors");
-    server.send(302);
+    String which = request->getParam("which", true)->value();
+    sensTestRun(which);
+    diagAdd("Szenzor teszt (" + which + "): " + gLastSensTestResult);
+    request->redirect("/sensors");
 }
 
-void handleApiI2cScan() {
-    if (!checkPinGuard()) return;
+void handleApiI2cScan(AsyncWebServerRequest *request) {
+    if (!checkPinGuard(request)) return;
     String res = performI2cScan();
-    
-    Serial.println("\n========== 🔎 I2C SCANNER EREDMÉNY ==========");
-    Serial.print(res);
-    Serial.println("=============================================\n");
-    
-    server.send(200, "text/plain", res);
+    request->send(200, "text/plain", res);
 }
