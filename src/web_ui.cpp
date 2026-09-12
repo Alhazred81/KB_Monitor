@@ -238,12 +238,33 @@ void handleRoot(AsyncWebServerRequest *request) {
     html += "<div style='display:flex; flex-direction:column; gap:8px;'>";
     for(int d = 0; d < 3; d++) {
       html += "<div><div style='font-weight:bold; color:var(--accent); font-size:12px; margin-bottom:4px;'>" + String(dayNames[d]) + "</div><div style='display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; text-align:center; font-size:11px;'>";
+      
       for(int b = 0; b < 4; b++) {
-        float minT = gForecast[d].blocks[b].tempMin; float maxT = gForecast[d].blocks[b].tempMax; float p = gForecast[d].blocks[b].precip;
+        float minT = gForecast[d].blocks[b].tempMin; 
+        float maxT = gForecast[d].blocks[b].tempMax; 
+        float p = gForecast[d].blocks[b].precip;
+        
         String icon = "☀️";
-        if (p > 15.0) icon = "🧊"; else if (p > 5.0) icon = "⚡"; else if (p > 0.5) icon = "🌧️"; else if ((minT + maxT) / 2.0 < 15) icon = "⛅";
-        html += "<div style='background:rgba(255,255,255,0.04); padding:4px 2px; border-radius:6px; border:1px solid var(--border);'><div style='font-size:9px; color:var(--txt2);'>" + String(timeSlots[b]) + "</div><div style='font-size:14px; margin:2px 0;'>" + icon + "</div><div style='font-size:10px; font-weight:bold;'>" + String(minT, 0) + " - " + String(maxT, 0) + "°C</div></div>";
+        if (p > 15.0) icon = "🧊"; 
+        else if (p > 5.0) icon = "⚡"; 
+        else if (p > 0.5) icon = "🌧️"; 
+        else if ((minT + maxT) / 2.0 < 15) icon = "⛅";
+        
+        html += "<div style='background:rgba(255,255,255,0.04); padding:4px 2px; border-radius:6px; border:1px solid var(--border);'>";
+        html += "<div style='font-size:9px; color:var(--txt2);'>" + String(timeSlots[b]) + "</div>";
+        html += "<div style='font-size:14px; margin:2px 0;'>" + icon + "</div>";
+        html += "<div style='font-size:10px; font-weight:bold;'>" + String(minT, 0) + " - " + String(maxT, 0) + "°C</div>";
+        
+        // Csapadék kijelzése
+        if (p > 0.0) {
+            html += "<div style='font-size:9px; color:#60a5fa; margin-top:2px;'>💧 " + String(p, 1) + " mm</div>";
+        } else {
+            html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>"; // Helykitöltő a szép rács miatt
+        }
+        
+        html += "</div>";
       }
+      
       html += "</div></div>";
     }
     html += "</div><p class='hint' style='margin-top:8px; margin-bottom:0; font-size:11px;'>Frissítve: " + ageText(gLastWeatherSync) + "</p>";

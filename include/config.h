@@ -1,5 +1,11 @@
 #pragma once
 
+#define ROLE_SERVER 1
+#define ROLE_MONITOR 2
+
+// Itt állítod be, hogy épp melyik eszközt fordítod:
+#define CURRENT_DEVICE_ROLE ROLE_SERVER
+
 // ─── Pinout (TTGO T-SIM7000G) ───────────────────────────────
 #define MODEM_TX      27
 #define MODEM_RX      26
@@ -112,8 +118,6 @@
 #define SENS_BIT_AHT20       5
 #define SENS_BIT_BMP280      6
 #define SENS_BIT_LTR390      7
-
-#define WAKE_PIN 39 // Vagy a kívánt GPIO pin száma a mélyalvás ébresztéséhez
 
 // ─── Spektrum / FFT & I2S Paraméterek (Szerver) ─────────────
 #define FFT_SAMPLES          512

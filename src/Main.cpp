@@ -22,6 +22,7 @@
 #include "weather_mgr.h"
 #include "web_ui.h"
 #include "wifi_sta.h"
+#include "web_diag.h"
 
 // ─── Globálisok ─────────────────────────────────────────────
 
@@ -264,6 +265,7 @@ void setup() {
   loadSensorConfig();
   sensorsApplyEnabled();
   loadNtfyConfig();
+  initDiagRoutes();
 
   gReportTimes = loadReportConfig();
   gApPass    = loadApPass();
@@ -282,6 +284,10 @@ void setup() {
   dnsServer.start(53, "*", WiFi.softAPIP());
   webBegin();
 
+  server.begin();
+  dnsServer.start(DNS_PORT_NUM, "*", WiFi.softAPIP()); 
+  Serial.println("[WEB] Aszinkron Webszerver és Captive Portal elindítva.");
+
   initServerEspNow();
   ntfy.setDebugStream(&Serial);
 
@@ -296,6 +302,8 @@ void setup() {
 }
 
 void loop() {
+
+  dnsServer.processNextRequest();
   if(gSta.mode == NetMode::AP || gSta.mode == NetMode::STA_CONNECTING) {
     dnsServer.processNextRequest();
   }
@@ -342,6 +350,7 @@ void loop() {
   smsInboxLoop();
   sensorsLoop();
   backgroundTaskLoop();
+
 
   static unsigned long lastReportCheck = 0;
   if (millis() - lastReportCheck > 15000) { 

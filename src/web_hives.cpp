@@ -62,6 +62,12 @@ void handleHives(AsyncWebServerRequest *request) {
 
   html += "<div class='col-right'>";
   html += "<div class='card full' style='margin:0; padding:16px; height:100%;'>";
+  
+  // ITT A REGISZTRÁCIÓS GOMB AZ ÁLLAPOT KÁRTYA TETEJÉN
+  html += "<div style='margin-bottom:16px;'>"
+          "<button class='pri' style='width:100%; padding:12px; font-weight:bold; font-size:14px; background:var(--accent); border:none; border-radius:8px; cursor:pointer;' onclick=\"location.href='/reg/start'\">➕ Új kaptár(ak) regisztrációja</button>"
+          "</div>";
+
   html += "<h2 style='font-size:15px; margin-bottom:8px;'>📋 ÁLLAPOT ÉS BEAVATKOZÁSI ÜTEMTERV</h2>";
   html += "<p class='hint' style='margin-bottom:12px;'>Koppints a kaptár azonosítójára a részletes nézethez.</p>";
   
@@ -127,14 +133,39 @@ void handleRegStart(AsyncWebServerRequest *request) {
 
   String html = htmlHead("Új Kaptár", "0");
   html += "<div class='card'><h2>Új kaptár regisztrálása</h2>";
-  html += "<p style='font-size:13px; color:var(--txt2);'>Válaszd ki az észlelt, de még regisztrálatlan eszközt a listából!</p>";
+  html += "<p style='font-size:13px; color:var(--txt2); margin-bottom:12px;'>A szerver folyamatosan sugározza a párosítási jelet. Válaszd ki a megtalált eszközt a listából, vagy frissíts, ha újat keresel!</p>";
   
+  // Élő rádiós keresést visszajelző és frissítő rész
+  html += "<div style='display:flex; gap:8px; margin-bottom:15px;'>"
+          "<button type='button' class='sec' style='flex:1;' onclick='refreshDiscovered()'>🔄 Eszközök keresése...</button>"
+          "</div>";
+
   html += "<form action='/reg/nfc' method='GET'>";
-  html += "<select name='hiveId' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px;'>";
+  html += "<select id='discoveredList' name='hiveId' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px; background:#0a0a18; color:var(--txt); border:1px solid var(--border);'>";
   html += "<option value='KAPTAR_A1B2'>Ismeretlen (MAC: A1:B2:C3...) - Jel: -65dBm</option>";
   html += "<option value='KAPTAR_C3D4'>Ismeretlen (MAC: C3:D4:E5...) - Jel: -78dBm</option>";
   html += "</select>";
   
+  html += "<script>"
+          "function refreshDiscovered() {"
+          "  let sel = document.getElementById('discoveredList');"
+          "  sel.innerHTML = '<option>Rádiós szkennelés folyamatban (ESP-NOW / LoRa)...</option>';"
+          "  fetch('/api/discovered_hives').then(r=>r.json()).then(list=>{"
+          "    sel.innerHTML = '';"
+          "    if(list.length === 0) {"
+          "      sel.innerHTML = '<option value=\"\">Nem található új eszköz a közelben</option>';"
+          "      return;"
+          "    }"
+          "    list.forEach(item => {"
+          "      let opt = document.createElement('option');"
+          "      opt.value = item.id;"
+          "      opt.innerText = item.name + ' (' + item.mac + ') - ' + item.rssi + ' dBm';"
+          "      sel.appendChild(opt);"
+          "    });"
+          "  }).catch(e => { sel.innerHTML = '<option value=\"\">Hiba a lekérdezéskor</option>'; });"
+          "}"
+          "</script>";
+
   html += "<button type='submit' style='width:100%; padding:12px;'>Tovább (NFC olvasás) ➡️</button></form>";
   html += "<br><button class='sec' style='width:100%;' onclick=\"location.href='/'\">Mégse</button></div>";
   html += htmlFoot();

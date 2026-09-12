@@ -165,7 +165,124 @@ void handleTreatment(AsyncWebServerRequest *request) {
 
 void handleConfig(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
-  request->send(200, "text/html", htmlHead("Konfig", "4") + "<div class='card wide'><h2>Kaptár Konfiguráció</h2><p>Még fejlesztés alatt.</p></div>" + htmlFoot());
+  String hiveId = request->hasParam("hive") ? request->getParam("hive")->value() : "A1B2";
+
+  String html = htmlHead("Konfig: " + hiveId, "4");
+  
+  // Betöltjük a html5-qrcode könyvtárat
+  html += "<script src=\"https://unpkg.com/html5-qrcode\"></script>";
+
+  html += "<div class='card wide'><h2>Kaptár Konfiguráció - " + hiveId + "</h2>";
+  html += "<p class='hint' style='margin-bottom:15px;'>Indítsd el az élő szkennert. Ha sötét van, a vaku gombbal felkapcsolhatod a LED-et.</p>";
+  
+  html += "<div style='background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:20px; text-align:center;'>";
+  html += "<h3 style='font-size:15px; margin-bottom:8px;'>📷 Élő Vonalkód / QR Olvasó</h3>";
+  
+  // A kamera megjelenítő ablaka
+  html += "<div id='reader' style='width:100%; max-width:320px; margin:0 auto; border-radius:8px; overflow:hidden;'></div>";
+  
+  html += "<button type='button' id='startBtn' class='pri' style='margin-top:12px; width:100%; padding:14px; font-size:16px; background:var(--accent); border:none; border-radius:8px; cursor:pointer; color:#fff;' onclick='startScanner()'>▶ Kamera indítása</button>";
+  
+  // Vezérlőgombok (Vaku és Leállítás), amik csak a kamera indulása után látszanak
+  html += "<div id='controls' style='display:none; display:flex; gap:8px; margin-top:12px;'>";
+  html += "<button type='button' id='torchBtn' class='sec' style='flex:1; padding:12px; font-size:14px; background:#eab308; color:#000; font-weight:bold; border:none; border-radius:8px; cursor:pointer;' onclick='toggleTorch()'>🔦 Vaku: KI</button>";
+  html += "<button type='button' class='sec' style='flex:1; padding:12px; font-size:14px; border-radius:8px; cursor:pointer;' onclick='stopScanner()'>⏹ Leállítás</button>";
+  html += "</div>";
+
+  html += "<div id='scanResult' style='margin-top:12px; font-size:13px; font-weight:bold;'></div>";
+  html += "</div>";
+
+  html += R"script(<script>
+  let html5QrCode = null;
+  let torchEnabled = false;
+
+  function startScanner() {
+      document.getElementById('startBtn').style.display = 'none';
+      let resBox = document.getElementById('scanResult');
+      resBox.style.color = 'var(--accent)';
+      resBox.innerText = 'Kamera indítása...';
+
+      html5QrCode = new Html5Qrcode("reader");
+      
+      const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+      
+      html5QrCode.start(
+          { facingMode: "environment" }, 
+          config, 
+          (decodedText, decodedResult) => {
+              // Sikeres olvasás!
+              resBox.style.color = 'var(--ok)';
+              resBox.innerText = 'Megvan: ' + decodedText + ' -> Küldés...';
+              stopScanner();
+              
+              fetch('/api/barcode_scanned?code=' + encodeURIComponent(decodedText))
+              .then(r => r.text())
+              .then(res => {
+                  resBox.innerText = 'Siker! Átküldve a terminálnak.';
+              })
+              .catch(err => {
+                  resBox.style.color = 'var(--err)';
+                  resBox.innerText = 'Hiba a küldéskor: ' + err;
+              });
+          },
+          (errorMessage) => {
+              // Keresési fázis (folyamatosan fut, nem kell kiírni hibát)
+          }
+      ).then(() => {
+          document.getElementById('controls').style.display = 'flex';
+          resBox.innerText = 'Keresd a kódet a keretben...';
+      }).catch(err => {
+          resBox.style.color = 'var(--err)';
+          resBox.innerText = 'Kamera hiba (Lehet, hogy a böngésző tiltja HTTP-n): ' + err;
+          document.getElementById('startBtn').style.display = 'block';
+      });
+  }
+
+  function toggleTorch() {
+      if (!html5QrCode) return;
+      torchEnabled = !torchEnabled;
+      
+      html5QrCode.applyVideoConstraints({
+          advanced: [{ torch: torchEnabled }]
+      }).then(() => {
+          let btn = document.getElementById('torchBtn');
+          if (torchEnabled) {
+              btn.innerText = '🔦 Vaku: BE';
+              btn.style.background = '#22c55e';
+              btn.style.color = '#fff';
+          } else {
+              btn.innerText = '🔦 Vaku: KI';
+              btn.style.background = '#eab308';
+              btn.style.color = '#000';
+          }
+      }).catch(err => {
+          torchEnabled = !torchEnabled;
+          alert('Ez a böngésző vagy eszköz nem támogatja a szoftveres vakukezelést.');
+      });
+  }
+
+  function stopScanner() {
+      if (html5QrCode) {
+          if (torchEnabled) {
+              html5QrCode.applyVideoConstraints({ advanced: [{ torch: false }] }).catch(()=>{});
+              torchEnabled = false;
+          }
+          html5QrCode.stop().then(() => {
+              document.getElementById('startBtn').style.display = 'block';
+              document.getElementById('controls').style.display = 'none';
+              document.getElementById('scanResult').innerText = '';
+          }).catch(err => {
+              console.error("Leállítási hiba", err);
+          });
+      }
+  }
+  </script>)script";
+
+  html += "<button class='sec' style='width:100%; padding:14px; font-size:16px;' onclick=\"location.href='/hive?hive=" + hiveId + "'\">⬅ Vissza a kaptárhoz</button>";
+  html += "</div>";
+  
+  html += htmlFoot();
+  request->send(200, "text/html", html);
 }
 
 void handleConfigPost(AsyncWebServerRequest *request) {

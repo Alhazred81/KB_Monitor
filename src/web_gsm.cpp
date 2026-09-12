@@ -18,17 +18,75 @@ extern bool gSmsSendInProgress;
 extern bool gSmsSendDone;
 extern String gSmsSendResult;
 
+String modemBusyReason();
+
 bool sendModemBusyPage(AsyncWebServerRequest *request, const String& title, const String& active, const String& backUrl);
 
 void handleGsm(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   String html = htmlHead("GSM", "2");
 
+  // --- AJAX JS az SMS-hez, ami a háttérben kérdezi le az állapotot ---
+  html += R"script(<script>
+  function sendAjaxSms() {
+    var num = document.querySelector('input[name="num"]').value;
+    var msg = document.querySelector('textarea[name="smstext"]').value;
+    var btn = document.getElementById('smsBtn');
+    var res = document.getElementById('smsResult');
+    
+    if(!num || !msg) {
+      res.style.display = 'block';
+      res.innerHTML = '<span style="color:var(--err)">Hiányzó adatok!</span>';
+      return;
+    }
+    
+    btn.disabled = true;
+    res.style.display = 'block';
+    res.innerHTML = '<span style="color:var(--txt2)">Ellenőrzés...</span>';
+    
+    fetch('/dosms?num=' + encodeURIComponent(num) + '&smstext=' + encodeURIComponent(msg), {method: 'POST'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d.error) {
+        res.innerHTML = '<span style="color:var(--err)">' + d.error + '</span>';
+        btn.disabled = false;
+      } else {
+        res.innerHTML = '<span style="color:var(--txt2)">⏳ Küldés folyamatban (modem dolgozik)...</span>';
+        smsPoll(); // Elindítjuk az állapot lekérdezését
+      }
+    }).catch(function(e){
+      res.innerHTML = '<span style="color:var(--err)">Hálózati hiba!</span>';
+      btn.disabled = false;
+    });
+  }
+  
+  function smsPoll(){
+    fetch('/smsstatus')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.done){
+        setTimeout(smsPoll, 1000); // Még dolgozik, várunk 1 mp-t
+        return;
+      }
+      var res = document.getElementById('smsResult');
+      var btn = document.getElementById('smsBtn');
+      btn.disabled = false;
+      if(d.ok){
+        res.innerHTML = '<span style="color:var(--ok)">✓ SMS sikeresen elküldve!</span>';
+      } else {
+        res.innerHTML = '<span style="color:var(--err)">✕ Hiba: ' + d.error + '</span>';
+      }
+    }).catch(function(){ setTimeout(smsPoll, 1500); });
+  }
+  </script>)script";
+
   html += "<div class='card wide'><h2>SMS Küldés</h2>";
-  html += "<form action='/dosms' method='POST'>";
+  // Kivettük a <form> taget, hogy a gomb JS-t hívjon
   html += phoneInputBlock("smsBtn", "num");
   html += "<label>Üzenet</label><textarea name='smstext' maxlength='160'></textarea>";
-  html += "<button id='smsBtn' disabled>SMS Küldés</button></form></div>";
+  html += "<button id='smsBtn' type='button' disabled onclick='sendAjaxSms()'>SMS Küldés</button>";
+  html += "<div id='smsResult' style='margin-top:10px; font-weight:bold; display:none;'></div>";
+  html += "</div>";
 
   html += "<div class='card'><h2>Hívásteszt</h2>";
   html += "<form action='/docall' method='POST'>";
@@ -65,21 +123,28 @@ void handleGsm(AsyncWebServerRequest *request) {
   request->send(200, "text/html", html);
 }
 
+// Új, JSON alapú válaszadó, ami nem tölti újra az oldalt
 void handleDoSms(AsyncWebServerRequest *request) {
-  if(sendModemBusyPage(request, "SMS", "2", "/gsm")) return;
-  if(!request->hasParam("num", true) || !request->hasParam("smstext", true)){
-    request->redirect("/gsm"); return;
+  if(modemBusyReason().length() > 0) {
+    request->send(200, "application/json", "{\"error\":\"" + modemBusyReason() + "\"}");
+    return;
+  }
+
+  if(!request->hasParam("num") || !request->hasParam("smstext")){
+    request->send(200, "application/json", "{\"error\":\"Hiányzó adatok!\"}");
+    return;
   }
 
   unsigned long left = 0;
   if(gLastSms > 0 && millis()-gLastSms < SMS_COOLDOWN_MS)
     left = (SMS_COOLDOWN_MS-(millis()-gLastSms))/1000;
   if(left > 0){
-    request->redirect("/gsm"); return;
+    request->send(200, "application/json", "{\"error\":\"Várj " + String(left) + " másodpercet!\"}");
+    return;
   }
 
-  String num = request->getParam("num", true)->value(); num.trim();
-  String smstext = request->getParam("smstext", true)->value(); smstext.trim();
+  String num = request->getParam("num")->value(); num.trim();
+  String smstext = request->getParam("smstext")->value(); smstext.trim();
 
   String clean = "";
   for(int i=0; i<(int)smstext.length() && i<SMS_MAX_LEN; i++){
@@ -88,20 +153,12 @@ void handleDoSms(AsyncWebServerRequest *request) {
     clean += c;
   }
 
-  String html = htmlHead("SMS", "2");
-
   if(!num.startsWith("+36") || num.length() != 12){
-    html += "<div class='msg err'>Érvénytelen telefonszám! A formátum: +36xxxxxxxxx.</div>";
-    html += "<a href='/gsm'><button class='sec'>Vissza</button></a>";
-    html += htmlFoot();
-    request->send(200, "text/html", html);
+    request->send(200, "application/json", "{\"error\":\"Érvénytelen telefonszám! Formátum: +36...\"}");
     return;
   }
   if(clean.length() == 0){
-    html += "<div class='msg err'>Az üzenet üres maradt az ékezet-szűrés után.</div>";
-    html += "<a href='/gsm'><button class='sec'>Vissza</button></a>";
-    html += htmlFoot();
-    request->send(200, "text/html", html);
+    request->send(200, "application/json", "{\"error\":\"Az üzenet üres maradt az ékezet-szűrés után.\"}");
     return;
   }
 
@@ -111,40 +168,8 @@ void handleDoSms(AsyncWebServerRequest *request) {
   gSmsSendResult  = "";
   gSmsSendRequested = true;
 
-  html += "<div class='card full'>"
-    "<div style='text-align:center;padding:8px'>"
-    "<div id='smsPhase' style='font-size:13px;color:var(--txt2)'>SMS küldése folyamatban...</div>"
-    "<div id='smsSpin' style='font-size:28px;margin:10px 0'>⏳</div>"
-    "<div id='smsResult' style='display:none'></div>"
-    "<a href='/gsm'><button id='smsWaitBtn' class='sec' disabled style='margin-top:12px'>Várakozás...</button></a>"
-    "</div></div>"
-    "<script>"
-    "function smsPoll(){"
-      "fetch('/smsstatus').then(function(r){return r.json();}).then(function(d){"
-        "if(!d.done){"
-          "setTimeout(smsPoll, 1000);"
-          "return;"
-        "}"
-        "document.getElementById('smsSpin').style.display='none';"
-        "document.getElementById('smsPhase').innerText = d.ok ? 'Kész!' : 'Sikertelen.';"
-        "var res = document.getElementById('smsResult');"
-        "res.style.display='block';"
-        "var btn = document.getElementById('smsWaitBtn');"
-        "btn.disabled = false;"
-        "btn.innerText = 'Vissza az SMS oldalra';"
-        "btn.style.background = d.ok ? 'var(--ok)' : '';"
-        "if(d.ok){"
-          "res.innerHTML = \"<div class='msg ok'>✓ SMS elküldve!</div>\";"
-        "} else {"
-          "res.innerHTML = \"<div class='msg err'>SMS küldés sikertelen: \" + d.error + \"</div>\";"
-        "}"
-      "}).catch(function(){ setTimeout(smsPoll, 1500); });"
-    "}"
-    "setTimeout(smsPoll, 500);"
-    "</script>";
-
-  html += htmlFoot();
-  request->send(200, "text/html", html);
+  // Siker esetén egy üres hibaüzenettel térünk vissza, ami triggereli a JS oldali pollingot
+  request->send(200, "application/json", "{\"error\":\"\",\"started\":true}");
 }
 
 void handleSmsStatus(AsyncWebServerRequest *request) {

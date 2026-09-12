@@ -17,3 +17,4 @@ void handleAddDummyHive(AsyncWebServerRequest *request);
 void handleAtStatusSerial(AsyncWebServerRequest *request);
 void handleApiEspNowLog(AsyncWebServerRequest *request);
 void handleApiEspNowClear(AsyncWebServerRequest *request);
+void initDiagRoutes();
