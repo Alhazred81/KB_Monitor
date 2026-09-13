@@ -7,6 +7,7 @@
  */
 
 #include <Arduino.h>
+#include <Wire.h>
 #include <WiFi.h>
 #include <DNSServer.h>
 #include <EEPROM.h>
@@ -25,15 +26,20 @@
 #include "web_diag.h"
 #include "web_config.h"
 
-
 // ─── Globálisok ─────────────────────────────────────────────
 
 extern String gReportTimes;
 extern void initIotRoutes();
 
+// Külső függvény hivatkozások
+extern String loadReportConfig();
+extern void monitorCall();
+extern void updateModemStats();
+extern void backgroundTaskLoop();
+extern void checkAndSendScheduledReport();
+extern int gSmsInboxLimit;
+extern bool gNtfyStartupMsg;
 
-void checkAndSendScheduledReport();
-String loadReportConfig();
 HardwareSerial modemSerial(1);
 TinyGsm        modem(modemSerial);
 bool gStartupNtfySent = false;
@@ -53,10 +59,11 @@ ShtSensorState gSht;
 RainSensorState gRain;
 Mpu6050State    gMpu;
 Ltr390State      gLtr;
+
 String         gApSSID    = "";
 String         gStaSSID = "";
 String         gStaPass = "";
-int gRadioMode = 0; // 0: ESP-NOW, 1: LoRa
+int            gRadioMode = 0; // 0: ESP-NOW, 1: LoRa
 String         gApPass    = DEFAULT_AP_PASS;
 uint8_t        gApChannel = DEFAULT_CHANNEL;
 unsigned long  gLastSms   = 0;
@@ -70,13 +77,25 @@ String         gSmsPendingText   = "";
 bool           gSmsSendInProgress = false;
 bool           gSmsSendDone       = false;
 String         gSmsSendResult     = ""; 
-String         loadReportConfig();
-extern String gReportTimes;
-extern void backgroundTaskLoop();
 
+// ─── IP5306 Tápvezérlés (T-SIM7000G specifikus) ─────────────
+#define IP5306_ADDR 0x75
+#define IP5306_REG_SYS_CTL0 0x00
+
+bool setPowerBoostKeepOn(bool en) {
+  Wire.beginTransmission(IP5306_ADDR);
+  Wire.write(IP5306_REG_SYS_CTL0);
+  Wire.write(en ? 0x37 : 0x35); // Bit1: 1 engedélyezi a boost fenntartását
+  return Wire.endTransmission() == 0;
+}
+
+// ─── Segédfüggvények ────────────────────────────────────────
 
 void loadSmsInboxLimit() {
-  // EEPROM betöltés vagy fix érték helye
+  gSmsInboxLimit = EEPROM.read(ADDR_SMS_INBOX_LIMIT);
+  if(gSmsInboxLimit == 0 || gSmsInboxLimit == 255) {
+      gSmsInboxLimit = SMS_INBOX_DEFAULT_LIMIT;
+  }
 }
 
 String macSuffix() {
@@ -92,7 +111,7 @@ void startAP() {
     WiFi.mode(WIFI_AP);
   }
   
-  bool hideAp = loadApHide(); 
+  bool hideAp = EEPROM.read(ADDR_AP_HIDE) == 1; 
   
   WiFi.softAP(gApSSID.c_str(), gApPass.c_str(), gApChannel, hideAp);
   
@@ -100,6 +119,8 @@ void startAP() {
   Serial.println("[AP] IP:   " + WiFi.softAPIP().toString());
   Serial.println("[AP] CH:   " + String(gApChannel));
 }
+
+// ─── LED Kezelés ────────────────────────────────────────────
 
 enum class LedPhase {
   NET_ON, NET_GAP1, NET_GAP2, NET_OFF_PAUSE,
@@ -198,6 +219,8 @@ void updateLED() {
   }
 }
 
+// ─── Soros Port Parancsok ───────────────────────────────────
+
 void handleSerial() {
   if(!Serial.available()) return;
   Serial.setTimeout(50); 
@@ -255,10 +278,18 @@ void handleSerial() {
   }
 }
 
+// ─── Fő Ciklusok ────────────────────────────────────────────
+
 void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println(F("\n=== KB SIM7000G indul ==="));
+  
+  Wire.begin(SENS_I2C1_SDA_DEFAULT, SENS_I2C1_SCL_DEFAULT);
+  delay(50);
+  if (setPowerBoostKeepOn(true)) {
+      Serial.println("IP5306 Boost engedélyezve.");
+  }
   
   modemSerial.setRxBufferSize(1024); 
   
@@ -285,7 +316,7 @@ void setup() {
 
   gApSSID = loadApSSID();
   if (gApSSID.length() == 0) {
-    gApSSID = "KB-teszt-" + macSuffix(); // Egységesítve a helyes előtagra
+    gApSSID = "KB-teszt-" + macSuffix();
   }
 
   diagAdd("Wi-Fi tisztítása...");
@@ -361,7 +392,19 @@ void loop() {
   smsInboxLoop();
   sensorsLoop();
   backgroundTaskLoop();
+  
+  // Kopogás figyelő futtatása folyamatosan
+  knockLoop();
 
+  // Eredmény kiértékelése
+  if (isSecretKnockUnlocked()) {
+    clearSecretKnock();
+    
+    diagAdd("Titkos kód (3 kopp) megadva! AP elindítása...");
+    Serial.println("KOPOGÁS ÉRZÉKELVE! AP indul.");
+    
+    startAP();
+  }
 
   static unsigned long lastReportCheck = 0;
   if (millis() - lastReportCheck > 15000) { 

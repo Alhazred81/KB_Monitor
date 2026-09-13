@@ -17,6 +17,17 @@ extern String gLastSensTestResult;
 extern bool gLastSensTestOk;
 extern String gLastSensTestRaw;
 
+// --- Kopogás globális változói a szimulációhoz ---
+extern int gKnockCount;
+extern unsigned long gKnockWindowStart;
+extern unsigned long gLastKnockTime;
+extern bool gIsLearning;
+extern int gTargetKnockCount;
+
+extern bool isSecretKnockUnlocked();
+extern void clearSecretKnock();
+extern void startKnockLearning();
+
 #if CURRENT_DEVICE_ROLE == ROLE_SERVER
   extern bool checkPinGuard(AsyncWebServerRequest *request);
 #else
@@ -123,6 +134,20 @@ void handleSensors(AsyncWebServerRequest *request) {
     html += sensorRowHtml("ltr", "LTR-390 UV (I2C2)", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText());
     html += "</div>";
 
+    // --- Új Tanítós Kopogás Kártya ---
+    html += "<div class='card wide'><h2>Kopogás (Titkos Kód) Tanítás & Teszt</h2>";
+    html += "<p class='hint'>Tanítsd be a rendszert a gombbal! Kattintás után 10 másodperced van fizikailag, vagy a lenti gombbal bekopogni a kódot.</p>";
+    html += "<div style='display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;'>";
+    html += "<button class='sec' onclick='startLearn()' style='background:#2a4; color:#fff;'>Tanítás indítása!</button>";
+    html += "<button class='sec' onclick='simKnock()'>Kopp (Szimuláció)</button>";
+    html += "<button class='sec' onclick='resetKnock()'>Lámpa Reset</button>";
+    html += "<div style='display:flex; align-items:center; gap:8px; font-weight:bold;'>Zár:";
+    html += "<span id='knockLamp' style='display:inline-block; width:22px; height:22px; border-radius:50%; background-color:var(--err); box-shadow:0 0 5px var(--err); transition:0.3s;'></span>";
+    html += "</div></div>";
+    html += "<div id='learnStatus' style='margin-top:12px; font-weight:bold; font-size:14px; text-align:center;'>Aktív kód lekérdezése...</div>";
+    html += "</div>";
+    // -------------------------------
+
     html += "<div class='card wide'><h2>RS485 / Modbus beallitasok</h2><form action='/sensconfig' method='POST'><label>RS485 baudrate</label><select name='baud'>";
     const long bauds[] = {1200,2400,4800,9600,19200,38400,57600,115200};
     for(int i=0;i<8;i++){
@@ -147,16 +172,41 @@ void handleSensors(AsyncWebServerRequest *request) {
     }
     html += "</div>";
 
-    html += "<div class='card wide'><h2>I2C Scanner <button class='sec' style='padding:4px 8px;font-size:11px;float:right;margin-top:-2px' onclick='copyElement(\"i2cScanBox\")'>Másolás</button></h2>";
-    html += "<p class='hint'>Lekérdezi a buszokra (I2C1 és I2C2) csatlakoztatott eszközök hardveres címeit.</p>";
-    html += "<button class='sec' style='width:100%; margin-bottom:10px;' onclick='runI2cScan(this)'>🔎 I2C Buszok Szkennelése</button>";
-    html += "<div class='diag' id='i2cScanBox' style='min-height:80px; font-family:monospace; white-space:pre-wrap;'>Nyomd meg a gombot a szkenneléshez...</div></div>";
-
     html += R"js(<script>
 function sensToggle(key, on){ fetch('/senstoggle', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'key='+encodeURIComponent(key)+'&on='+(on?'1':'0')}); }
+function simKnock() { fetch('/api/simknock', {method:'POST'}); }
+function resetKnock() { 
+    fetch('/api/resetknock', {method:'POST'}); 
+    var l = document.getElementById('knockLamp'); 
+    if(l) { l.style.backgroundColor = 'var(--err)'; l.style.boxShadow = '0 0 5px var(--err)'; } 
+}
+function startLearn() {
+    fetch('/api/startlearn', {method:'POST'});
+    var ls = document.getElementById('learnStatus');
+    if(ls) { ls.innerText = "FELVÉTEL INDULT (10mp)! Kopogj..."; ls.style.color = "var(--warn)"; }
+}
+
 function sensPoll(){
     fetch('/sensstatus').then(r=>r.json()).then(d=>{
+        if(d.knockUnlocked !== undefined) {
+            var l = document.getElementById('knockLamp');
+            var ls = document.getElementById('learnStatus');
+            if(l) {
+                if(d.knockUnlocked) { l.style.backgroundColor = 'var(--ok)'; l.style.boxShadow = '0 0 8px var(--ok)'; }
+                else { l.style.backgroundColor = 'var(--err)'; l.style.boxShadow = '0 0 5px var(--err)'; }
+            }
+            if(ls) {
+                if(d.isLearning) {
+                    ls.innerHTML = "🔴 TANÍTÁS FOLYAMATBAN! Eddigi ütések: <span style='font-size:18px;'>" + d.currentKnocks + "</span>";
+                    ls.style.color = "var(--err)";
+                } else {
+                    ls.innerText = "Aktív Titkos Kód: " + d.targetKnock + " kopogás.";
+                    ls.style.color = "inherit";
+                }
+            }
+        }
         for(var key in d){
+            if(key === 'knockUnlocked' || key === 'isLearning' || key === 'targetKnock' || key === 'currentKnocks') continue;
             var row = document.getElementById('sensRow_'+key); if(!row) continue;
             var val = document.getElementById('sensVal_'+key); var chk = document.getElementById('sensChk_'+key);
             var s = d[key];
@@ -167,11 +217,7 @@ function sensPoll(){
         }
     }).catch(e=>{});
 }
-function runI2cScan(btn) {
-    var orig = btn.innerText; btn.innerText = 'Szkennelés...'; btn.disabled = true; document.getElementById('i2cScanBox').innerText = 'Keresés folyamatban a buszokon...';
-    fetch('/api/i2cscan').then(r=>r.text()).then(txt=>{ document.getElementById('i2cScanBox').innerText = txt; }).catch(e=>{ document.getElementById('i2cScanBox').innerText = 'Hiba: ' + e; }).finally(()=>{ btn.innerText = orig; btn.disabled = false; });
-}
-setInterval(sensPoll, 3000);
+setInterval(sensPoll, 1000); // 1 másodpercre gyorsítva a látvány miatt!
 </script>)js";
 
     html += htmlFoot();
@@ -255,7 +301,13 @@ void handleSensStatus(AsyncWebServerRequest *request) {
     json += sensStatusJsonEntry("mpu", gMpu.enabled, gMpu.lastGoodRead>0, gMpu.lastReadOk, mpuValueText()) + ",";
     json += sensStatusJsonEntry("aht20", gAht20.enabled, gAht20.lastGoodRead>0, gAht20.lastReadOk, aht20ValueText()) + ",";
     json += sensStatusJsonEntry("bmp280", gBmp280.enabled, gBmp280.lastGoodRead>0, gBmp280.lastReadOk, bmp280ValueText()) + ",";
-    json += sensStatusJsonEntry("ltr", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText());
+    json += sensStatusJsonEntry("ltr", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText()) + ",";
+    
+    // Kopogás státusz paraméterei a JSON-ban
+    json += "\"knockUnlocked\":" + String(isSecretKnockUnlocked() ? "true" : "false") + ",";
+    json += "\"isLearning\":" + String(gIsLearning ? "true" : "false") + ",";
+    json += "\"targetKnock\":" + String(gTargetKnockCount) + ",";
+    json += "\"currentKnocks\":" + String(gKnockCount);
     json += "}";
     request->send(200, "application/json", json);
 }
@@ -274,4 +326,22 @@ void handleApiI2cScan(AsyncWebServerRequest *request) {
     if (!checkPinGuard(request)) return;
     String res = performI2cScan();
     request->send(200, "text/plain", res);
+}
+
+void handleApiSimKnock(AsyncWebServerRequest *request) {
+    if (gKnockCount == 0 && !gIsLearning) gKnockWindowStart = millis();
+    gKnockCount++;
+    gLastKnockTime = millis();
+    request->send(200, "text/plain", "ok");
+}
+
+void handleApiResetKnock(AsyncWebServerRequest *request) {
+    clearSecretKnock();
+    gKnockCount = 0;
+    request->send(200, "text/plain", "ok");
+}
+
+void handleApiStartLearn(AsyncWebServerRequest *request) {
+    startKnockLearning();
+    request->send(200, "text/plain", "ok");
 }

@@ -1,5 +1,3 @@
-//sensors.cpp
-
 #include "sensors.h"
 
 // ─── Globális változók definíciója ───────────────────────────
@@ -17,6 +15,18 @@ bool gI2c2Initialized = false;
 String gLastSensTestResult = "";
 bool   gLastSensTestOk     = false;
 String gLastSensTestRaw    = "";
+
+// --- Kopogás változói ---
+unsigned long gKnockWindowStart = 0;
+int gKnockCount = 0;
+unsigned long gLastKnockTime = 0;
+bool gSecretKnockUnlocked = false;
+unsigned long gLastKnockPoll = 0;
+
+// Tanítás változói
+int gTargetKnockCount = 3; // Alapértelmezett kód: 3 ütés
+bool gIsLearning = false;
+unsigned long gLearningStartTime = 0;
 
 // ─── I2C Címek ───────────────────────────────────────────────
 #define MPU6050_ADDR 0x68
@@ -244,7 +254,34 @@ bool mpu6050WriteReg(uint8_t reg, uint8_t val) {
 
 void mpu6050Init() {
   Wire.begin(SENS_I2C1_SDA_DEFAULT, SENS_I2C1_SCL_DEFAULT);
+  
+  // MPU6050 ébresztés
   mpu6050WriteReg(0x6B, 0x00); 
+  
+  // --- Játéküzem / Ébresztés kalibráció (Kopogás-érzékelés) ---
+  // High pass filter (5Hz) az egyenáramú gravitáció szűrésére
+  mpu6050WriteReg(0x1C, 0x01); 
+  // Ütés/mozgás küszöbérték (1-255). 20 = közepes érzékenység. Finomhangold!
+  mpu6050WriteReg(0x1F, 20);
+  // Mozgás időtartama (ms) - rövid impulzus elég a riasztáshoz
+  mpu6050WriteReg(0x20, 2); 
+  // INT láb konfigurálása: Active HIGH, push-pull, 50us pulzus
+  mpu6050WriteReg(0x37, 0x00);
+  // Motion Interrupt (MOT_EN) bekapcsolása
+  mpu6050WriteReg(0x38, 0x40);
+}
+
+// Játszóüzem: Kopogás detektálása a regiszterből
+bool isKnockDetected() {
+  Wire.beginTransmission(MPU6050_ADDR);
+  Wire.write(0x3A); // INT_STATUS olvasása (és törlése)
+  Wire.endTransmission(false);
+  Wire.requestFrom((int)MPU6050_ADDR, 1);
+  if(Wire.available()) {
+    uint8_t intStatus = Wire.read();
+    return (intStatus & 0x40); // Bit 6 (MOT_INT) aktív?
+  }
+  return false;
 }
 
 void mpu6050Poll() {
@@ -465,7 +502,7 @@ void ltr390Poll() {
 
 void sensorsApplyEnabled() {
   bool anyRs485 = sensEnabled(SENS_BIT_WINDSPEED) || sensEnabled(SENS_BIT_WINDDIR) ||
-                 sensEnabled(SENS_BIT_SHT) || (sensEnabled(SENS_BIT_RAIN) && gRain.isModbus);
+                  sensEnabled(SENS_BIT_SHT) || (sensEnabled(SENS_BIT_RAIN) && gRain.isModbus);
   if(anyRs485 && !gRs485Initialized) rs485Init();
   if(sensEnabled(SENS_BIT_MPU6050) && !gI2c1Initialized) { mpu6050Init(); gI2c1Initialized = true; }
   if((sensEnabled(SENS_BIT_AHT20) || sensEnabled(SENS_BIT_BMP280) || sensEnabled(SENS_BIT_LTR390)) && !gI2c2Initialized) {
@@ -597,4 +634,69 @@ String performI2cScan() {
   out += scanBus(Wire1, "I2C2 (Külső szenzorok)", SENS_I2C2_SDA_DEFAULT, SENS_I2C2_SCL_DEFAULT, gI2c2Initialized);
   
   return out;
+}
+
+void startKnockLearning() {
+  gIsLearning = true;
+  gLearningStartTime = millis();
+  gKnockCount = 0;
+  gSecretKnockUnlocked = false;
+}
+
+void knockLoop() {
+  if (!gMpu.enabled && !gIsLearning) return;
+
+  // Csak 50 ms-enként kérdezzük le
+  if (millis() - gLastKnockPoll < 50) return;
+  gLastKnockPoll = millis();
+
+  bool knocked = isKnockDetected(); 
+
+  if (gIsLearning) {
+    // === TANULÓ ÜZEMMÓD ===
+    if (millis() - gLearningStartTime > 10000) { 
+      // 10 mp lejárt!
+      gIsLearning = false;
+      if (gKnockCount > 0) {
+        gTargetKnockCount = gKnockCount; // Megtanulta az új kódot!
+      }
+      gKnockCount = 0; 
+    } 
+    else if (knocked && (millis() - gLastKnockTime > 300)) { 
+      gKnockCount++;
+      gLastKnockTime = millis();
+    }
+  } 
+  else {
+    // === NORMÁL ÜZEMMÓD ===
+    if (gKnockCount > 0) {
+      if (millis() - gKnockWindowStart > 7000) { 
+        // 7mp ablak vége -> PONTOS egyezést várunk
+        if (gKnockCount == gTargetKnockCount) { 
+          gSecretKnockUnlocked = true;
+        }
+        gKnockCount = 0; // Ablak bezár, számláló nullázódik
+      } 
+      else if (knocked && (millis() - gLastKnockTime > 300)) { 
+        gKnockCount++;
+        gLastKnockTime = millis();
+      }
+    } 
+    else {
+      // Első ütés várása
+      if (knocked) {
+        gKnockCount = 1;
+        gKnockWindowStart = millis();
+        gLastKnockTime = millis();
+      }
+    }
+  }
+}
+
+bool isSecretKnockUnlocked() {
+  return gSecretKnockUnlocked;
+}
+
+void clearSecretKnock() {
+  gSecretKnockUnlocked = false;
 }

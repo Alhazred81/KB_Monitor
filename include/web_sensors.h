@@ -8,6 +8,9 @@ void handleSensToggle(AsyncWebServerRequest *request);
 void handleSensStatus(AsyncWebServerRequest *request);
 void handleSensTest(AsyncWebServerRequest *request);
 void handleApiI2cScan(AsyncWebServerRequest *request);
+void handleApiSimKnock(AsyncWebServerRequest *request);
+void handleApiResetKnock(AsyncWebServerRequest *request);
+void handleApiStartLearn(AsyncWebServerRequest *request);
 
 String aht20ValueText();
 String bmp280ValueText();

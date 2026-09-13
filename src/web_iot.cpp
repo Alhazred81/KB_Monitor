@@ -224,7 +224,7 @@ void handleNtfySend(AsyncWebServerRequest *request) {
     String title = isStorm ? "VIHAR RIASZTAS TESZT" : "Teszt Riport";
     
     // A törzsben (Body) nyugodtan mehet az ékezet és az emoji is.
-    String msg = isStorm ? "⚠️ Vihar közeledik a kaptárakhoz! (Prio: " + String(prioVal) + ")" : "Sikeres szerver tesztüzenet! (Prio: " + String(prioVal) + ")";
+    String msg = isStorm ? "⚠️⛈️⚡⚡ Vihar közeledik a kaptárakhoz! ⚡⚡⛈️ (Prio: " + String(prioVal) + ")" : "Sikeres szerver tesztüzenet! (Prio: " + String(prioVal) + ")";
     
     Serial.println("[WEBSERVER] ntfy.send indítása (Prioritás: " + String(prioVal) + ")...");
     

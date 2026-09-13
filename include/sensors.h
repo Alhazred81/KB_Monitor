@@ -4,6 +4,16 @@
 #include <EEPROM.h>
 #include "config.h"
 
+bool isKnockDetected();
+void knockLoop();
+bool isSecretKnockUnlocked();
+void clearSecretKnock();
+void startKnockLearning(); // Új: Tanítás indítása
+
+extern int gTargetKnockCount; // Új: Aktuális titkos kód (ütések száma)
+extern bool gIsLearning;      // Új: Tanuló mód aktív-e
+extern int gKnockCount;       // Új: Jelenlegi ütésszám
+
 struct WindSpeedState {
   bool      enabled     = false;
   bool      lastReadOk  = false;
@@ -141,4 +151,14 @@ void ltr390Poll();
 void sensorsApplyEnabled();
 void sensTestRun(const String& which);
 void sensorsLoop();
+
 String performI2cScan();
+
+bool isKnockDetected();
+int countKnocks(int timeoutMs);
+
+// --- Játéküzem / Kopogás ---
+void knockLoop();
+bool isSecretKnockUnlocked();
+void clearSecretKnock();
+

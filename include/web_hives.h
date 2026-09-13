@@ -17,10 +17,11 @@ extern HiveRegistrationContext gRegCtx;
 
 void handleHives(AsyncWebServerRequest *request);
 void handleRegStart(AsyncWebServerRequest *request);
-void handleRegNfc(AsyncWebServerRequest *request);
+void handleRegBarcode(AsyncWebServerRequest *request);
 void handleRegQueen(AsyncWebServerRequest *request);
 void handleRegSurvey(AsyncWebServerRequest *request);
-void handleApiSurveyStatus(AsyncWebServerRequest *request);
 void handleRegSummary(AsyncWebServerRequest *request);
 void handleRegSave(AsyncWebServerRequest *request);
 void handleRegCancel(AsyncWebServerRequest *request);
+void handleApiSurveyStatus(AsyncWebServerRequest *request);
+void handleCheckPairingAPI(AsyncWebServerRequest *request);

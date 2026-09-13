@@ -96,16 +96,20 @@ extern void handleGetHivesJson(AsyncWebServerRequest *request);
 extern void handleDeleteHive(AsyncWebServerRequest *request);
 extern void handleAddDummyHive(AsyncWebServerRequest *request);
 extern void handleRegStart(AsyncWebServerRequest *request);
-extern void handleRegNfc(AsyncWebServerRequest *request);
+extern void handleRegBarcode(AsyncWebServerRequest *request);
 extern void handleRegQueen(AsyncWebServerRequest *request);
 extern void handleRegSurvey(AsyncWebServerRequest *request);
 extern void handleApiSurveyStatus(AsyncWebServerRequest *request);
 extern void handleRegSummary(AsyncWebServerRequest *request);
 extern void handleRegSave(AsyncWebServerRequest *request);
 extern void handleRegCancel(AsyncWebServerRequest *request);
+extern void handleCheckPairingAPI(AsyncWebServerRequest *request);
 extern void handleSupply(AsyncWebServerRequest *request);
 extern void handleConfig(AsyncWebServerRequest *request);
 extern void handleConfigPost(AsyncWebServerRequest *request);
+void handleApiSimKnock(AsyncWebServerRequest *request);
+void handleApiResetKnock(AsyncWebServerRequest *request);
+void handleApiStartLearn(AsyncWebServerRequest *request);
 
 
 extern Aht20State gAht20;
@@ -258,11 +262,10 @@ void handleRoot(AsyncWebServerRequest *request) {
         html += "<div style='font-size:14px; margin:2px 0;'>" + icon + "</div>";
         html += "<div style='font-size:10px; font-weight:bold;'>" + String(minT, 0) + " - " + String(maxT, 0) + "°C</div>";
         
-        // Csapadék kijelzése
         if (p > 0.0) {
             html += "<div style='font-size:9px; color:#60a5fa; margin-top:2px;'>💧 " + String(p, 1) + " mm</div>";
         } else {
-            html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>"; // Helykitöltő a szép rács miatt
+            html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>";
         }
         
         html += "</div>";
@@ -353,13 +356,16 @@ void webBegin() {
   server.on("/api/hives/delete", HTTP_POST, handleDeleteHive);
   server.on("/api/hives/add_dummy", HTTP_POST, handleAddDummyHive);
   server.on("/reg/start", HTTP_GET, handleRegStart);
-  server.on("/reg/nfc", HTTP_GET, handleRegNfc);
+  server.on("/reg/barcode", HTTP_GET, handleRegBarcode);
   server.on("/reg/queen", HTTP_POST, handleRegQueen);
   server.on("/reg/survey", HTTP_POST, handleRegSurvey);
   server.on("/api/survey_status", HTTP_GET, handleApiSurveyStatus);
+  server.on("/api/check_pairing", HTTP_GET, handleCheckPairingAPI);
   server.on("/reg/summary", HTTP_GET, handleRegSummary);
   server.on("/reg/save", HTTP_POST, handleRegSave);
   server.on("/reg/cancel", HTTP_GET, handleRegCancel);
+  server.on("/api/startlearn", HTTP_POST, handleApiStartLearn);
+  
   
 
   server.serveStatic("/", LittleFS, "/");

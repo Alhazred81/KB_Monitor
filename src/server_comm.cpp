@@ -1,21 +1,17 @@
-//server_comm.cpp
-
 #include "config.h"
 
 #if CURRENT_DEVICE_ROLE == ROLE_MONITOR
 
 #include "server_comm.h"
+#include "hive_msg.h" // A közös struktúra beemelése
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <esp_sleep.h>
 #include <Preferences.h>
-#include <ArduinoJson.h>
 #include <sys/time.h>
 
-
-
-extern unsigned long wakeStartTime; // A main.cpp-ből jön
+extern unsigned long wakeStartTime;
 
 bool serverFound = false;
 uint8_t serverMac[6] = {0};
@@ -25,6 +21,7 @@ volatile unsigned long lastSyncTimeMillis = 0;
 volatile bool timeSynchronized = false;
 Preferences serverPrefs;
 volatile bool gPairingSuccess = false;
+uint8_t gMonitorId = 1; // Ezt a Preferences-ből is be lehet majd tölteni
 
 #pragma pack(push, 1)
 struct PairingData {
@@ -71,6 +68,7 @@ void onReceive(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
 void initServerComm() {
     serverPrefs.begin("kaptar", true);
     currentRadioMode = serverPrefs.getString("radio", "espnow");
+    gMonitorId = serverPrefs.getUInt("mon_id", 1);
     
     if (serverPrefs.getBytesLength("srvMac") == 6) {
         serverPrefs.getBytes("srvMac", serverMac, 6);
@@ -119,41 +117,60 @@ void scanAndSyncServer() {
     }
 }
 
-void sendTelemetryJson(float temp, float hum, float pres, float zcr, uint8_t state, double bands[8]) {
+// Az új, optimalizált, JSON-mentes küldő függvény
+void sendTelemetry(WakeupReason reason, float temp, float hum, float pres, float zcr, uint8_t state, double bands[8]) {
     if (!serverFound) return;
 
-    JsonDocument doc;
-    doc["comm_type"] = "comm_tel";
-    doc["device_mac"] = WiFi.macAddress();
-    doc["timestamp"] = timeSynchronized ? time(NULL) : 0;
-    doc["active_time_ms"] = millis() - wakeStartTime;
-
-    JsonObject sensors = doc["sensors"].to<JsonObject>();
+    HiveDataMsg msg = {0}; // Inicializálás nullákkal
     
-    JsonObject sht40 = sensors["sht40"].to<JsonObject>();
-    sht40["temp_c"] = temp;
-    sht40["humidity_pct"] = hum;
+    msg.monitor_id = gMonitorId;
+    msg.reason = reason;
+    msg.temp_c = temp;
+    msg.humidity_pct = hum;
+    msg.pressure_hpa = pres;
+    
+    // Az egyéb szenzorokat itt lehet majd kitölteni (mérleg, VOC, UH)
+    msg.weight_kg = 0.0; 
+    msg.feed_distance_mm = 0;
+    msg.voc_index = 0;
+    msg.nox_index = 0;
+    
+    msg.audio_zcr = zcr;
+    msg.audio_state = state;
+    for (int i = 0; i < 8; i++) {
+        msg.audio_bands[i] = (float)bands[i];
+    }
+    
+    msg.battery_mv = 4100; // ADC implementáció helye
+    msg.active_time_ms = millis() - wakeStartTime;
 
-    JsonObject bmp280 = sensors["bmp280"].to<JsonObject>();
-    bmp280["pressure_hpa"] = pres;
-
-    JsonObject audio = sensors["audio"].to<JsonObject>();
-    audio["state"] = state;
-    audio["zcr"] = zcr;
-    JsonArray bandsArray = audio["bands"].to<JsonArray>();
-    for (int i = 0; i < 8; i++) bandsArray.add(bands[i]);
-
-    JsonObject power = sensors["power"].to<JsonObject>();
-    power["battery_v"] = 4.1; // ADC implementáció helye
-
-    String payload;
-    serializeJson(doc, payload);
-    Serial.println("[COMM] " + payload);
+    Serial.printf("[COMM] Küldés előkészítve. Csomagméret: %d bájt\n", sizeof(HiveDataMsg));
 
     if (currentRadioMode == "lora") {
-        // LORA küldés
+        // LORA küldés logic ide
     } else {
-        // ESP-NOW küldés
+        // Gyors ESP-NOW inicializálás a mentett csatornán
+        WiFi.mode(WIFI_STA);
+        esp_wifi_set_promiscuous(true);
+        esp_wifi_set_channel(serverChannel, WIFI_SECOND_CHAN_NONE);
+        esp_wifi_set_promiscuous(false);
+        
+        if (esp_now_init() == ESP_OK) {
+            esp_now_peer_info_t peerInfo = {};
+            memcpy(peerInfo.peer_addr, serverMac, 6);
+            peerInfo.channel = serverChannel;
+            peerInfo.encrypt = false;
+            
+            if (esp_now_add_peer(&peerInfo) == ESP_OK) {
+                esp_err_t result = esp_now_send(serverMac, (uint8_t *) &msg, sizeof(HiveDataMsg));
+                if (result == ESP_OK) {
+                    Serial.println("[COMM] ESP-NOW Sikeres küldés!");
+                } else {
+                    Serial.println("[COMM] ESP-NOW Küldési hiba.");
+                }
+            }
+            esp_now_deinit();
+        }
     }
 }
 

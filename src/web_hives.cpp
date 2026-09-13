@@ -10,6 +10,15 @@ extern bool checkPinGuard(AsyncWebServerRequest *request);
 
 HiveRegistrationContext gRegCtx;
 
+// --- PÁROSÍTÁSI VÁLTOZÓK ---
+volatile bool gPairingMode = false;
+volatile uint8_t gNewlyPairedMonitorId = 0;
+uint32_t gPairingStartTime = 0;
+
+String gRegBoxId = "";
+String gRegOriginType = "";
+uint8_t gRegMonitorId = 0;
+
 void handleHives(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
 
@@ -63,7 +72,6 @@ void handleHives(AsyncWebServerRequest *request) {
   html += "<div class='col-right'>";
   html += "<div class='card full' style='margin:0; padding:16px; height:100%;'>";
   
-  // ITT A REGISZTRÁCIÓS GOMB AZ ÁLLAPOT KÁRTYA TETEJÉN
   html += "<div style='margin-bottom:16px;'>"
           "<button class='pri' style='width:100%; padding:12px; font-weight:bold; font-size:14px; background:var(--accent); border:none; border-radius:8px; cursor:pointer;' onclick=\"location.href='/reg/start'\">➕ Új kaptár(ak) regisztrációja</button>"
           "</div>";
@@ -101,16 +109,6 @@ void handleHives(AsyncWebServerRequest *request) {
           "        let funcText = item.colonyFunc ? ('<br><span style=\"font-size:11px; color:var(--accent);\">' + item.colonyFunc + '</span>') : '';"
           "        let popupHtml = '<div style=\"text-align:center;\"><b>' + item.id + '</b>' + funcText + '<br><a href=\"/hive?hive=' + item.id + '\">Részletek megnyitása</a></div>';"
           "        L.marker([item.lat, item.lng], {icon: customIcon(color)}).bindPopup(popupHtml).addTo(map);"
-          "      } else if (item.type === 'water' || item.type === 'syrup') {"
-          "        let borderColor = '#22c55e';"
-          "        if (item.status === 'low') borderColor = '#f97316';"
-          "        if (item.status === 'critical') borderColor = '#ef4444';"
-          "        let bgColor = (item.type === 'water') ? '#3b82f6' : '#eab308';"
-          "        let symbol = (item.type === 'water') ? '💧' : '🍬';"
-          "        let iconHtml = '<div style=\"width: 36px; height: 42px; background: ' + bgColor + '; border: 3px solid ' + borderColor + '; border-radius: 8px 8px 4px 4px; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: center;\"><div style=\"position: absolute; top: -6px; left: 10px; width: 10px; height: 4px; background: ' + borderColor + '; border-radius: 2px;\"></div><div style=\"width: 24px; height: 24px; background: white; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 14px;\">' + symbol + '</div></div>';"
-          "        let customDivIcon = L.divIcon({ className: 'custom-map-marker', html: iconHtml, iconSize: [36, 42], iconAnchor: [18, 42] });"
-          "        let popupHtml = '<div style=\"text-align:center;\"><b>' + item.id + ' (' + (item.type === 'water' ? 'Itató' : 'Szirup') + ')</b><br>Szint: <b>' + item.level + '%</b><br>Állapot: ' + item.status + '</div>';"
-          "        L.marker([item.lat, item.lng], {icon: customDivIcon}).bindPopup(popupHtml).addTo(map);"
           "      }"
           "    });"
           "  }"
@@ -121,117 +119,151 @@ void handleHives(AsyncWebServerRequest *request) {
   request->send(200, "text/html", html);
 }
 
+// 1. PÁROSÍTÁS INDÍTÁSA (30 másodperces időtúllépéssel)
 void handleRegStart(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   
   gRegCtx.active = true;
-  gRegCtx.totalBoxes = 0;
-  gRegCtx.queenOrigin = "";
-  gRegCtx.queenVintage = 0;
-  gRegCtx.finalLat = 0.0;
-  gRegCtx.finalLon = 0.0;
+  gPairingMode = true; 
+  gNewlyPairedMonitorId = 0;
+  gPairingStartTime = millis();
 
-  String html = htmlHead("Új Kaptár", "0");
-  html += "<div class='card'><h2>Új kaptár regisztrálása</h2>";
-  html += "<p style='font-size:13px; color:var(--txt2); margin-bottom:12px;'>A szerver folyamatosan sugározza a párosítási jelet. Válaszd ki a megtalált eszközt a listából, vagy frissíts, ha újat keresel!</p>";
+  String html = htmlHead("Új Kaptár", "9");
+  html += "<div class='card' style='text-align:center;'><h2>📡 Hallgatózás...</h2>";
+  html += "<div style='font-size:36px; font-weight:bold; color:var(--accent); margin:10px 0;' id='countdown'>30</div>";
+  html += "<p style='font-size:1.1em; color:var(--ok); font-weight:bold;'>Üss rá a kaptármonitor dobozára a felébresztéshez!</p>";
+  html += "<p class='hint'>A szerver most 30 másodpercig nyitott, és várja a monitor bejelentkezését.</p>";
   
-  // Élő rádiós keresést visszajelző és frissítő rész
-  html += "<div style='display:flex; gap:8px; margin-bottom:15px;'>"
-          "<button type='button' class='sec' style='flex:1;' onclick='refreshDiscovered()'>🔄 Eszközök keresése...</button>"
-          "</div>";
+  html += R"script(<script>
+  let timeLeft = 30;
+  let pollInterval = setInterval(() => {
+      timeLeft--;
+      if(timeLeft >= 0) document.getElementById('countdown').innerText = timeLeft;
+      
+      fetch('/api/check_pairing').then(r=>r.json()).then(d=>{
+          if(d.paired) {
+              clearInterval(pollInterval);
+              window.location.href = '/reg/barcode?monitor_id=' + d.monitor_id;
+          } else if(d.timeout || timeLeft <= 0) {
+              clearInterval(pollInterval);
+              alert("⏳ A párosítási idő lejárt! Nem jelentkezett be új monitor.");
+              window.location.href = '/hives';
+          }
+      }).catch(e => console.error(e));
+  }, 1000);
+  </script>)script";
 
-  html += "<form action='/reg/nfc' method='GET'>";
-  html += "<select id='discoveredList' name='hiveId' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px; background:#0a0a18; color:var(--txt); border:1px solid var(--border);'>";
-  html += "<option value='KAPTAR_A1B2'>Ismeretlen (MAC: A1:B2:C3...) - Jel: -65dBm</option>";
-  html += "<option value='KAPTAR_C3D4'>Ismeretlen (MAC: C3:D4:E5...) - Jel: -78dBm</option>";
-  html += "</select>";
-  
-  html += "<script>"
-          "function refreshDiscovered() {"
-          "  let sel = document.getElementById('discoveredList');"
-          "  sel.innerHTML = '<option>Rádiós szkennelés folyamatban (ESP-NOW / LoRa)...</option>';"
-          "  fetch('/api/discovered_hives').then(r=>r.json()).then(list=>{"
-          "    sel.innerHTML = '';"
-          "    if(list.length === 0) {"
-          "      sel.innerHTML = '<option value=\"\">Nem található új eszköz a közelben</option>';"
-          "      return;"
-          "    }"
-          "    list.forEach(item => {"
-          "      let opt = document.createElement('option');"
-          "      opt.value = item.id;"
-          "      opt.innerText = item.name + ' (' + item.mac + ') - ' + item.rssi + ' dBm';"
-          "      sel.appendChild(opt);"
-          "    });"
-          "  }).catch(e => { sel.innerHTML = '<option value=\"\">Hiba a lekérdezéskor</option>'; });"
-          "}"
-          "</script>";
-
-  html += "<button type='submit' style='width:100%; padding:12px;'>Tovább (NFC olvasás) ➡️</button></form>";
-  html += "<br><button class='sec' style='width:100%;' onclick=\"location.href='/'\">Mégse</button></div>";
+  html += "<br><button class='sec' style='width:100%;' onclick=\"location.href='/reg/cancel'\">Mégse</button></div>";
   html += htmlFoot();
   request->send(200, "text/html", html);
 }
 
-void handleRegNfc(AsyncWebServerRequest *request) {
-  if (!checkPinGuard(request)) return;
-  if (request->hasParam("hiveId")) gRegCtx.hiveId = request->getParam("hiveId")->value();
-
-  String html = htmlHead("NFC Olvasás", "0");
-  html += "<div class='card' style='text-align:center;'><h2>📡 Fiók NFC azonosítása</h2>";
-  html += "<p>Érintsd az olvasóhoz a(z) <b>" + String(gRegCtx.totalBoxes + 1) + ". fiók</b> NFC tagjét!</p>";
-  
-  String dummyUid = "UID_" + String(random(1000, 9999));
-  html += "<form action='/reg/queen' method='POST'>";
-  html += "<input type='hidden' name='nfc_uid' value='" + dummyUid + "'>";
-  html += "<div style='height:100px; display:flex; align-items:center; justify-content:center; border:2px dashed var(--accent); border-radius:12px; margin:20px 0;'>";
-  html += "<button type='submit' style='background:transparent; border:none; color:var(--accent); font-weight:bold; font-size:16px; width:100%; height:100%;'>[ TESZT: Sikeres olvasás szimulálása ]</button></div></form>";
-  
-  html += "<button class='sec' style='width:100%;' onclick=\"location.href='/reg/cancel'\">Megszakítás</button></div>";
-  html += htmlFoot();
-  request->send(200, "text/html", html);
+// API Végpont: Párosítási státusz JS pollinghoz (30 másodperc)
+void handleCheckPairingAPI(AsyncWebServerRequest *request) {
+    if (!gPairingMode && gNewlyPairedMonitorId > 0) {
+        String res = "{\"paired\":true, \"monitor_id\":" + String(gNewlyPairedMonitorId) + "}";
+        request->send(200, "application/json", res);
+        gNewlyPairedMonitorId = 0; 
+    } else if (millis() - gPairingStartTime > 30000) { 
+        gPairingMode = false; 
+        request->send(200, "application/json", "{\"paired\":false, \"timeout\":true}");
+    } else {
+        request->send(200, "application/json", "{\"paired\":false, \"timeout\":false}");
+    }
 }
 
-void handleRegQueen(AsyncWebServerRequest *request) {
+// 2. FÉSZEKFIÓK AZONOSÍTÁSA (Kamerás olvasóval)
+void handleRegBarcode(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
-  if (request->hasParam("nfc_uid", true) && gRegCtx.totalBoxes < 10) {
-    gRegCtx.nfcUids[gRegCtx.totalBoxes] = request->getParam("nfc_uid", true)->value();
-    gRegCtx.totalBoxes++;
+  if (request->hasParam("monitor_id")) {
+      gRegMonitorId = request->getParam("monitor_id")->value().toInt();
   }
 
-  String html = htmlHead("Anya Adatai", "0");
-  html += "<div class='card'><h2>👑 Anya adatai</h2>";
-  html += "<p style='font-size:12px;'>Eddig regisztrált fiókok ezen a kaptáron: <b>" + String(gRegCtx.totalBoxes) + " db</b></p>";
+  String html = htmlHead("Fiók Olvasása", "9");
+  html += "<script src=\"https://unpkg.com/html5-qrcode\"></script>";
+  html += "<div class='card wide'><h2>📷 Fészekfiók Azonosítása</h2>";
+  html += "<p style='color:var(--ok); font-weight:bold; margin-bottom:10px;'>✅ Monitor csatlakoztatva! (ID: " + String(gRegMonitorId) + ")</p>";
+  html += "<p class='hint' style='margin-bottom:15px;'>Olvasd be a fészekfiókon lévő QR vagy vonalkódot.</p>";
   
-  html += "<form action='/reg/survey' method='POST'>";
-  html += "<label>Anya származása:</label>";
-  html += "<select name='origin' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px;'>";
-  html += "<option value='Saját nevelés'>Saját nevelés</option><option value='Vásárolt'>Vásárolt</option><option value='Rajbefogás'>Rajbefogás</option><option value='Ismeretlen'>Ismeretlen</option></select>";
-  html += "<label>Évjárat (szín):</label>";
-  html += "<select name='vintage' style='width:100%; padding:10px; margin-bottom:20px; border-radius:8px;'>";
-  html += "<option value='2024'>2024 (Zöld)</option><option value='2025'>2025 (Kék)</option><option value='2026'>2026 (Fehér)</option><option value='2027'>2027 (Sárga)</option><option value='2028'>2028 (Piros)</option></select>";
+  html += "<div style='background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:12px; padding:16px; text-align:center;'>";
+  html += "<div id='reader' style='width:100%; max-width:320px; margin:0 auto; border-radius:8px; overflow:hidden;'></div>";
+  html += "<button type='button' id='startBtn' class='pri' style='margin-top:12px; width:100%; padding:14px; font-size:16px;' onclick='startScanner()'>▶ Kamera indítása</button>";
+  html += "<div id='scanResult' style='margin-top:12px; font-weight:bold;'></div>";
+  html += "</div>";
 
-  html += "<button type='submit' name='action' value='add_box' class='sec' style='width:100%; margin-bottom:10px;'>➕ Még egy fiók olvasása</button>";
-  html += "<button type='submit' name='action' value='finish' style='width:100%;'>Tovább a Helymeghatározáshoz 📍</button></form></div>";
+  html += R"script(<script>
+  let html5QrCode = null;
+  function startScanner() {
+      document.getElementById('startBtn').style.display = 'none';
+      let resBox = document.getElementById('scanResult');
+      resBox.style.color = 'var(--accent)';
+      resBox.innerText = 'Kamera indítása...';
+
+      html5QrCode = new Html5Qrcode("reader");
+      html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 150 } }, 
+      (decodedText) => {
+          resBox.style.color = 'var(--ok)';
+          resBox.innerText = 'Megvan: ' + decodedText;
+          html5QrCode.stop().then(() => {
+              window.location.href = '/reg/queen?barcode=' + encodeURIComponent(decodedText);
+          });
+      }, 
+      (errorMessage) => {}).catch(err => {
+          resBox.style.color = 'var(--err)';
+          resBox.innerText = 'Kamera hiba: ' + err;
+      });
+  }
+  </script>)script";
+
+  html += "<button class='sec' style='width:100%; margin-top:15px;' onclick=\"location.href='/reg/cancel'\">Megszakítás</button></div>";
   html += htmlFoot();
   request->send(200, "text/html", html);
 }
 
+// 3. ANYA ÉS CSALÁD ADATAI
+void handleRegQueen(AsyncWebServerRequest *request) {
+  if (!checkPinGuard(request)) return;
+  if (request->hasParam("barcode")) {
+      gRegBoxId = request->getParam("barcode")->value();
+  }
+
+  String html = htmlHead("Anya Adatai", "9");
+  html += "<div class='card'><h2>👑 Anya és Család</h2>";
+  html += "<p style='color:var(--ok); font-weight:bold; margin-bottom:15px;'>📦 Fiók rögzítve: " + gRegBoxId + "</p>";
+  
+  html += "<form action='/reg/survey' method='POST'>";
+  
+  html += "<label>Anya származása:</label>";
+  html += "<input type='text' name='origin' placeholder='Saját nevelés / Tenyésztő neve' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px;' required>";
+  
+  html += "<label>Évjárat (szín):</label>";
+  html += "<select name='vintage' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px;'>";
+  html += "<option value='2024'>2024 (Zöld)</option><option value='2025'>2025 (Kék)</option><option value='2026' selected>2026 (Fehér)</option><option value='2027'>2027 (Sárga)</option></select>";
+
+  html += "<label>Család kialakulása:</label>";
+  html += "<select name='origin_type' class='sec' style='width:100%; padding:10px; margin-bottom:20px; border-radius:8px;'>";
+  html += "<option value='Anyásítás'>Anyásítás (Korábbi család)</option>";
+  html += "<option value='Söpört raj'>Söpört raj</option>";
+  html += "<option value='Böngészett raj'>Böngészett raj</option>";
+  html += "<option value='Természetes raj'>Természetes raj</option>";
+  html += "<option value='Műraj'>Műraj</option></select>";
+
+  html += "<button type='submit' class='pri' style='width:100%; padding:12px;'>Tovább a Helymeghatározáshoz 📍</button></form></div>";
+  html += htmlFoot();
+  request->send(200, "text/html", html);
+}
+
+// 4. GPS BEMÉRÉS
 void handleRegSurvey(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
 
-  if (request->hasParam("action", true)) {
-    if (request->getParam("action", true)->value() == "add_box") {
-      request->redirect("/reg/nfc");
-      return;
-    } else {
-      gRegCtx.queenOrigin = request->hasParam("origin", true) ? request->getParam("origin", true)->value() : "";
-      gRegCtx.queenVintage = request->hasParam("vintage", true) ? request->getParam("vintage", true)->value().toInt() : 0;
-    }
-  }
+  if (request->hasParam("origin", true)) gRegCtx.queenOrigin = request->getParam("origin", true)->value();
+  if (request->hasParam("vintage", true)) gRegCtx.queenVintage = request->getParam("vintage", true)->value().toInt();
+  if (request->hasParam("origin_type", true)) gRegOriginType = request->getParam("origin_type", true)->value();
 
   startPreciseSurvey();
 
-  String html = htmlHead("Bemérés", "0");
+  String html = htmlHead("Bemérés", "9");
   html += "<div class='card' style='text-align:center;'><h2>📍 Kaptár Bemérése</h2>";
   html += "<p>Helyezd a telefont / vezérlőt a kaptár tetejére, és <b>ne mozdítsd meg!</b></p>";
   html += "<div style='font-size:36px; font-weight:bold; color:var(--accent); margin:20px 0;' id='countdown'>30</div>";
@@ -266,37 +298,42 @@ void handleApiSurveyStatus(AsyncWebServerRequest *request) {
   request->send(200, "application/json", json);
 }
 
+// 5. ÖSSZEGZÉS
 void handleRegSummary(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   gRegCtx.finalLat = gSurvey.finalLat;
   gRegCtx.finalLon = gSurvey.finalLon;
 
-  String html = htmlHead("Összegzés", "0");
+  String html = htmlHead("Összegzés", "9");
   html += "<div class='card'><h2>✅ Regisztráció Összegzése</h2>";
-  html += "<div style='background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; margin-bottom:15px; font-size:13px;'>";
-  html += "<p><b>Kaptár ID:</b> " + gRegCtx.hiveId + "</p>";
-  html += "<p><b>Fiókok száma:</b> " + String(gRegCtx.totalBoxes) + " db</p>";
-  html += "<p><b>Anya:</b> " + gRegCtx.queenOrigin + " (" + String(gRegCtx.queenVintage) + ")</p>";
+  html += "<div style='background:rgba(255,255,255,0.05); padding:15px; border-radius:8px; margin-bottom:15px; font-size:14px; line-height:1.6;'>";
+  html += "<b>Monitor ID:</b> " + String(gRegMonitorId) + "<br>";
+  html += "<b>Fészekfiók ID:</b> " + gRegBoxId + "<br>";
+  html += "<b>Anya:</b> " + gRegCtx.queenOrigin + " (" + String(gRegCtx.queenVintage) + ")<br>";
+  html += "<b>Család alapja:</b> " + gRegOriginType + "<br>";
+  
   if(gRegCtx.finalLat != 0.0) {
-    html += "<p><b>Pozíció:</b> <span style='color:#22c55e;'>Sikeres bemérés!</span><br>(" + String(gRegCtx.finalLat, 6) + ", " + String(gRegCtx.finalLon, 6) + ")</p>";
+    html += "<b>Pozíció:</b> <span style='color:var(--ok);'>(" + String(gRegCtx.finalLat, 6) + ", " + String(gRegCtx.finalLon, 6) + ")</span>";
   } else {
-    html += "<p><b>Pozíció:</b> <span style='color:#ef4444;'>Nem sikerült pozíciót fogni.</span></p>";
+    html += "<b>Pozíció:</b> <span style='color:var(--err);'>Nem sikerült fogni.</span>";
   }
   html += "</div>";
 
-  html += "<form action='/reg/save' method='POST'><button type='submit' style='width:100%; background:#22c55e; margin-bottom:10px;'>OK - Végleges Mentés</button></form>";
-  html += "<button class='sec' style='width:100%;' onclick=\"location.href='/reg/cancel'\">Mégse (Eldobás)</button></div>";
+  html += "<form action='/reg/save' method='POST'><button type='submit' class='pri' style='width:100%; padding:14px; font-size:16px;'>💾 Mentés és Befejezés</button></form>";
+  html += "<button class='sec' style='width:100%; margin-top:10px;' onclick=\"location.href='/reg/cancel'\">Mégse (Eldobás)</button></div>";
   html += htmlFoot();
   request->send(200, "text/html", html);
 }
 
+// 6. BEFEJEZÉS
 void handleRegSave(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   gRegCtx.active = false;
-  String html = htmlHead("Siker", "0");
-  html += "<div class='card' style='text-align:center;'><h2>🎉 Sikeres Regisztráció!</h2>";
-  html += "<p>A kaptár adatai és pontos helyzete mentve.</p>";
-  html += "<br><button style='width:100%;' onclick=\"location.href='/'\">Vissza a Műszerfalra</button></div>";
+
+  String html = htmlHead("Siker", "9");
+  html += "<div class='card' style='text-align:center;'><h2>🎉 Kaptár Regisztrálva!</h2>";
+  html += "<p>A rendszer összerendelte a hardvert a fizikai fiókkal és az anyával.</p>";
+  html += "<br><button class='pri' style='width:100%; padding:14px;' onclick=\"location.href='/hives'\">Vissza az Állományhoz</button></div>";
   html += htmlFoot();
   request->send(200, "text/html", html);
 }
@@ -305,5 +342,6 @@ void handleRegCancel(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   gRegCtx.active = false;
   gSurvey.active = false;
-  request->redirect("/");
+  gPairingMode = false;
+  request->redirect("/hives");
 }
