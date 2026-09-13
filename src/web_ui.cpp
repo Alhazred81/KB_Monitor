@@ -4,6 +4,7 @@
 #include <ESPAsyncWebServer.h>
 #include "web_ui.h"
 #include "web_common.h"
+#include "web_config.h"
 #include "web_hives.h"
 #include "web_config.h"
 #include "web_diag.h"
@@ -39,8 +40,6 @@ extern void handleEvaluation(AsyncWebServerRequest *request);
 extern void handleTreatment(AsyncWebServerRequest *request);
 extern void handleGetTreatmentsJson(AsyncWebServerRequest *request);
 extern void handleEvaluatePost(AsyncWebServerRequest *request);
-extern void handleConfig(AsyncWebServerRequest *request);
-extern void handleConfigPost(AsyncWebServerRequest *request);
 extern void handleRegisterPart(AsyncWebServerRequest *request);
 extern void handleRegisterPartPost(AsyncWebServerRequest *request);
 extern void handleGetEvaluationsJson(AsyncWebServerRequest *request);
@@ -105,6 +104,9 @@ extern void handleRegSummary(AsyncWebServerRequest *request);
 extern void handleRegSave(AsyncWebServerRequest *request);
 extern void handleRegCancel(AsyncWebServerRequest *request);
 extern void handleSupply(AsyncWebServerRequest *request);
+extern void handleConfig(AsyncWebServerRequest *request);
+extern void handleConfigPost(AsyncWebServerRequest *request);
+
 
 extern Aht20State gAht20;
 extern Bmp280State gBmp280;
@@ -116,6 +118,7 @@ extern String shtValueText();
 extern String rainValueText();
 extern String mpuValueText();
 extern String ltrValueText();
+
 
 void handleSetMode(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
@@ -297,8 +300,6 @@ void webBegin() {
   server.on("/api/evaluations", HTTP_GET, handleGetEvaluationsJson);
   server.on("/api/treatments", HTTP_GET, handleGetTreatmentsJson);
   server.on("/evaluate_post", HTTP_POST, handleEvaluatePost);
-  server.on("/config", HTTP_GET, handleConfig);
-  server.on("/config_post", HTTP_POST, handleConfigPost);
   server.on("/register_part", HTTP_GET, handleRegisterPart);
   server.on("/register_part_post", HTTP_POST, handleRegisterPartPost);
   server.on("/api/colony_functions", HTTP_GET, handleGetColonyFunctionsJson);
@@ -316,9 +317,6 @@ void webBegin() {
   server.on("/netscan", HTTP_POST, handleNetScan);
   server.on("/netmanual", HTTP_POST, handleNetManual);
   server.on("/iot", HTTP_GET, handleIot);
-  server.on("/dataon", HTTP_POST, handleDataOn);
-  server.on("/dataoff", HTTP_POST, handleDataOff);
-  server.on("/dataping", HTTP_POST, handleDataPing);
   server.on("/ntfy-send", HTTP_POST, handleNtfySend);
   server.on("/ntfy-poll", HTTP_POST, handleNtfyPoll);
   server.on("/save-ntfy", HTTP_POST, handleSaveNtfy);
@@ -362,6 +360,7 @@ void webBegin() {
   server.on("/reg/summary", HTTP_GET, handleRegSummary);
   server.on("/reg/save", HTTP_POST, handleRegSave);
   server.on("/reg/cancel", HTTP_GET, handleRegCancel);
+  
 
   server.serveStatic("/", LittleFS, "/");
 }

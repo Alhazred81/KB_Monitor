@@ -1,18 +1,16 @@
-// ntfyClient.cpp
-
 #include "NtfyClient.h"
 #include <Preferences.h>
 
 // Alapértelmezett beállítások
 String gNtfyTopic = "KB_Teszt_20260813_666"; 
-String gNtfyServer = "http://ntfy.sh"; 
+String gNtfyServer = "https://ntfy.sh"; 
 String gNtfyNickname = ""; 
 bool gNtfyStartupMsg = true;
 
 void loadNtfyConfig() {
   Preferences prefs;
-  prefs.begin("ntfy_cfg", true); // Olvasás mód
-  gNtfyServer = prefs.getString("server", "http://ntfy.sh");
+  prefs.begin("ntfy_cfg", true);
+  gNtfyServer = prefs.getString("server", "https://ntfy.sh");
   gNtfyTopic = prefs.getString("topic", "KB_Teszt_20260813_666");
   gNtfyNickname = prefs.getString("nickname", "");
   gNtfyStartupMsg = prefs.getBool("startup", true);
@@ -26,7 +24,7 @@ void saveNtfyConfig(const String& server, const String& topic, const String& nic
   gNtfyStartupMsg = startupMsg;
   
   Preferences prefs;
-  prefs.begin("ntfy_cfg", false); // Írás mód
+  prefs.begin("ntfy_cfg", false);
   prefs.putString("server", gNtfyServer);
   prefs.putString("topic", gNtfyTopic);
   prefs.putString("nickname", gNtfyNickname);
@@ -36,7 +34,6 @@ void saveNtfyConfig(const String& server, const String& topic, const String& nic
 
 NtfyClient::NtfyClient(Stream& modemStream, const char* defaultTopic, const char* serverAddress)
     : _modem(modemStream), _lastHttpCode(0), _dbgStream(nullptr) {
-    // Itt direkt nem tároljuk el a paramétereket fixen, hogy mindig a dinamikus globálisat használja
 }
 
 void NtfyClient::setTopic(const char* topic) {
@@ -46,7 +43,10 @@ void NtfyClient::setTopic(const char* topic) {
 }
 
 void NtfyClient::logDebug(const String& str) {
-    if (_dbgStream) _dbgStream->println("[NTFY] " + str);
+    if (_dbgStream) {
+        _dbgStream->println("[NTFY] " + str);
+    }
+    Serial.println("[NTFY-RAW] " + str);
 }
 
 void NtfyClient::flushInput() {
@@ -121,13 +121,16 @@ bool NtfyClient::sendToTopic(const char* topic, const char* message, bool retain
     return publish(msg);
 }
 
-// --- KLASSZIKUS HTTP STACK ---
 bool NtfyClient::publish(const NtfyMessage& msg, uint32_t timeoutMs) {
-    // DINAMIKUS ÉRTÉKOLVASÁS: Mindig az aktuális globális topicot használjuk!
     String activeTopic = (msg.topic && strlen(msg.topic) > 0) ? String(msg.topic) : gNtfyTopic;
 
+    logDebug("--- NTFY KÜLDÉS INDUL ---");
+    logDebug("Cél szerver: " + gNtfyServer);
+    logDebug("Cél topic: " + activeTopic);
+    logDebug("Üzenet hossza: " + String(msg.message ? strlen(msg.message) : 0) + " karakter");
+
     if (activeTopic.length() == 0 || !msg.message) {
-        logDebug("Topic or message missing!");
+        logDebug("Hiba: Hiányzik a topic vagy az üzenet!");
         return false;
     }
 
@@ -137,14 +140,12 @@ bool NtfyClient::publish(const NtfyMessage& msg, uint32_t timeoutMs) {
 
     _lastHttpCode = 0;
 
-    // DINAMIKUS ÉRTÉKOLVASÁS: Mindig az aktuális globális szervert használjuk!
-    String serverToUse = gNtfyServer.length() > 0 ? gNtfyServer : "http://ntfy.sh";
-    
-    if (serverToUse.startsWith("https://")) {
-        serverToUse.replace("https://", "http://");
-    } else if (!serverToUse.startsWith("http://")) {
-        serverToUse = "http://" + serverToUse;
+    String serverToUse = gNtfyServer.length() > 0 ? gNtfyServer : "https://ntfy.sh";
+    if (!serverToUse.startsWith("http://") && !serverToUse.startsWith("https://")) {
+        serverToUse = "https://" + serverToUse;
     }
+
+    bool useSsl = serverToUse.startsWith("https://");
 
     String url = serverToUse;
     if (!url.endsWith("/")) url += "/";
@@ -164,12 +165,19 @@ bool NtfyClient::publish(const NtfyMessage& msg, uint32_t timeoutMs) {
     }
 
     logDebug("HTTP Publishing to URL: " + url);
+    logDebug("SSL használat: " + String(useSsl ? "IGEN" : "NEM"));
 
     sendCommand("AT+HTTPTERM", "OK", 1000);
 
     if (!sendCommand("AT+HTTPINIT", "OK", 3000)) return false;
 
     sendCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
+
+    if (useSsl) {
+        sendCommand("AT+HTTPPARA=\"SSL\",1", "OK", 2000);
+    } else {
+        sendCommand("AT+HTTPPARA=\"SSL\",0", "OK", 2000);
+    }
     
     if (!sendCommand("AT+HTTPPARA=\"URL\",\"" + url + "\"", "OK", 2000)) {
         sendCommand("AT+HTTPTERM", "OK", 1000);
@@ -194,7 +202,6 @@ bool NtfyClient::publish(const NtfyMessage& msg, uint32_t timeoutMs) {
     _modem.print(textPayload);
     _modem.flush();
     
-    // Robusztus válaszolvasó
     uint32_t dataStart = millis();
     bool dataOk = false;
     String dataResp = "";
@@ -232,7 +239,7 @@ bool NtfyClient::publish(const NtfyMessage& msg, uint32_t timeoutMs) {
     uint32_t actionTimeout = 35000;
 
     while (millis() - start < actionTimeout) {
-        yield(); 
+        delay(20); // Fontos: watchdog-barát szünet, megakadályozza a CPU fagyás miatti újraindítást
         if (_modem.available()) {
             String line = _modem.readStringUntil('\n');
             line.trim();
@@ -248,7 +255,6 @@ bool NtfyClient::publish(const NtfyMessage& msg, uint32_t timeoutMs) {
                 break;
             }
         }
-        delay(10);
     }
 
     sendCommand("AT+HTTPTERM", "OK", 2000);
@@ -300,16 +306,13 @@ NtfyPollResult NtfyClient::pollMessages(const char* since, const char* topic, ui
 
     if (activeTopic.length() == 0) return result;
 
-    String serverToUse = gNtfyServer.length() > 0 ? gNtfyServer : "http://ntfy.sh";
-    if (serverToUse.startsWith("https://")) {
-        serverToUse.replace("https://", "http://");
-    } else if (!serverToUse.startsWith("http://")) {
-        serverToUse = "http://" + serverToUse;
-    }
+    String serverToUse = gNtfyServer.length() > 0 ? gNtfyServer : "https://ntfy.sh";
+    bool useSsl = serverToUse.startsWith("https://");
 
     sendCommand("AT+HTTPTERM", "OK", 1000);
     if (!sendCommand("AT+HTTPINIT", "OK", 3000)) return result;
     sendCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
+    sendCommand(useSsl ? "AT+HTTPPARA=\"SSL\",1" : "AT+HTTPPARA=\"SSL\",0", "OK", 2000);
 
     String url = serverToUse;
     if (!url.endsWith("/")) url += "/";
@@ -370,16 +373,13 @@ NtfyPollResult NtfyClient::pollRaw(const char* since, const char* topic, uint32_
 
     if (activeTopic.length() == 0) return result;
 
-    String serverToUse = gNtfyServer.length() > 0 ? gNtfyServer : "http://ntfy.sh";
-    if (serverToUse.startsWith("https://")) {
-        serverToUse.replace("https://", "http://");
-    } else if (!serverToUse.startsWith("http://")) {
-        serverToUse = "http://" + serverToUse;
-    }
+    String serverToUse = gNtfyServer.length() > 0 ? gNtfyServer : "https://ntfy.sh";
+    bool useSsl = serverToUse.startsWith("https://");
 
     sendCommand("AT+HTTPTERM", "OK", 1000);
     if (!sendCommand("AT+HTTPINIT", "OK", 3000)) return result;
     sendCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
+    sendCommand(useSsl ? "AT+HTTPPARA=\"SSL\",1" : "AT+HTTPPARA=\"SSL\",0", "OK", 2000);
 
     String url = serverToUse;
     if (!url.endsWith("/")) url += "/";

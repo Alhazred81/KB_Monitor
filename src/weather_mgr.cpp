@@ -21,6 +21,7 @@ extern NtfyClient ntfy;
 DailyForecast gForecast[3];
 unsigned long gLastWeatherSync = 0;
 bool gWeatherHasData = false;
+volatile bool gManualWeatherSyncReq = false;
 
 void weatherInit() {
   gWeatherHasData = false;
@@ -187,6 +188,13 @@ bool weatherUpdate(float lat, float lon) {
 }
 
 void backgroundTaskLoop() {
+  // Kézi szinkronizáció azonnali végrehajtása
+  if (gManualWeatherSyncReq) {
+    gManualWeatherSyncReq = false;
+    forceWeatherUpdate();
+  }
+
+ 
   static unsigned long lastCheckTime = 0;
   if (millis() - lastCheckTime < 10000UL) return; 
   lastCheckTime = millis();
@@ -199,7 +207,7 @@ void backgroundTaskLoop() {
     float activeLon = gGnss.fix ? gGnss.lon : gGnss.assistLon;
 
     if (activeLat != 0.0 && activeLon != 0.0) {
-      Serial.println(F("[SYSTEM] Időjárás-szinkronizáció indítása..."));
+      Serial.println(F("[SYSTEM] Automata időjárás-szinkronizáció indítása..."));
       weatherUpdate(activeLat, activeLon);
     }
   }
@@ -219,9 +227,6 @@ bool forceWeatherUpdate() {
 }
 
 void handleApiWeatherSync(AsyncWebServerRequest *request) {
-  if (forceWeatherUpdate()) {
-    request->send(200, "text/plain", "OK");
-  } else {
-    request->send(500, "text/plain", "Hiba a letoltes vagy a koordinatak soran.");
-  }
+  gManualWeatherSyncReq = true;
+  request->send(200, "text/plain", "OK");
 }

@@ -1,205 +1,146 @@
-#include "config.h"
-#include <Arduino.h>
-#include <Preferences.h>
-#include <WiFi.h>
-#include <ESPAsyncWebServer.h>
 #include "web_config.h"
 #include "web_common.h"
-#include "web_theme.h"
+#include "modem_mgr.h"
+#include <Arduino.h>
+#include <WiFi.h>
 
-// ─── KÖZÖS VÁLTOZÓK ÉS FÜGGVÉNYEK ───
 extern AsyncWebServer server;
-extern Preferences prefs;
-extern String fullMac;
 
-#if CURRENT_DEVICE_ROLE == ROLE_SERVER
-  #include "NtfyClient.h"
-  #include "wifi_sta.h"
-  extern NtfyClient ntfy;
-  extern String gApSSID;
-  extern int gApChannel;
-  extern String gNtfyServer;
-  extern String gNtfyTopic;
-  extern String gNtfyNickname;
-  extern bool gNtfyStartupMsg;
-#endif
+extern String gApSSID;
+extern String gApPass;
+extern String gStaSSID; 
+extern String gStaPass; 
+extern int gRadioMode;  
+extern DataConnState gData; 
 
-void handleConnections(AsyncWebServerRequest *request) {
-    if (!checkPinGuard(request)) return;
+extern String htmlHead(const String& title, const String& activeTab);
+extern String htmlFoot();
 
-    String html = htmlHead("Kapcsolatok & Hálózat", "2");
+void handleConfigPage(AsyncWebServerRequest *request) {
+  // Oldal betöltése előtt egy gyors frissítés a modemtől, hogy a valós státuszt lássuk
+  // (Feltételezve, hogy a modem_mgr-ben van erre lekérdező függvény, pl. modemCheckStatus() vagy megvárjuk a cache-t)
+  // Ha a gData struktúra frissül a hatterben, akkor ez azonnal pontos:
 
-    // ─── KÖZÖS RÁDIÓ ÉS WIFI KERESÉS ───
-    prefs.begin("wifi_cfg", true);
-    String currentConnectedSsid = WiFi.SSID().length() ? WiFi.SSID() : prefs.getString("sta_ssid", "");
-    String currentRadioMode = prefs.getString("radio_mode", "espnow");
-    prefs.end();
+  String html = htmlHead("Kommunikáció", "");
+  
+  html += "<style>";
+  html += ".switch { position: relative; display: inline-block; width: 60px; height: 34px; }";
+  html += ".switch input { opacity: 0; width: 0; height: 0; }";
+  html += ".slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #dc2626; transition: .4s; border-radius: 34px; }";
+  html += ".slider:before { position: absolute; content: \"\"; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }";
+  html += "input:checked + .slider { background-color: #16a34a; }"; 
+  html += "input:checked + .slider:before { transform: translateX(26px); }";
+  html += ".conn-status { display: inline-block; padding: 4px 12px; border-radius: 12px; font-weight: bold; color: white; font-size: 0.9em; margin-left: 10px; }";
+  html += ".bg-green { background-color: #16a34a; }";
+  html += ".bg-red { background-color: #dc2626; }";
+  html += "</style>";
 
-    String espnowSelected = (currentRadioMode == "espnow") ? "selected" : "";
-    String loraSelected = (currentRadioMode == "lora") ? "selected" : "";
+  html += "<div class='card wide'>";
+  html += "<h2>📡 Kommunikációs Beállítások</h2>";
+  html += "<form action='/api/save_config' method='POST'>";
+  
+  // --- Mobil Adatkapcsolat Főkapcsoló Csúszka ---
+  html += "<h3>Mobil Adatkapcsolat (GPRS / LTE)</h3>";
+  html += "<div style='display:flex; align-items:center; margin-bottom:20px;'>";
+  html += "<label class='switch'>";
+  html += "<input type='checkbox' name='data_conn' value='1'" + String(gData.active ? " checked" : "") + ">";
+  html += "<span class='slider'></span>";
+  html += "</label>";
+  
+  String statusText = "Inaktív";
+  String statusClass = "bg-red";
+  if (gData.active) {
+    statusText = "Aktív (" + gData.ip + ")";
+    statusClass = "bg-green";
+  } else {
+    statusText = "Inaktív";
+    statusClass = "bg-red";
+  }
+  html += "<span class='conn-status " + statusClass + "'>" + statusText + "</span>";
+  html += "</div>";
 
-    html += R"rawliteral(
-    <div class="card wide">
-        <h2>Rádió Üzemmód (Közös Protokoll)</h2>
-        <select id="radioSelect">
-            <option value="espnow" )rawliteral" + espnowSelected + R"rawliteral(>ESP-NOW (Alapértelmezett)</option>
-            <option value="lora" )rawliteral" + loraSelected + R"rawliteral(>868 MHz (LoRa)</option>
-        </select>
-        <button onclick="saveRadioMode()">Mentés és Újraindítás</button>
-    </div>
-    
-    <div class="card wide">
-        <h2>Helyi Wi-Fi Csatlakozás (Teszt/Internet)</h2>
-        <p class='hint'>Ha megadsz egy hálózatot, az eszköz csatlakozik hozzá (STA mód).</p>
-        <div class="flex-row">
-            <select id="staSsidSelect" onchange="document.getElementById('staSsid').value=this.value;" style="margin-bottom:6px;">
-                <option value="">Keresés folyamatban...</option>
-            </select>
-            <button onclick="scanWifi()">Hálózat Keresése</button>
-        </div>
-        <input type="text" id="staSsid" value=")rawliteral" + currentConnectedSsid + R"rawliteral(">
-        <input type="password" id="staPass" placeholder="Jelszó (üres, ha nyílt)">
-        <div style="display:flex;gap:10px;">
-            <button onclick="saveStaConfig()" style="flex:2">Csatlakozás</button>
-            <button class='danger' onclick="disconnectSta()" style="flex:1">Lecsatlakozás</button>
-        </div>
-    </div>
-    )rawliteral";
+  // 1. Rádió protokoll
+  html += "<h3>Rádió protokoll (Szerver - Kaptármonitor)</h3>";
+  html += "<select name='radio_mode' class='sec' style='width:100%; padding:10px; margin-bottom:20px;'>";
+  html += "<option value='0'" + String(gRadioMode == 0 ? " selected" : "") + ">ESP-NOW (2.4 GHz)</option>";
+  html += "<option value='1'" + String(gRadioMode == 1 ? " selected" : "") + ">LoRa (SX1262 - 868 MHz)</option>";
+  html += "</select>";
 
-    // ─── SZERVER EXKLUZÍV BEÁLLÍTÁSOK (Ntfy, AP, Viharjelzés) ───
-    #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-    
-    uint8_t mac[6]; WiFi.macAddress(mac);
-    char macStr[18]; snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  // 2. Wi-Fi Kliens (STA)
+  html += "<h3>Helyi Wi-Fi (Szerver internetkapcsolata)</h3>";
+  html += "<label>SSID:</label><br>";
+  html += "<input type='text' name='sta_ssid' value='" + gStaSSID + "' placeholder='Otthoni Wi-Fi neve' style='width:100%; margin-bottom:10px;'><br>";
+  html += "<label>Jelszó:</label><br>";
+  html += "<input type='password' name='sta_pass' value='" + gStaPass + "' placeholder='Otthoni Wi-Fi jelszó' style='width:100%; margin-bottom:20px;'><br>";
 
-    html += "<div class='card wide'><h2>WiFi AP & ESP-NOW (Szerver)</h2>"
-            "<form action='/api/save_ap' method='POST'>"
-            "<label>SSID vége (előtag: KB-teszt-)</label>"
-            "<input type='text' name='ssid' value='" + (gApSSID.length() > 9 ? gApSSID.substring(9) : "") + "' maxlength='20'>"
-            "<label>Jelszó (ures = változatlan)</label>"
-            "<input type='password' name='pass' maxlength='31'>"
-            "<label>Csatorna (AP és ESP-NOW közös)</label><select name='ch'>";
-    for(int i = 1; i <= 13; i++) {
-        html += "<option value='" + String(i) + "'" + (i == gApChannel ? " selected" : "") + ">Csatorna " + String(i) + "</option>";
-    }
-    html += "</select><div class='hint' style='margin-top:10px'>Gateway MAC-cím: " + String(macStr) + "</div>"
-            "<button style='margin-top:10px;'>Mentés & Újraindulás</button></form></div>";
+  // 3. AP Mód
+  html += "<h3>Szerver AP (Hotspot) beállítások</h3>";
+  html += "<label>AP SSID:</label><br>";
+  html += "<input type='text' name='ap_ssid' value='" + gApSSID + "' placeholder='KB-teszt...' style='width:100%; margin-bottom:10px;'><br>";
+  html += "<label>AP Jelszó (min 8 kar.):</label><br>";
+  html += "<input type='text' name='ap_pass' value='" + gApPass + "' style='width:100%; margin-bottom:20px;'><br>";
 
-    html += "<div class='card wide'><h2>Ntfy Riasztási Csatorna</h2>"
-            "<form action='/api/save_ntfy' method='POST'>"
-            "<label>Ntfy Szerver</label><input type='text' name='ntfy_server' value='" + htmlEscape(gNtfyServer) + "'>"
-            "<label>Topic neve</label><input type='text' name='ntfy_topic' value='" + htmlEscape(gNtfyTopic) + "' required>"
-            "<label>Eszközazonosító (Nickname)</label><input type='text' name='ntfy_nickname' value='" + htmlEscape(gNtfyNickname) + "'>"
-            "<div style='margin-top:10px'><input type='checkbox' name='ntfy_startup'" + String(gNtfyStartupMsg ? " checked" : "") + "> Rendszerindulási üzenet</div>"
-            "<button style='margin-top:15px'>Ntfy Mentés</button></form></div>";
+  html += "<button type='submit' class='pri' style='width:100%; padding:12px;'>💾 Mentés</button>";
+  html += "</form>";
+  html += "</div>";
 
-    Preferences prefsW; prefsW.begin("weather_cfg", true);
-    float wRain = prefsW.getFloat("w_rain", 5.0); int wWind = prefsW.getInt("w_wind", 45); int wPrio = prefsW.getInt("w_prio", 5);
-    prefsW.end();
+  // 4. Kényszerített AP gomb
+  html += "<div class='card wide' style='margin-top:20px;'>";
+  html += "<h3>Kényszerített AP Mód</h3>";
+  html += "<p class='hint'>Bontja a kliens Wi-Fi kapcsolatot és azonnal AP módba kapcsol.</p>";
+  html += "<button onclick=\"fetch('/api/force_ap').then(()=>alert('AP mód aktiválva. Csatlakozz az eszköz hálózatához.'));\" class='sec' style='width:100%; padding:12px; background:#dc2626; color:white;'>⚠️ Váltás AP módba most</button>";
+  html += "</div>";
 
-    html += "<div class='card wide'><h2>Vihar Riasztás Beállítások</h2>"
-            "<form action='/api/save_weather' method='POST'>"
-            "<label>Esőintenzitás küszöb (mm/h)</label><input type='number' step='0.5' name='w_rain' value='" + String(wRain, 1) + "'>"
-            "<label>Szélerősség küszöb (km/h)</label><input type='number' name='w_wind' value='" + String(wWind) + "'>"
-            "<button>Mentés</button></form>"
-            "<button class='sec' onclick='fetch(\"/api/test_alert\").then(()=>alert(\"Teszt elküldve!\"))' style='margin-top:15px'>⚡ Teszt Riasztás Küldése</button></div>";
-
-    #endif
-
-    // ─── KÖZÖS JAVASCRIPT (FETCH API ALAPON) ───
-    html += R"script(<script>
-    function scanWifi() {
-        let select = document.getElementById('staSsidSelect');
-        select.innerHTML = '<option value="">Keresés folyamatban...</option>';
-        fetch('/api/scan_wifi').then(r => r.json()).then(data => {
-            select.innerHTML = '<option value="">Kattints a választáshoz</option>';
-            data.forEach(net => {
-                let opt = document.createElement('option');
-                opt.value = net.ssid; opt.textContent = net.ssid + ' (' + net.rssi + ' dBm)';
-                select.appendChild(opt);
-            });
-        });
-    }
-    function saveStaConfig() {
-        let s = document.getElementById('staSsid').value, p = document.getElementById('staPass').value;
-        fetch('/api/save_sta', { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'ssid='+encodeURIComponent(s)+'&pass='+encodeURIComponent(p) })
-        .then(() => alert('Mentve.'));
-    }
-    function disconnectSta() { fetch('/api/disconnect_sta', {method:'POST'}).then(()=>alert('Lecsatlakozva.')); }
-    function saveRadioMode() {
-        let mode = document.getElementById('radioSelect').value;
-        fetch('/api/save_radio', { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'radio='+mode })
-        .then(() => alert('Rádiómód frissítve. Újraindítás...'));
-    }
-    </script>)script";
-
-    html += htmlFoot();
-    request->send(200, "text/html", html);
+  html += htmlFoot();
+  request->send(200, "text/html", html);
 }
 
-// ─── API VÉGPONTOK (ASZINKRON, MIND KÉT ESZKÖZRE) ───
-void handleApiSaveSta(AsyncWebServerRequest *request) {
-    if (request->hasParam("ssid", true)) {
-        prefs.begin("wifi_cfg", false);
-        prefs.putString("sta_ssid", request->getParam("ssid", true)->value());
-        if(request->hasParam("pass", true)) prefs.putString("sta_pass", request->getParam("pass", true)->value());
-        prefs.end();
-        
-        #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-            wifiStaConnect(request->getParam("ssid", true)->value(), request->getParam("pass", true)->value());
-        #endif
-        
-        request->send(200, "text/plain", "OK");
-    } else {
-        request->send(400, "text/plain", "Hiba");
-    }
+void handleSaveConfig(AsyncWebServerRequest *request) {
+  if (request->hasParam("radio_mode", true)) {
+    gRadioMode = request->getParam("radio_mode", true)->value().toInt();
+  }
+  
+  // Adatkapcsolat azonnali kapcsolása újraindítás nélkül
+  bool shouldBeActive = request->hasParam("data_conn", true);
+  if (shouldBeActive && !gData.active) {
+    dataConnEnable();
+  } else if (!shouldBeActive && gData.active) {
+    dataConnDisable();
+  }
+
+  if (request->hasParam("sta_ssid", true)) {
+    gStaSSID = request->getParam("sta_ssid", true)->value();
+  }
+  if (request->hasParam("sta_pass", true)) {
+    gStaPass = request->getParam("sta_pass", true)->value();
+  }
+  if (request->hasParam("ap_ssid", true)) {
+    gApSSID = request->getParam("ap_ssid", true)->value();
+  }
+  if (request->hasParam("ap_pass", true)) {
+    gApPass = request->getParam("ap_pass", true)->value();
+  }
+
+  // Sikeres mentés visszajelzés azonnali visszanavigálással újraindítás helyett
+  String response = htmlHead("Mentés...", "");
+  response += "<div class='card wide'><h2>✅ Sikeres mentés.</h2><p>A beállítások frissültek.</p></div>";
+  response += "<script>setTimeout(()=>location.href='/cfg', 1500);</script>";
+  response += htmlFoot();
+  
+  request->send(200, "text/html", response);
 }
 
-void handleApiDisconnectSta(AsyncWebServerRequest *request) {
-    #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-        wifiStaDisconnect();
-    #else
-        WiFi.disconnect();
-    #endif
-    request->send(200, "text/plain", "OK");
+void handleForceAp(AsyncWebServerRequest *request) {
+  WiFi.disconnect(true, true);
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(gApSSID.c_str(), gApPass.c_str());
+  
+  request->send(200, "text/plain", "AP mód bekapcsolva.");
 }
 
-void handleApiScanWifi(AsyncWebServerRequest *request) {
-    int n = WiFi.scanNetworks();
-    String json = "[";
-    for (int i = 0; i < n; ++i) {
-        if (i > 0) json += ",";
-        json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
-    }
-    json += "]";
-    WiFi.scanDelete();
-    request->send(200, "application/json", json);
+void initConfigRoutes() {
+  server.on("/cfg", HTTP_GET, handleConfigPage);
+  server.on("/api/save_config", HTTP_POST, handleSaveConfig);
+  server.on("/api/force_ap", HTTP_GET, handleForceAp);
 }
-
-#if CURRENT_DEVICE_ROLE == ROLE_SERVER
-void handleApiSaveAp(AsyncWebServerRequest *request) {
-    if (request->hasParam("ssid", true)) {
-        gApSSID = "KB-teszt-" + request->getParam("ssid", true)->value();
-        String pass = loadApPass();
-        if(request->hasParam("pass", true) && request->getParam("pass", true)->value().length() > 0) {
-            pass = request->getParam("pass", true)->value();
-        }
-        if(request->hasParam("ch", true)) gApChannel = request->getParam("ch", true)->value().toInt();
-        
-        saveApConfig(gApSSID, pass, gApChannel, loadApHide());
-    }
-    request->redirect("/config");
-}
-
-void handleApiSaveNtfy(AsyncWebServerRequest *request) {
-    // NTFY mentési logika (a gNtfy változók frissítése és prefs mentése)
-    request->redirect("/config");
-}
-
-void handleApiTestAlert(AsyncWebServerRequest *request) {
-    Preferences prefsW; prefsW.begin("weather_cfg", true);
-    int prio = prefsW.getInt("w_prio", 5); prefsW.end();
-    bool success = ntfy.send("Ez egy teszt vihar riasztas.", "Vihar Riasztas Teszt", static_cast<NtfyPriority>(prio));
-    request->send(success ? 200 : 500, "text/plain", success ? "OK" : "Error");
-}
-#endif

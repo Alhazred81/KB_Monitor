@@ -23,10 +23,15 @@
 #include "web_ui.h"
 #include "wifi_sta.h"
 #include "web_diag.h"
+#include "web_config.h"
+
 
 // ─── Globálisok ─────────────────────────────────────────────
 
 extern String gReportTimes;
+extern void initIotRoutes();
+
+
 void checkAndSendScheduledReport();
 String loadReportConfig();
 HardwareSerial modemSerial(1);
@@ -49,6 +54,9 @@ RainSensorState gRain;
 Mpu6050State    gMpu;
 Ltr390State      gLtr;
 String         gApSSID    = "";
+String         gStaSSID = "";
+String         gStaPass = "";
+int gRadioMode = 0; // 0: ESP-NOW, 1: LoRa
 String         gApPass    = DEFAULT_AP_PASS;
 uint8_t        gApChannel = DEFAULT_CHANNEL;
 unsigned long  gLastSms   = 0;
@@ -65,6 +73,7 @@ String         gSmsSendResult     = "";
 String         loadReportConfig();
 extern String gReportTimes;
 extern void backgroundTaskLoop();
+
 
 void loadSmsInboxLimit() {
   // EEPROM betöltés vagy fix érték helye
@@ -266,6 +275,8 @@ void setup() {
   sensorsApplyEnabled();
   loadNtfyConfig();
   initDiagRoutes();
+  initConfigRoutes();
+  initIotRoutes();
 
   gReportTimes = loadReportConfig();
   gApPass    = loadApPass();
