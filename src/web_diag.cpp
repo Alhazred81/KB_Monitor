@@ -16,6 +16,7 @@
   extern ModemState gModem;
   extern TimeState gTime;
   extern String gAtStatusSnapshot;
+  extern String getEspNowLogsJson(); // Külső deklaráció a pufferhez
 #endif
 
 extern AsyncWebServer server;
@@ -49,6 +50,31 @@ void handleDiag(AsyncWebServerRequest *request) {
     }
     setInterval(fetchLog, 2000);
     fetchLog();
+    </script>)script";
+    html += "</div>";
+
+    // --- ESP-NOW DEDIKÁLT CSOMAGFIGYELŐ CSEMPE ---
+    html += "<div class='card wide'><h2>📡 ESP-NOW Valós Idejű Csomagfigyelő</h2>";
+    html += "<div style='display:flex; gap:8px; margin-bottom:8px;'>";
+    html += "<button class='sec' onclick='fetchEspNowLog()' style='padding:4px 10px; font-size:12px;'>🔄 Frissítés</button>";
+    html += "</div>";
+    html += "<div id='espNowBox' style='background:#0a0a18; color:#38bdf8; padding:10px; border-radius:8px; height:180px; overflow-y:auto; font-size:12px; font-family:monospace;'>Várakozás ESP-NOW csomagokra...</div>";
+    html += R"script(<script>
+    function fetchEspNowLog() {
+        fetch('/api/espnow_log')
+        .then(r => r.json())
+        .then(arr => {
+            let box = document.getElementById('espNowBox');
+            if(arr.length === 0) {
+                box.innerText = 'Még nem érkezett ESP-NOW csomag ebben a munkamenetben.';
+                return;
+            }
+            box.innerText = arr.join('\n');
+            box.scrollTop = box.scrollHeight;
+        }).catch(() => {});
+    }
+    setInterval(fetchEspNowLog, 3000);
+    fetchEspNowLog();
     </script>)script";
     html += "</div>";
 
@@ -184,6 +210,12 @@ void initDiagRoutes() {
     server.on("/api/diag_log", HTTP_GET, [](AsyncWebServerRequest *request){
         request->send(200, "text/plain", diagDump());
     });
+
+    #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+    server.on("/api/espnow_log", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "application/json", getEspNowLogsJson());
+    });
+    #endif
     
     server.on("/api/i2cscan", HTTP_GET, [](AsyncWebServerRequest *request){
         String result = "Talált I2C címek:\n";

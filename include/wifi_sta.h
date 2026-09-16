@@ -4,6 +4,7 @@
 #include "config.h"
 #include "crypto.h"
 #include "time_mgr.h"
+#include "connections.h"
 
 enum class NetMode { AP, STA_CONNECTING, STA_CONNECTED, STA_FAILED };
 

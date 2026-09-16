@@ -1,5 +1,5 @@
 #include "wifi_sta.h"
-#include "connections_mgr.h" // <-- JAVÍTVA: espnow_mgr.h helyett!
+#include "connections.h" // <-- JAVÍTVA: espnow_mgr.h helyett!
 
 WifiStaState gSta;
 ScannedNet gScanResults[MAX_SCAN_RESULTS];
@@ -62,7 +62,7 @@ void wifiStaLoop() {
     Serial.printf("[WIFISTA] Aktiv csatorna STA mod utan: %d\n", currentChannel);
     
     #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-      initEspNowGateway(currentChannel);
+      initServerEspNow();
     #endif
     
     ntpStart();
@@ -84,7 +84,7 @@ void wifiStaLoop() {
     startAP();
     
     #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-      initEspNowGateway(gApChannel);
+      initServerEspNow();
     #endif
   }
 }
@@ -108,7 +108,7 @@ void wifiStaDisconnect() {
   startAP();
   
   #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-    initEspNowGateway(gApChannel);
+    initServerEspNow();
   #endif
 }
 
@@ -126,7 +126,7 @@ void wifiStaWatchdog() {
     startAP();
     
     #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-      initEspNowGateway(gApChannel);
+      initServerEspNow();
     #endif
   }
 }
