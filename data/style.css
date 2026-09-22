@@ -381,3 +381,30 @@ input:checked + .slider:before {
   width: 3px;
   background: var(--ok);
 }
+
+/* --- POLLENGYŰJTŐ FIÓK STÍLUSOK --- */
+.box-pollen {
+  width: 100%;
+  min-height: 54px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  font-weight: bold;
+  border-radius: 6px;
+  border: 2px solid var(--border);
+  box-sizing: border-box;
+  cursor: pointer;
+  text-decoration: none;
+  transition: 0.2s;
+}
+.box-pollen:hover {
+  filter: brightness(1.2);
+}
+.pollen-disabled {
+  background: #1f2937 !important;
+  border-color: var(--border) !important;
+  color: var(--txt2) !important;
+  opacity: 0.6;
+}

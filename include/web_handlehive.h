@@ -16,3 +16,4 @@ void handleConfig(AsyncWebServerRequest *request);
 void handleConfigPost(AsyncWebServerRequest *request);
 void handleRegisterPart(AsyncWebServerRequest *request);
 void handleRegisterPartPost(AsyncWebServerRequest *request);
+void handleTogglePollen(AsyncWebServerRequest *request);

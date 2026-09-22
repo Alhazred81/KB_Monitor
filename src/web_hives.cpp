@@ -85,7 +85,6 @@ void handleHives(AsyncWebServerRequest *request) {
   html += "<table class='hive-table'>";
   html += "<tr><th>Azonosító (MAC)</th><th>Funkció</th><th>Anya</th><th>Státusz</th></tr>";
   
-  // --- ÚJ: Dinamikus adatbázis listázás ---
   if (gHiveCount == 0) {
       html += "<tr><td colspan='4' style='text-align:center; padding: 20px;'>Még nincs regisztrált kaptár. Hozz létre egyet a fenti gombbal!</td></tr>";
   } else {
@@ -100,10 +99,10 @@ void handleHives(AsyncWebServerRequest *request) {
   }
   html += "</table></div></div></div></div>";
 
-  // JS Térkép inicializálás a kért pozícióval
+  // JS Térkép inicializálás maximális (21-es) zoommal
   html += "<script>"
-          "var map = L.map('map').setView([47.529766, 19.028340], 19);" 
-          "L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {attribution: 'Tiles &copy; Esri'}).addTo(map);"
+          "var map = L.map('map', { maxZoom: 22 }).setView([47.529766, 19.028340], 21);" 
+          "L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {attribution: 'Tiles &copy; Esri', maxZoom: 22, maxNativeZoom: 19}).addTo(map);"
           "var customIcon = function(color) { return L.divIcon({ className: 'custom-div-icon', html: '<div style=\"background-color:'+color+'; width:20px; height:20px; border-radius:6px; border:2px solid #fff; box-shadow:0 0 6px rgba(0,0,0,0.6);\"></div>', iconSize: [24, 24], iconAnchor: [12, 12] }); };"
           "var stationIcon = L.divIcon({ className: 'station-icon', html: '<div style=\"background:#4d4dff; padding:5px; border-radius:50%; font-size:16px; text-align:center; border:2px solid #fff; box-shadow: 0 0 10px rgba(77,77,255,0.8); display:flex; align-items:center; justify-content:center; width:30px; height:30px;\">📡</div>', iconSize: [44,44], iconAnchor: [22,22] });"
           "L.marker([47.529850, 19.028340], {icon: stationIcon}).bindPopup('<b>Időjárás-állomás és szerver</b>').addTo(map);" 
@@ -236,11 +235,10 @@ void handleRegBarcode(AsyncWebServerRequest *request) {
   request->send(200, "text/html", html);
 }
 
-// 3. ANYA ÉS CSALÁD ADATAI (Itt volt a vágólap baleset, most már jó!)
+// 3. ANYA ÉS CSALÁD ADATAI
 void handleRegQueen(AsyncWebServerRequest *request) {
     if (!checkPinGuard(request)) return;
     
-    // Ha URL-ből jön a vonalkód
     if (request->hasParam("barcode")) {
         gRegBoxId = request->getParam("barcode")->value();
     }
@@ -356,15 +354,11 @@ void handleRegSummary(AsyncWebServerRequest *request) {
 void handleRegSave(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
 
-  // --- ÚJ: Mentés a memóriába és JSON-be ---
   HiveProfile newHive;
-  // Fallback, ha nem volt monitor_id megadva (pl. tesztelés)
   if(gRegMonitorId == 0) gRegMonitorId = 99;
   
-  // Egyedi (szimulált) MAC cím generálása a regisztrációhoz
   newHive.id = "24:6F:28:AB:CD:" + String(gRegMonitorId < 10 ? "0" : "") + String(gRegMonitorId);
   
-  // EZEK HIANYZOZTAK KORÁBBAN:
   newHive.monitorId = gRegMonitorId;
   newHive.baseBoxId = gRegBoxId;
   
@@ -377,7 +371,7 @@ void handleRegSave(AsyncWebServerRequest *request) {
   newHive.honeySupers = 2;
   newHive.broodBoxes = 1;
 
-  hiveDbAdd(newHive); // Hozzáadás és mentés a LittleFS-re
+  hiveDbAdd(newHive);
 
   gRegCtx.active = false;
 

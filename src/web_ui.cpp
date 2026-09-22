@@ -14,6 +14,8 @@
 #include "weather_mgr.h"
 #include "calendar.h"
 #include "time_mgr.h"
+#include "web_handlehive.h"
+
 
 extern AsyncWebServer server;
 extern String gApSSID;
@@ -36,9 +38,10 @@ extern void handleEspRestart(AsyncWebServerRequest *request);
 extern void handleHives(AsyncWebServerRequest *request);
 extern void handleHiveView(AsyncWebServerRequest *request);
 extern void handleEvaluation(AsyncWebServerRequest *request);
-extern void handleTreatment(AsyncWebServerRequest *request);
-extern void handleGetTreatmentsJson(AsyncWebServerRequest *request);
 extern void handleEvaluatePost(AsyncWebServerRequest *request);
+extern void handleTreatment(AsyncWebServerRequest *request);
+extern void handleTreatmentPost(AsyncWebServerRequest *request);
+extern void handleGetTreatmentsJson(AsyncWebServerRequest *request);
 extern void handleRegisterPart(AsyncWebServerRequest *request);
 extern void handleRegisterPartPost(AsyncWebServerRequest *request);
 extern void handleGetEvaluationsJson(AsyncWebServerRequest *request);
@@ -140,9 +143,7 @@ void handleRoot(AsyncWebServerRequest *request) {
   html += "<style>.dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; } .dot-g { background-color: #22c55e; box-shadow: 0 0 4px rgba(34,197,94,0.6); } .dot-y { background-color: #eab308; box-shadow: 0 0 4px rgba(234,179,8,0.6); } .dot-r { background-color: #ef4444; box-shadow: 0 0 4px rgba(239,68,68,0.6); } .compact-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; } .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; width: 100%; align-items: start; margin-bottom: 16px; } .dash-grid > .card { margin: 0 !important; width: 100% !important; box-sizing: border-box; display: flex; flex-direction: column; }</style>";
 
   html += "<div style='width: 100%; margin-bottom: 16px;'><div style='font-size:20px; font-weight:bold; color:#fff;'>Műszerfal</div></div>";
-
   html += "<div class='dash-grid'>";
-
   html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px;'>📱 NFC / RFID</h2><div style='flex:1; display:flex; align-items:stretch;'><button style='width:100%; min-height:100px; font-size:24px; font-weight:900; background:var(--accent); color:#fff; border:none; border-radius:12px; box-shadow:0 8px 16px rgba(77,77,255,0.3); text-transform:uppercase; letter-spacing:1px; cursor:pointer;' onclick=\"location.href='/nfc'\">📡 Olvasás</button></div></div>";
 
   String modemDot = gModem.ready ? "dot-g" : "dot-r";
@@ -193,32 +194,23 @@ void handleRoot(AsyncWebServerRequest *request) {
     html += "<div style='display:flex; flex-direction:column; gap:8px;'>";
     for(int d = 0; d < 3; d++) {
       html += "<div><div style='font-weight:bold; color:var(--accent); font-size:12px; margin-bottom:4px;'>" + String(dayNames[d]) + "</div><div style='display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; text-align:center; font-size:11px;'>";
-      
       for(int b = 0; b < 4; b++) {
         float minT = gForecast[d].blocks[b].tempMin; 
         float maxT = gForecast[d].blocks[b].tempMax; 
         float p = gForecast[d].blocks[b].precip;
-        
         String icon = "☀️";
         if (p > 15.0) icon = "🧊"; 
         else if (p > 5.0) icon = "⚡"; 
         else if (p > 0.5) icon = "🌧️"; 
         else if ((minT + maxT) / 2.0 < 15) icon = "⛅";
-        
         html += "<div style='background:rgba(255,255,255,0.04); padding:4px 2px; border-radius:6px; border:1px solid var(--border);'>";
         html += "<div style='font-size:9px; color:var(--txt2);'>" + String(timeSlots[b]) + "</div>";
         html += "<div style='font-size:14px; margin:2px 0;'>" + icon + "</div>";
         html += "<div style='font-size:10px; font-weight:bold;'>" + String(minT, 0) + " - " + String(maxT, 0) + "°C</div>";
-        
-        if (p > 0.0) {
-            html += "<div style='font-size:9px; color:#60a5fa; margin-top:2px;'>💧 " + String(p, 1) + " mm</div>";
-        } else {
-            html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>";
-        }
-        
+        if (p > 0.0) html += "<div style='font-size:9px; color:#60a5fa; margin-top:2px;'>💧 " + String(p, 1) + " mm</div>";
+        else html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>";
         html += "</div>";
       }
-      
       html += "</div></div>";
     }
     html += "</div><p class='hint' style='margin-top:8px; margin-bottom:0; font-size:11px;'>Frissítve: " + ageText(gLastWeatherSync) + "</p>";
@@ -229,9 +221,7 @@ void handleRoot(AsyncWebServerRequest *request) {
 
   html += getCalendarCardHtml();
   html += "</div>";
-
   html += "<script>function updateClock() { var d = new Date(); var h = String(d.getHours()).padStart(2, '0'); var m = String(d.getMinutes()).padStart(2, '0'); var el = document.getElementById('liveClock'); if(el) el.innerText = h + ':' + m; } setInterval(updateClock, 1000); updateClock(); setTimeout(function(){ location.reload(); }, 10000);</script>";
-
   html += htmlFoot();
   request->send(200, "text/html", html);
 }
@@ -256,9 +246,7 @@ void handleRoot(AsyncWebServerRequest *request) {
   html += "<style>.dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; } .dot-g { background-color: #22c55e; box-shadow: 0 0 4px rgba(34,197,94,0.6); } .dot-y { background-color: #eab308; box-shadow: 0 0 4px rgba(234,179,8,0.6); } .dot-r { background-color: #ef4444; box-shadow: 0 0 4px rgba(239,68,68,0.6); } .compact-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; } .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; width: 100%; align-items: start; margin-bottom: 16px; } .dash-grid > .card { margin: 0 !important; width: 100% !important; box-sizing: border-box; display: flex; flex-direction: column; }</style>";
 
   html += "<div style='width: 100%; margin-bottom: 16px;'><div style='font-size:20px; font-weight:bold; color:#fff;'>Műszerfal</div></div>";
-
   html += "<div class='dash-grid'>";
-
   html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px;'>📱 NFC / RFID</h2><div style='flex:1; display:flex; align-items:stretch;'><button style='width:100%; min-height:100px; font-size:24px; font-weight:900; background:var(--accent); color:#fff; border:none; border-radius:12px; box-shadow:0 8px 16px rgba(77,77,255,0.3); text-transform:uppercase; letter-spacing:1px; cursor:pointer;' onclick=\"location.href='/nfc'\">📡 Olvasás</button></div></div>";
 
   String modemDot = gModem.ready ? "dot-g" : "dot-r";
@@ -309,32 +297,23 @@ void handleRoot(AsyncWebServerRequest *request) {
     html += "<div style='display:flex; flex-direction:column; gap:8px;'>";
     for(int d = 0; d < 3; d++) {
       html += "<div><div style='font-weight:bold; color:var(--accent); font-size:12px; margin-bottom:4px;'>" + String(dayNames[d]) + "</div><div style='display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; text-align:center; font-size:11px;'>";
-      
       for(int b = 0; b < 4; b++) {
         float minT = gForecast[d].blocks[b].tempMin; 
         float maxT = gForecast[d].blocks[b].tempMax; 
         float p = gForecast[d].blocks[b].precip;
-        
         String icon = "☀️";
         if (p > 15.0) icon = "🧊"; 
         else if (p > 5.0) icon = "⚡"; 
         else if (p > 0.5) icon = "🌧️"; 
         else if ((minT + maxT) / 2.0 < 15) icon = "⛅";
-        
         html += "<div style='background:rgba(255,255,255,0.04); padding:4px 2px; border-radius:6px; border:1px solid var(--border);'>";
         html += "<div style='font-size:9px; color:var(--txt2);'>" + String(timeSlots[b]) + "</div>";
         html += "<div style='font-size:14px; margin:2px 0;'>" + icon + "</div>";
         html += "<div style='font-size:10px; font-weight:bold;'>" + String(minT, 0) + " - " + String(maxT, 0) + "°C</div>";
-        
-        if (p > 0.0) {
-            html += "<div style='font-size:9px; color:#60a5fa; margin-top:2px;'>💧 " + String(p, 1) + " mm</div>";
-        } else {
-            html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>";
-        }
-        
+        if (p > 0.0) html += "<div style='font-size:9px; color:#60a5fa; margin-top:2px;'>💧 " + String(p, 1) + " mm</div>";
+        else html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>";
         html += "</div>";
       }
-      
       html += "</div></div>";
     }
     html += "</div><p class='hint' style='margin-top:8px; margin-bottom:0; font-size:11px;'>Frissítve: " + ageText(gLastWeatherSync) + "</p>";
@@ -345,9 +324,7 @@ void handleRoot(AsyncWebServerRequest *request) {
 
   html += getCalendarCardHtml();
   html += "</div>";
-
   html += "<script>function updateClock() { var d = new Date(); var h = String(d.getHours()).padStart(2, '0'); var m = String(d.getMinutes()).padStart(2, '0'); var el = document.getElementById('liveClock'); if(el) el.innerText = h + ':' + m; } setInterval(updateClock, 1000); updateClock(); setTimeout(function(){ location.reload(); }, 10000);</script>";
-
   html += htmlFoot();
   request->send(200, "text/html", html);
 }
@@ -362,11 +339,16 @@ void webBegin() {
   server.on("/esprestart", HTTP_POST, handleEspRestart);
   server.on("/hives", HTTP_GET, handleHives);
   server.on("/hive", HTTP_GET, handleHiveView);
+  
+  // Kezelések és Értékelések (GET és POST végpontok)
   server.on("/treatment", HTTP_GET, handleTreatment);
+  server.on("/treatment/save", HTTP_POST, handleTreatmentPost);
   server.on("/evaluation", HTTP_GET, handleEvaluation);
+  server.on("/evaluation/save", HTTP_POST, handleEvaluatePost);
+  server.on("/evaluate_post", HTTP_POST, handleEvaluatePost);
+  
   server.on("/api/evaluations", HTTP_GET, handleGetEvaluationsJson);
   server.on("/api/treatments", HTTP_GET, handleGetTreatmentsJson);
-  server.on("/evaluate_post", HTTP_POST, handleEvaluatePost);
   server.on("/register_part", HTTP_GET, handleRegisterPart);
   server.on("/register_part_post", HTTP_POST, handleRegisterPartPost);
   server.on("/api/colony_functions", HTTP_GET, handleGetColonyFunctionsJson);
@@ -425,6 +407,7 @@ void webBegin() {
   server.on("/reg/save", HTTP_POST, handleRegSave);
   server.on("/reg/cancel", HTTP_POST, handleRegCancel);
   server.on("/api/startlearn", HTTP_POST, handleApiStartLearn);
+  server.on("/api/toggle_pollen", HTTP_GET, handleTogglePollen);
 
   server.serveStatic("/", LittleFS, "/");
 }
