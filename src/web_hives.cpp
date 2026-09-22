@@ -5,6 +5,7 @@
 #include "web_hives.h"
 #include "web_common.h"
 #include "web_theme.h"
+#include "hive_db.h" // <-- Dinamikus adatbázis bevonása
 
 extern bool checkPinGuard(AsyncWebServerRequest *request);
 
@@ -35,6 +36,7 @@ void handleHives(AsyncWebServerRequest *request) {
           ".telemetry-value { font-size: 15px; font-weight: bold; color: var(--txt); }"
           ".val-ok { color: var(--ok); }"
           ".val-warn { color: var(--warn); }"
+          ".val-org { color: #f97316; }"
           ".val-err { color: var(--err); }"
           ".hive-table { width: 100%; border-collapse: collapse; font-size: 13px; }"
           ".hive-table th { text-align: left; padding: 12px 10px; color: var(--txt2); border-bottom: 1px solid var(--border); font-size:12px; text-transform:uppercase; letter-spacing:1px; }"
@@ -81,25 +83,37 @@ void handleHives(AsyncWebServerRequest *request) {
   
   html += "<div style='overflow-x:auto;'>";
   html += "<table class='hive-table'>";
-  html += "<tr><th>Azonosító</th><th>Kapcsolat</th><th>Család állapota</th><th>Státusz</th></tr>";
-  html += "<tr><td><a href='/hive?hive=A1B2'>A1B2</a></td><td><span class='val-ok'>📶 -68 dBm</span></td><td>Rendben, Erős</td><td><span class='badge b-grn'>Rendben</span></td></tr>";
-  html += "<tr><td><a href='/hive?hive=B3C4'>B3C4</a></td><td><span class='val-ok'>📶 -75 dBm</span></td><td>Fejlesztés alatt</td><td><span class='badge b-yell'>5 nap múlva</span></td></tr>";
-  html += "<tr><td><a href='/hive?hive=C5D6'>C5D6</a></td><td><span class='val-warn'>📶 -92 dBm</span></td><td>Ellenőrzés szükséges</td><td><span class='badge b-org'>2 nap múlva</span></td></tr>";
-  html += "<tr><td><a href='/hive?hive=D7E8'>D7E8</a></td><td><span class='val-err'>📶 Offline</span></td><td>Etetés esedékes</td><td><span class='badge b-red'>Holnap</span></td></tr>";
+  html += "<tr><th>Azonosító (MAC)</th><th>Funkció</th><th>Anya</th><th>Státusz</th></tr>";
+  
+  // --- ÚJ: Dinamikus adatbázis listázás ---
+  if (gHiveCount == 0) {
+      html += "<tr><td colspan='4' style='text-align:center; padding: 20px;'>Még nincs regisztrált kaptár. Hozz létre egyet a fenti gombbal!</td></tr>";
+  } else {
+      for (int i = 0; i < gHiveCount; i++) {
+          html += "<tr>";
+          html += "<td><a href='/hive?hive=" + gHives[i].id + "'>" + gHives[i].id + "</a></td>";
+          html += "<td>" + gHives[i].function + "</td>";
+          html += "<td>" + String(gHives[i].queenYear) + "</td>";
+          html += "<td><span class='badge b-grn'>Aktív</span></td>";
+          html += "</tr>";
+      }
+  }
   html += "</table></div></div></div></div>";
 
+  // JS Térkép inicializálás a kért pozícióval
   html += "<script>"
-          "var map = L.map('map').setView([47.514600, 19.043500], 18);"
+          "var map = L.map('map').setView([47.529766, 19.028340], 19);" 
           "L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {attribution: 'Tiles &copy; Esri'}).addTo(map);"
           "var customIcon = function(color) { return L.divIcon({ className: 'custom-div-icon', html: '<div style=\"background-color:'+color+'; width:20px; height:20px; border-radius:6px; border:2px solid #fff; box-shadow:0 0 6px rgba(0,0,0,0.6);\"></div>', iconSize: [24, 24], iconAnchor: [12, 12] }); };"
           "var stationIcon = L.divIcon({ className: 'station-icon', html: '<div style=\"background:#4d4dff; padding:5px; border-radius:50%; font-size:16px; text-align:center; border:2px solid #fff; box-shadow: 0 0 10px rgba(77,77,255,0.8); display:flex; align-items:center; justify-content:center; width:30px; height:30px;\">📡</div>', iconSize: [44,44], iconAnchor: [22,22] });"
-          "L.marker([47.514620, 19.043520], {icon: stationIcon}).bindPopup('<b>Időjárás-állomás és szerver</b>').addTo(map);"
+          "L.marker([47.529850, 19.028340], {icon: stationIcon}).bindPopup('<b>Időjárás-állomás és szerver</b>').addTo(map);" 
           "fetch('/api/map_status').then(r=>r.json()).then(data=>{"
+          "  console.log('Térkép adatok érkeztek:', data);"
           "  document.getElementById('tele-gsm').innerHTML = '<span style=\"color:#4d4dff; margin-right:6px; font-size:16px;\">📊</span><span class=\"val-ok\">' + data.signal + ' dBm</span>';"
           "  document.getElementById('tele-gps').innerHTML = data.fix ? '<span class=\"val-ok\">Van (' + data.sat + ')</span>' : '<span class=\"val-err\">Nincs</span>';"
           "  document.getElementById('tele-up').innerHTML = '<b>' + data.uptime + ' perc</b>';"
           "  document.getElementById('tele-mem').innerHTML = '<b>' + data.heap + ' KB</b>';"
-          "  if (data.markers && Array.isArray(data.markers)) {"
+          "  if (data.markers && Array.isArray(data.markers) && data.markers.length > 0) {"
           "    data.markers.forEach(item => {"
           "      if (item.type === 'hive') {"
           "        let color = '#22c55e';"
@@ -107,10 +121,12 @@ void handleHives(AsyncWebServerRequest *request) {
           "        if (item.status === 'org') color = '#f97316';"
           "        if (item.status === 'err' || item.status === 'critical') color = '#ef4444';"
           "        let funcText = item.colonyFunc ? ('<br><span style=\"font-size:11px; color:var(--accent);\">' + item.colonyFunc + '</span>') : '';"
-          "        let popupHtml = '<div style=\"text-align:center;\"><b>' + item.id + '</b>' + funcText + '<br><a href=\"/hive?hive=' + item.id + '\">Részletek megnyitása</a></div>';"
+          "        let popupHtml = '<div style=\"text-align:center;\"><b>' + item.id + '</b>' + funcText + '<br><a href=\"/hive?hive=' + encodeURIComponent(item.id) + '\">Részletek megnyitása</a></div>';"
           "        L.marker([item.lat, item.lng], {icon: customIcon(color)}).bindPopup(popupHtml).addTo(map);"
           "      }"
           "    });"
+          "  } else {"
+          "    console.warn('Figyelem: Nincsenek markerek a JSON-ban! (Vagy üres a gHives tömb)');"
           "  }"
           "}).catch(e=>console.log('Térkép API hiba:', e));"
           "</script>";
@@ -119,7 +135,7 @@ void handleHives(AsyncWebServerRequest *request) {
   request->send(200, "text/html", html);
 }
 
-// 1. PÁROSÍTÁS INDÍTÁSA (30 másodperces időtúllépéssel)
+// 1. PÁROSÍTÁS INDÍTÁSA
 void handleRegStart(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   
@@ -158,7 +174,7 @@ void handleRegStart(AsyncWebServerRequest *request) {
   request->send(200, "text/html", html);
 }
 
-// API Végpont: Párosítási státusz JS pollinghoz (30 másodperc)
+// API Végpont: Párosítási státusz JS pollinghoz
 void handleCheckPairingAPI(AsyncWebServerRequest *request) {
     if (!gPairingMode && gNewlyPairedMonitorId > 0) {
         String res = "{\"paired\":true, \"monitor_id\":" + String(gNewlyPairedMonitorId) + "}";
@@ -172,7 +188,7 @@ void handleCheckPairingAPI(AsyncWebServerRequest *request) {
     }
 }
 
-// 2. FÉSZEKFIÓK AZONOSÍTÁSA (Kamerás olvasóval)
+// 2. FÉSZEKFIÓK AZONOSÍTÁSA
 void handleRegBarcode(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   if (request->hasParam("monitor_id")) {
@@ -220,37 +236,48 @@ void handleRegBarcode(AsyncWebServerRequest *request) {
   request->send(200, "text/html", html);
 }
 
-// 3. ANYA ÉS CSALÁD ADATAI
+// 3. ANYA ÉS CSALÁD ADATAI (Itt volt a vágólap baleset, most már jó!)
 void handleRegQueen(AsyncWebServerRequest *request) {
-  if (!checkPinGuard(request)) return;
-  if (request->hasParam("barcode")) {
-      gRegBoxId = request->getParam("barcode")->value();
-  }
+    if (!checkPinGuard(request)) return;
+    
+    // Ha URL-ből jön a vonalkód
+    if (request->hasParam("barcode")) {
+        gRegBoxId = request->getParam("barcode")->value();
+    }
 
-  String html = htmlHead("Anya Adatai", "9");
-  html += "<div class='card'><h2>👑 Anya és Család</h2>";
-  html += "<p style='color:var(--ok); font-weight:bold; margin-bottom:15px;'>📦 Fiók rögzítve: " + gRegBoxId + "</p>";
-  
-  html += "<form action='/reg/survey' method='POST'>";
-  
-  html += "<label>Anya származása:</label>";
-  html += "<input type='text' name='origin' placeholder='Saját nevelés / Tenyésztő neve' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px;' required>";
-  
-  html += "<label>Évjárat (szín):</label>";
-  html += "<select name='vintage' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px;'>";
-  html += "<option value='2024'>2024 (Zöld)</option><option value='2025'>2025 (Kék)</option><option value='2026' selected>2026 (Fehér)</option><option value='2027'>2027 (Sárga)</option></select>";
+    String html = htmlHead("Anya Adatai", "9");
+    html += "<div class='card'><h2>👑 Anya és Család</h2>";
+    html += "<p style='color:var(--ok); font-weight:bold; margin-bottom:15px;'>📦 Fiók rögzítve: " + gRegBoxId + "</p>";
+    
+    html += "<form action='/reg/survey' method='POST'>";
+    
+    html += "<label>Anya származása:</label>";
+    html += "<input type='text' name='origin' placeholder='Saját nevelés / Tenyésztő neve' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px;' required>";
+    
+    html += "<label>Évjárat (szín):</label>";
+    html += "<select name='vintage' style='width:100%; padding:10px; margin-bottom:15px; border-radius:8px;'>";
+    html += "<option value='2021'>2021 (Fehér)</option>";
+    html += "<option value='2022'>2022 (Sárga)</option>";
+    html += "<option value='2023'>2023 (Piros)</option>";
+    html += "<option value='2024'>2024 (Zöld)</option>";
+    html += "<option value='2025'>2025 (Kék)</option>";
+    html += "<option value='2026' selected>2026 (Fehér)</option>";
+    html += "<option value='2027'>2027 (Sárga)</option>";
+    html += "<option value='2028'>2028 (Piros)</option>";
+    html += "</select>";
 
-  html += "<label>Család kialakulása:</label>";
-  html += "<select name='origin_type' class='sec' style='width:100%; padding:10px; margin-bottom:20px; border-radius:8px;'>";
-  html += "<option value='Anyásítás'>Anyásítás (Korábbi család)</option>";
-  html += "<option value='Söpört raj'>Söpört raj</option>";
-  html += "<option value='Böngészett raj'>Böngészett raj</option>";
-  html += "<option value='Természetes raj'>Természetes raj</option>";
-  html += "<option value='Műraj'>Műraj</option></select>";
+    html += "<label>Család kialakulása:</label>";
+    html += "<select name='origin_type' class='sec' style='width:100%; padding:10px; margin-bottom:20px; border-radius:8px;'>";
+    html += "<option value='Anyásítás'>Anyásítás (Korábbi család)</option>";
+    html += "<option value='Söpört raj'>Söpört raj</option>";
+    html += "<option value='Böngészett raj'>Böngészett raj</option>";
+    html += "<option value='Természetes raj'>Természetes raj</option>";
+    html += "<option value='Műraj'>Műraj</option>";
+    html += "</select>";
 
-  html += "<button type='submit' class='pri' style='width:100%; padding:12px;'>Tovább a Helymeghatározáshoz 📍</button></form></div>";
-  html += htmlFoot();
-  request->send(200, "text/html", html);
+    html += "<button type='submit' class='pri' style='width:100%; padding:12px;'>Tovább a Helymeghatározáshoz 📍</button></form></div>";
+    html += htmlFoot();
+    request->send(200, "text/html", html);
 }
 
 // 4. GPS BEMÉRÉS
@@ -328,11 +355,35 @@ void handleRegSummary(AsyncWebServerRequest *request) {
 // 6. BEFEJEZÉS
 void handleRegSave(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
+
+  // --- ÚJ: Mentés a memóriába és JSON-be ---
+  HiveProfile newHive;
+  // Fallback, ha nem volt monitor_id megadva (pl. tesztelés)
+  if(gRegMonitorId == 0) gRegMonitorId = 99;
+  
+  // Egyedi (szimulált) MAC cím generálása a regisztrációhoz
+  newHive.id = "24:6F:28:AB:CD:" + String(gRegMonitorId < 10 ? "0" : "") + String(gRegMonitorId);
+  
+  // EZEK HIANYZOZTAK KORÁBBAN:
+  newHive.monitorId = gRegMonitorId;
+  newHive.baseBoxId = gRegBoxId;
+  
+  newHive.queenOrigin = gRegCtx.queenOrigin;
+  newHive.queenYear = gRegCtx.queenVintage;
+  newHive.originType = gRegOriginType;
+  newHive.function = "Termelő: Méz";
+  newHive.lat = gRegCtx.finalLat;
+  newHive.lon = gRegCtx.finalLon;
+  newHive.honeySupers = 2;
+  newHive.broodBoxes = 1;
+
+  hiveDbAdd(newHive); // Hozzáadás és mentés a LittleFS-re
+
   gRegCtx.active = false;
 
   String html = htmlHead("Siker", "9");
   html += "<div class='card' style='text-align:center;'><h2>🎉 Kaptár Regisztrálva!</h2>";
-  html += "<p>A rendszer összerendelte a hardvert a fizikai fiókkal és az anyával.</p>";
+  html += "<p>A rendszer elmentette a kaptárt az adatbázisba (ID: <b>" + newHive.id + "</b>).</p>";
   html += "<br><button class='pri' style='width:100%; padding:14px;' onclick=\"location.href='/hives'\">Vissza az Állományhoz</button></div>";
   html += htmlFoot();
   request->send(200, "text/html", html);

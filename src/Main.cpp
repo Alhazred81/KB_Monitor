@@ -15,6 +15,7 @@
 #include "config.h"
 #include "crypto.h"
 #include "gnss_mgr.h"
+#include "hive_db.h"
 #include "modem_mgr.h"
 #include "NtfyClient.h"
 #include "sensors.h"
@@ -308,6 +309,7 @@ void setup() {
   initDiagRoutes();
   initConfigRoutes();
   initIotRoutes();
+  hiveDbLoad();
 
   gReportTimes = loadReportConfig();
   gApPass    = loadApPass();
