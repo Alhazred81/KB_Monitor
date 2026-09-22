@@ -6,17 +6,28 @@
     <title>Szerver Vezérlőpult</title>
     <link rel="stylesheet" href="style.css" />
     <style>
-      /* --- HIÁNYZÓ TAB DIZÁJN PÓTLÁSA --- */
-      .nav-tabs {
+      /* --- SETUP / FIELD MÓD NAVIGÁCIÓS SÁV --- */
+      .nav-bar {
         display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 25px;
+        justify-content: space-between;
+        align-items: center;
         background: #1a1a2e;
         padding: 10px;
         border-radius: 8px;
         border: 1px solid var(--border);
+        margin-bottom: 25px;
+        position: sticky;
+        top: 10px;
+        z-index: 1000;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
       }
+
+      .nav-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
       .nav-tabs a {
         color: var(--txt);
         text-decoration: none;
@@ -26,18 +37,78 @@
         font-size: 14px;
         transition: 0.2s;
       }
+
       .nav-tabs a:hover {
         background: #2a2a4a;
       }
+
       .nav-tabs a.active {
         background: var(--ok);
         color: #000;
         font-weight: bold;
       }
 
+      .nav-mode-switch {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding-left: 15px;
+        border-left: 1px solid var(--border);
+      }
+
+      .mode-label {
+        font-weight: bold;
+        color: var(--txt2);
+        font-size: 14px;
+      }
+
+      .mode-label.active {
+        color: var(--txt);
+      }
+
+      /* Csúszka (Toggle) formázása */
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 50px;
+        height: 24px;
+      }
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ef4444; /* Field mód: piros */
+        transition: 0.4s;
+        border-radius: 24px;
+      }
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: 0.4s;
+        border-radius: 50%;
+      }
+      input:checked + .slider {
+        background-color: #22c55e; /* Setup mód: zöld */
+      }
+      input:checked + .slider:before {
+        transform: translateX(26px);
+      }
+
       /* --- SZENZOR SKÁLA (GAUGE) JAVÍTOTT CSS --- */
       .gauge-container {
-        /* Megnövelt oldalsó padding (40px), hogy a 0% és 100% dobozok ne lógjanak le a képernyőről */
         padding: 25px 40px 40px 40px;
         margin: 15px 0;
         position: relative;
@@ -49,7 +120,6 @@
         font-size: 14px;
         font-weight: bold;
         color: var(--txt);
-        /* Megnövelt alsó margó, hogy a felső markerek ne takarják ki a címet */
         margin-bottom: 50px;
       }
       .gauge-track {
@@ -107,7 +177,6 @@
       .gauge-marker.bottom .gauge-line {
         margin-bottom: 2px;
       }
-
       .gauge-marker.current .gauge-line {
         width: 3px;
         background: var(--ok);
@@ -118,16 +187,27 @@
     <div class="container">
       <h1>Szerver Vezérlőpult</h1>
 
-      <!-- NAVIGÁCIÓS TABOK -->
-      <div class="nav-tabs">
-        <a href="/" class="active">Áttekintés</a>
-        <a href="/gsm">GSM</a>
-        <a href="/iot">IoT / ntfy</a>
-        <a href="/cfg">Beállítások</a>
-        <a href="/diag">Diag</a>
-        <a href="/gnss">GPS</a>
-        <a href="/sensors">Szenzorok</a>
-        <a href="/expert">Expert</a>
+      <!-- NAVIGÁCIÓS TABOK ÉS MÓDVÁLTÓ (Ragadós sáv) -->
+      <div class="nav-bar">
+        <div class="nav-tabs">
+          <a href="/" class="active">Áttekintés</a>
+          <a href="/gsm">GSM</a>
+          <a href="/iot">IoT / ntfy</a>
+          <a href="/cfg">Beállítások</a>
+          <a href="/diag">Diag</a>
+          <a href="/gnss">GPS</a>
+          <a href="/sensors">Szenzorok</a>
+          <a href="/expert">Expert</a>
+        </div>
+
+        <div class="nav-mode-switch">
+          <span class="mode-label active" id="labelField">FIELD</span>
+          <label class="switch">
+            <input type="checkbox" id="setupToggle" onchange="toggleMode()" />
+            <span class="slider"></span>
+          </label>
+          <span class="mode-label" id="labelSetup">SETUP</span>
+        </div>
       </div>
 
       <!-- Szenzorok Gyorstérképe Skálákkal -->

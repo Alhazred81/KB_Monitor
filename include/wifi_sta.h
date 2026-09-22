@@ -4,7 +4,6 @@
 #include "config.h"
 #include "crypto.h"
 #include "time_mgr.h"
-#include "connections.h"
 
 enum class NetMode { AP, STA_CONNECTING, STA_CONNECTED, STA_FAILED };
 
@@ -20,14 +19,11 @@ struct WifiStaState {
 
 extern WifiStaState gSta;
 
-void startAP();
-String loadApSSID();
-void saveApSSID(const String& ssid);
-
 struct ScannedNet {
   String ssid;
   int rssi;
   bool secure;
+  int channel;
 };
 
 #define MAX_SCAN_RESULTS 15
@@ -39,8 +35,16 @@ void wifiScan();
 void wifiStaConnect(const String& ssid, const String& pass);
 void wifiStaLoop();
 void wifiStaTryAutoConnect();
+void wifiSuspendSta();
 void wifiStaDisconnect();
 void wifiStaWatchdog();
 
+// --- AP és Lista Kezelés ---
+String loadApSSID();
+void saveApSSID(const String& ssid);
 void saveApConfig(const String& ssid, const String& pass, uint8_t channel, bool hide);
 bool loadApHide();
+
+void addSavedWifi(const String& ssid, const String& pass);
+String getSavedWifiJson();
+String getSavedWifiPass(const String& ssid);

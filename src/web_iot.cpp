@@ -64,6 +64,14 @@ void handleIot(AsyncWebServerRequest *request) {
         var resId = isStorm ? 'stormResult' : 'ntfyResult';
         var prioVal = isStorm ? document.getElementById('weatherPrio').value : 3;
         
+        var customMsg = '';
+        if (!isStorm) {
+            var inputEl = document.getElementById('customNtfyMsg');
+            if (inputEl) customMsg = inputEl.value;
+        } else {
+            customMsg = document.getElementById('customStormMsg').value;
+        }
+        
         var btn = document.getElementById(btnId);
         var res = document.getElementById(resId);
         
@@ -71,13 +79,18 @@ void handleIot(AsyncWebServerRequest *request) {
         res.style.display = 'block';
         res.innerHTML = '<span style="color:var(--txt2)">⏳ Küldés folyamatban...</span>';
         
-        // Eltároljuk a globális js objektumban, hogy a polling tudja, melyik gombot kell frissíteni
         window.currentNtfyBtn = btn;
         window.currentNtfyRes = res;
         
-        var url = '/ntfysend?prio=' + prioVal + (isStorm ? '&storm=1' : '');
+        var formData = new FormData();
+        formData.append('prio', prioVal);
+        if (isStorm) formData.append('storm', '1');
+        formData.append('msg', customMsg);
 
-        fetch(url, {method: 'POST'})
+        fetch('/ntfysend', {
+            method: 'POST',
+            body: formData
+        })
         .then(function(r){ return r.json(); })
         .then(function(d){
             if(d.error) {
@@ -148,18 +161,21 @@ void handleIot(AsyncWebServerRequest *request) {
     html += "<button type='submit' class='pri' style='width:100%; padding:10px;'>💾 Beállítások Mentése</button>";
     html += "</form>";
 
-    // Viharriasztás teszt gomb (A mentés form-on kívül, hogy ne küldjön újra posztot)
+    // Viharriasztás teszt gomb és egyedi üzenet mező
     html += "<hr style='margin: 20px 0; border: 0; border-top: 1px solid var(--bg2);'>";
-    html += "<p class='hint' style='margin-bottom: 5px;'>Küld egy teszt viharriasztást a fenti legördülőben beállított prioritással.</p>";
-    html += "<button id='stormBtn' type='button' class='sec' style='width:100%; padding:10px; border-color:#ca8a04; color:#ca8a04; font-weight:bold;' onclick=\"sendAjaxNtfy('storm')\">⛈️ Viharriasztás Teszt</button>";
+    html += "<label>Egyedi viharriasztás szöveg:</label>";
+    html += "<input type='text' id='customStormMsg' value='⚠️⛈️⚡⚡ Vihar közeledik a kaptárakhoz! ⚡⚡⛈️' style='width:100%; margin-bottom:10px;'>";
+    html += "<button id='stormBtn' type='button' class='sec' style='width:100%; padding:10px; border-color:#ca8a04; color:#ca8a04; font-weight:bold;' onclick=\"sendAjaxNtfy('storm')\">⛈️ Viharriasztás Teszt Küldése</button>";
     html += "<div id='stormResult' style='margin-top:10px; font-weight:bold; display:none;'></div>";
     
     html += "</div>";
 
     // --- ALAP NTFY TESZT CSEMPE ---
     html += "<div class='card wide'><h2>ntfy.sh Értesítések</h2>";
-    html += "<p class='hint'>Alapértelmezett, normál (3-as prioritású) rendszerüzenet tesztje.</p>";
-    html += "<button id='ntfyBtn' type='button' class='sec' onclick=\"sendAjaxNtfy('normal')\">📱 Általános Tesztüzenet</button>";
+    html += "<p class='hint'>Írd be az alábbi mezőbe az egyedi üzenetet, amit tesztként el szeretnél küldeni:</p>";
+    html += "<label>Tesztüzenet szövege:</label>";
+    html += "<input type='text' id='customNtfyMsg' value='Sikeres szerver tesztüzenet!' style='width:100%; margin-bottom:10px;'>";
+    html += "<button id='ntfyBtn' type='button' class='sec' onclick=\"sendAjaxNtfy('normal')\">📱 Egyedi Tesztüzenet Küldése</button>";
     html += "<div id='ntfyResult' style='margin-top:10px; font-weight:bold; display:none;'></div>";
     html += "</div>";
     
@@ -208,23 +224,25 @@ void handleNtfySend(AsyncWebServerRequest *request) {
         return;
     }
 
-    bool isStorm = request->hasParam("storm");
+    bool isStorm = request->hasParam("storm", true);
     int prioVal = 3; 
     
-    if (request->hasParam("prio")) {
-        prioVal = request->getParam("prio")->value().toInt();
+    if (request->hasParam("prio", true)) {
+        prioVal = request->getParam("prio", true)->value().toInt();
         if (prioVal < 1) prioVal = 1;
         if (prioVal > 5) prioVal = 5;
+    }
+
+    String customMsg = "";
+    if (request->hasParam("msg", true)) {
+        customMsg = request->getParam("msg", true)->value();
     }
 
     gNtfySendDone = false;
     gNtfySendResult = "";
     
-    // A címben (Title) szigorúan ASCII karakterek, hogy a URL query ne omoljon össze!
     String title = isStorm ? "VIHAR RIASZTAS TESZT" : "Teszt Riport";
-    
-    // A törzsben (Body) nyugodtan mehet az ékezet és az emoji is.
-    String msg = isStorm ? "⚠️⛈️⚡⚡ Vihar közeledik a kaptárakhoz! ⚡⚡⛈️ (Prio: " + String(prioVal) + ")" : "Sikeres szerver tesztüzenet! (Prio: " + String(prioVal) + ")";
+    String msg = customMsg.length() > 0 ? customMsg : (isStorm ? "⚠️⛈️⚡⚡ Vihar közeledik a kaptárakhoz! ⚡⚡⛈️" : "Sikeres szerver tesztüzenet!");
     
     Serial.println("[WEBSERVER] ntfy.send indítása (Prioritás: " + String(prioVal) + ")...");
     
@@ -234,7 +252,7 @@ void handleNtfySend(AsyncWebServerRequest *request) {
     
     gNtfySendDone = true;
     if (ok) {
-        diagAdd(isStorm ? "Teszt viharriasztás elküldve." : "Teszt ntfy elküldve.");
+        diagAdd("Teszt ntfy elküldve.");
         request->send(200, "application/json", "{\"error\":\"\",\"started\":true}");
     } else {
         gNtfySendResult = "ntfy küldési hiba";
@@ -242,7 +260,6 @@ void handleNtfySend(AsyncWebServerRequest *request) {
         request->send(200, "application/json", "{\"error\":\"Nem sikerült elküldeni az értesítést.\"}");
     }
 }
-
 
 void handleNtfyPoll(AsyncWebServerRequest *request) {
     String json = "{";

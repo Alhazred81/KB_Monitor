@@ -2,9 +2,6 @@
 #include "web_common.h"
 #include <Arduino.h>
 
-// Megjegyzés: Az extern AsyncWebServer server; példány a web_common.h-ból/cpp-ből jön, 
-// a régi WebServer.h inclusion-t teljesen eltávolítottuk az aszinkron kompatibilitás miatt.
-
 extern String macSuffix();
 
 // Behúzzuk a globális változót a módváltáshoz
@@ -16,30 +13,54 @@ String htmlHead(const String& title, const String& activeTab) {
   s += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
   s += "<title>" + title + "</title>";
   
-  // Íme az on-the-fly méhecske favicon! (Nincs szükség külön fájlra)
   s += "<link rel='icon' href=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐝</text></svg>\">";
-  
   s += "<link rel='stylesheet' href='/s.css'>";
+  
+  // Script a módváltáshoz (közvetlen átirányítással)
+  s += R"script(
+  <script>
+    function toggleMode(cb) {
+      const mode = cb.checked ? 'setup' : 'field';
+      location.href = '/setmode?m=' + mode;
+    }
+  </script>
+  )script";
+  
   s += "</head><body>";
   s += "<nav>";
   
-  // ─── Alapvető fülek (Terep módban és Setup módban is látszanak) ───
+  // ─── Bal oldali menüpontok ───
+  s += "<div class='nav-left'>";
   s += "<a href='/'" + String(activeTab=="1"?" class='on'":"") + ">🏠 Főoldal</a>";
   s += "<a href='/hives'" + String(activeTab=="9"?" class='on'":"") + ">🗺 Kaptárak</a>";
   s += "<a href='/hive'" + String(activeTab=="11"?" class='on'":"") + ">🐝 Kaptár</a>";
 
-  // ─── Haladó fülek (Csak Setup módban látszanak) ───
   if (!gFieldMode) {
     s += "<a href='/gsm'" + String(activeTab=="2"?" class='on'":"") + ">📱 GSM</a>";
     s += "<a href='/iot'" + String(activeTab=="3"?" class='on'":"") + ">🌐 IoT</a>";
     s += "<a href='/gnss'" + String(activeTab=="6"?" class='on'":"") + ">🛰 GNSS</a>";
     s += "<a href='/sensors'" + String(activeTab=="7"?" class='on'":"") + ">🌡 Szenzor</a>";
     s += "<a href='/cfg'" + String(activeTab=="4"?" class='on'":"") + ">⚙ Konfig</a>";
-    s += "<a href='/expert'" + String(activeTab=="8"?" class='on'":"") + ">⚠️ Expert</a>";
     s += "<a href='/diag'" + String(activeTab=="5"?" class='on'":"") + ">🩺 Diag</a>";
   }
+  s += "</div>";
+
+  // ─── Jobb oldali Módváltó Kapcsoló ───
+  s += "<div class='nav-right'>";
+  s += "<div class='mode-switch'>";
+  s += "<span class='mode-label" + String(!gFieldMode ? " dim" : "") + "'>🌱 Terep</span>";
+  s += "<label class='m-slider-wrap'>";
+  s += "<input type='checkbox' onchange='toggleMode(this)'" + String(!gFieldMode ? " checked" : "") + ">";
+  s += "<span class='m-slider'></span>";
+  s += "</label>";
+  s += "<span class='mode-label" + String(gFieldMode ? " dim" : "") + "' style='color:" + String(!gFieldMode ? "#ffcc00" : "var(--txt2)") + "'>⚙️ Setup</span>";
+  s += "</div>";
+  s += "</div>";
 
   s += "</nav><div class='wrap'>";
+  
+  s += "<h1>" + title + "</h1>";
+  
   return s;
 }
 
@@ -48,26 +69,46 @@ String htmlFoot() {
   return "</div></body></html>";
 }
 
-// ─── CSS Stíluslap (Aszinkron szerver kezeléssel) ───────────────
+// ─── CSS Stíluslap ───────────────
 void handleCss(AsyncWebServerRequest *request) {
   String css = R"css(
     :root{--bg:#05050a;--nav:#0d0d1a;--card:#141428;--txt:#e0e0e0;--txt2:#888;
-    --border:#2a2a40;--accent:#4d4dff;--ok:#00cc66;--warn:#ff9900;--err:#ff3333}
+    --border:#2a2a40;--accent:#4d4dff;--ok:#00cc66;--warn:#ffcc00;--err:#ff3333}
     * {box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif}
     body {background:var(--bg);color:var(--txt);font-size:14px;line-height:1.5}
     
     /* Navigáció */
-    nav {background:var(--nav);display:flex;overflow-x:auto;border-bottom:1px solid var(--border);
-    position:sticky;top:0;z-index:100;padding:0 8px;scrollbar-width:none}
+    nav {background:var(--nav);display:flex;justify-content:space-between;align-items:center;
+    border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;padding:0 8px;scrollbar-width:none}
     nav::-webkit-scrollbar{display:none}
+    
+    .nav-left {display:flex;overflow-x:auto;}
+    .nav-left::-webkit-scrollbar{display:none}
+    
     nav a {color:var(--txt2);text-decoration:none;padding:14px 16px;white-space:nowrap;
     font-weight:600;font-size:13px;border-bottom:2px solid transparent;transition:.2s}
     nav a:hover {color:var(--txt)}
     nav a.on {color:var(--accent);border-bottom-color:var(--accent)}
     
-    /* Elrendezés (Szigorúan fix méretű Flexbox) */
+    /* Üzemmód kapcsoló a Navigáción belül */
+    .nav-right {padding-right: 8px;}
+    .mode-switch {display:flex;align-items:center;background:#1a1a2e;padding:4px 12px;border-radius:20px;
+    border:1px solid var(--border);gap:8px;}
+    .mode-label {font-size:12px;font-weight:bold;transition:0.3s;}
+    .mode-label.dim {opacity:0.5;}
+    
+    .m-slider-wrap {position:relative;display:inline-block;width:40px;height:20px;}
+    .m-slider-wrap input {opacity:0;width:0;height:0;}
+    .m-slider {position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;
+    background-color:#555;transition:.4s;border-radius:20px;}
+    .m-slider:before {position:absolute;content:"";height:14px;width:14px;left:3px;bottom:3px;
+    background-color:white;transition:.4s;border-radius:50%;}
+    .m-slider-wrap input:checked + .m-slider {background-color:var(--warn);}
+    .m-slider-wrap input:checked + .m-slider:before {transform:translateX(20px);}
+
+    /* Elrendezés */
     .wrap {max-width:1850px;margin:0 auto;padding:16px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
-    h1 {width:100%;font-size:20px;margin-bottom:-4px;color:#fff}
+    h1 {width:100%;font-size:20px;margin-bottom:8px;color:#fff}
     .card {background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;
     width:340px;max-width:100%;flex:0 0 auto}
     .card.wide {width:696px;max-width:100%;flex:0 0 auto}
@@ -100,7 +141,7 @@ void handleCss(AsyncWebServerRequest *request) {
     .msg {padding:10px;border-radius:8px;margin-bottom:12px;font-size:13px;border-left:4px solid}
     .msg.ok {background:rgba(0,204,102,.1);border-color:var(--ok);color:var(--ok)}
     .msg.err {background:rgba(255,51,51,.1);border-color:var(--err);color:var(--err)}
-    .msg.warn {background:rgba(255,153,0,.1);border-color:var(--warn);color:var(--warn)}
+    .msg.warn {background:rgba(255,204,0,.1);border-color:var(--warn);color:var(--warn)}
     .hint {font-size:11px;color:var(--txt2);margin-bottom:12px}
     
     /* Diag doboz */

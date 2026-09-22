@@ -7,8 +7,10 @@
 #include <SPI.h>
 #include <Preferences.h>
 #include "web_common.h"
+#include <esp_wifi.h>
 
 unsigned long currentServerTimestamp = 1787680000; 
+extern uint8_t gApChannel;
 
 // ─── WEBES DIAGNOSZTIKA NAPLÓ ÉS RAM GYORSTÁR ───
 static String gRadioLog = "";
@@ -194,25 +196,19 @@ void onEspNowReceive(const uint8_t *mac_addr, const uint8_t *incomingData, int l
 }
 
 void initServerEspNow() {
-    if(!LittleFS.begin(true)){
-        Serial.println("[FS] LittleFS hiba!");
-        return;
-    }
-
-    uint8_t targetChannel = loadSavedEspNowChannel();
-    Serial.printf("[WIFI/ESP-NOW] Indítás a mentett %d. csatornán...\n", targetChannel);
-
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.disconnect();
+    Serial.printf("[WIFI/ESP-NOW] Indítás a szinkronizált %d. csatornán...\n", gApChannel);
     
-    WiFi.softAP("KaptarServer_AP", "12345678", targetChannel);
+    // Rákényszerítjük a hardveres rádiót az aktuális csatornára!
+    esp_wifi_set_channel(gApChannel, WIFI_SECOND_CHAN_NONE);
 
     if (esp_now_init() != ESP_OK) {
-        Serial.println("[ESP-NOW] Indítási hiba!");
+        Serial.println("ESP-NOW inicializálás HIBA a szerveren!");
         return;
     }
     
-    esp_now_register_recv_cb(onEspNowReceive);
+    // Most már a helyes, szerver-oldali callback van itt!
+    esp_now_register_recv_cb((esp_now_recv_cb_t)onEspNowReceive);
+    
     Serial.println("[ESP-NOW] Készen áll a rögzített csatornán.");
 }
 
