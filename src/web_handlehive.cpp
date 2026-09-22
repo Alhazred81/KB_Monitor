@@ -46,106 +46,46 @@ void handleHiveView(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   
   String hiveId = request->hasParam("hive") ? request->getParam("hive")->value() : "";
-  
   HiveProfile* targetHive = nullptr;
   for (int i = 0; i < gHiveCount; i++) {
-      if (gHives[i].id == hiveId) {
-          targetHive = &gHives[i];
-          break;
-      }
+      if (gHives[i].id == hiveId) { targetHive = &gHives[i]; break; }
   }
-
-  if (!targetHive && gHiveCount > 0) {
-      targetHive = &gHives[0];
-      hiveId = targetHive->id;
-  }
+  if (!targetHive && gHiveCount > 0) { targetHive = &gHives[0]; hiveId = targetHive->id; }
 
   int queenYear = targetHive ? targetHive->queenYear : 2026;
   String famStatus = targetHive ? targetHive->originType : "Ismeretlen";
   String funcText = targetHive ? targetHive->function : "Termelő";
-  String taskText = "Nincs teendő"; 
   int batPct = 90;
   String monStat = "OK";
   String boxClass = "b-grn";
-  String boxesHtml = "";
 
-  if (targetHive) {
-      // Mézterek megjelenítése (felülről lefelé haladva)
-      for (int i = 0; i < targetHive->honeySupers; i++) {
-          boxesHtml += "<div class='box-super box-ratio-23 b-grn' style='font-size:13px;'>Méztér " + String(targetHive->honeySupers - i) + "</div>";
-      }
+  String funcDisplay = funcText;
+  if (funcDisplay.startsWith("Termelő: ")) funcDisplay = funcDisplay.substring(9);
 
-      // Funkció rövidítése
-      String funcDisplay = targetHive->function;
-      if (funcDisplay.startsWith("Termelő: ")) {
-          funcDisplay = funcDisplay.substring(9);
-      }
-
-      // Anya évjárat szín meghatározása
-      String qColor = "#ffffff";
-      switch (queenYear % 10) {
-          case 1: case 6: qColor = "#ffffff"; break;
-          case 2: case 7: qColor = "#eab308"; break;
-          case 3: case 8: qColor = "#ef4444"; break;
-          case 4: case 9: qColor = "#22c55e"; break;
-          case 5: case 0: qColor = "#3b82f6"; break;
-      }
-
-      String boxColorClass = "b-grn"; 
-      if (targetHive->originType.indexOf("Rajzási") >= 0) boxColorClass = "b-yell";
-      else if (targetHive->originType.indexOf("Kritikus") >= 0) boxColorClass = "b-red";
-      else if (targetHive->originType.indexOf("Anyátlan") >= 0) boxColorClass = "b-org";
-
-      int totalBoxes = targetHive->broodBoxes;
-      for (int i = 0; i < totalBoxes; i++) {
-          if (i == totalBoxes - 1) {
-              boxesHtml += "<div class='box-super box-square " + boxColorClass + "' style='position:relative; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:4px; padding:6px;'>"
-                           "<div style='position:absolute; top:4px; right:6px; font-size:14px; display:flex; gap:6px; opacity:0.95;' title='RSSI és Akku'>"
-                           "<span>📶</span><span>🔋</span>"
-                           "</div>"
-                           "<span style='font-size:12px; opacity:0.95; font-weight:700; text-align:center;'>" + funcDisplay + "</span>"
-                           "<span style='display:flex; align-items:center; gap:6px; font-size:13px; font-weight:bold;'>"
-                           "<span style='width:11px; height:11px; background-color:" + qColor + "; border-radius:50%; display:inline-block; border:1.5px solid rgba(255,255,255,0.8);'></span>"
-                           + String(queenYear) + "</span>"
-                           "<span style='font-size:11px; color:var(--accent); margin-top:3px; font-weight:bold; text-align:center;'>" + taskText + "</span>"
-                           "</div>";
-          } else {
-              boxesHtml += "<div class='box-super box-square " + boxColorClass + "' style='font-size:13px;'>Fészek " + String(i + 1) + "</div>";
-          }
-      }
-
-      // --- POLLENGYŰJTŐ FIÓK (NAGYMÉRETŰ KAPCSOLÓVAL) ---
-      bool pollenEnabled = true;         
-      bool pollenNeedsAttention = true;  
-
-      String pollenClass = !pollenEnabled ? "box-pollen pollen-disabled" : (pollenNeedsAttention ? "box-pollen pollen-active" : "box-pollen pollen-idle");
-      String pollenStatusText = !pollenEnabled ? "Inaktív" : (pollenNeedsAttention ? "⚠️ Napi felügyelet" : "Rendben");
-
-      boxesHtml += "<div class='" + pollenClass + "'>"
-                   "<div style='display:flex; flex-direction:column; justify-content:center;'>"
-                   "<span style='font-size:15px; letter-spacing:0.5px;'>🌼 Pollengyűjtő</span>"
-                   "<span style='font-size:11px; opacity:0.85; margin-top:4px;'>" + pollenStatusText + "</span>"
-                   "</div>"
-                   "<label class='pollen-sw'>"
-                   "<input type='checkbox' " + String(pollenEnabled ? "checked" : "") + " onchange=\"togglePollen('" + hiveId + "', this.checked)\">"
-                   "<span class='pollen-sl'></span>"
-                   "</label>"
-                   "</div>";
-
-  } else {
-      boxesHtml += "<div class='box-super box-square b-grn'>Nincs adat</div>";
+  String qColor = "#ffffff";
+  switch (queenYear % 10) {
+      case 1: case 6: qColor = "#ffffff"; break;
+      case 2: case 7: qColor = "#eab308"; break;
+      case 3: case 8: qColor = "#ef4444"; break;
+      case 4: case 9: qColor = "#22c55e"; break;
+      case 5: case 0: qColor = "#3b82f6"; break;
   }
+
+  if (famStatus.indexOf("Rajzási") >= 0) boxClass = "b-yell";
+  else if (famStatus.indexOf("Kritikus") >= 0) boxClass = "b-red";
+  else if (famStatus.indexOf("Anyátlan") >= 0) boxClass = "b-org";
 
   String html = htmlHead("Kaptár: " + hiveId, "11");
 
   html += "<style>"
-          ".hive-stack { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px; background: #0a0a18; border-radius: 12px; border: 1px solid var(--border); max-width: 180px; margin: 0 auto; }"
-          ".box-super { width: 100%; display: flex; align-items: center; justify-content: center; font-weight: bold; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.4); text-align: center; padding: 0 4px; overflow: hidden; }"
+          ".hive-stack { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px; background: #0a0a18; border-radius: 12px; border: 1px solid var(--border); max-width: 260px; margin: 0 auto; }"
+          ".stack-row { display: flex; align-items: center; width: 100%; gap: 12px; }"
+          ".left-col { flex: 1; display: flex; min-width: 0; }"
+          ".right-col { width: 42px; flex-shrink: 0; }"
+          ".box-super { width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-weight: bold; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.4); position: relative; }"
           ".box-square { aspect-ratio: 1 / 1; }"
-          ".box-ratio-23 { aspect-ratio: 3 / 2; }"
-          ".box-pollen { width: 100%; min-height: 64px; display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 12px; font-weight: bold; border-radius: 8px; border: 2px solid var(--border); box-sizing: border-box; gap: 10px; }"
+          ".box-pollen { width: 100%; box-sizing: border-box; min-height: 64px; display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 12px; font-weight: bold; border-radius: 8px; border: 2px solid var(--border); gap: 10px; }"
           ".pollen-active { background: rgba(249, 115, 22, 0.2); border-color: #f97316; color: #fdba74; }"
-          ".pollen-idle { background: rgba(34, 197, 94, 0.2); border-color: #22c55e; color: #4ade80; }"
           ".pollen-disabled { background: #1f2937 !important; border-color: var(--border) !important; color: var(--txt2) !important; opacity: 0.7; }"
           ".pollen-sw { position: relative; display: inline-block; width: 64px; height: 34px; flex-shrink: 0; }"
           ".pollen-sw input { opacity: 0; width: 0; height: 0; }"
@@ -153,6 +93,8 @@ void handleHiveView(AsyncWebServerRequest *request) {
           ".pollen-sl:before { position: absolute; content: ''; height: 26px; width: 26px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }"
           ".pollen-sw input:checked + .pollen-sl { background-color: #22c55e; }"
           ".pollen-sw input:checked + .pollen-sl:before { transform: translateX(30px); }"
+          ".remove-btn { width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; transition: 0.2s; }"
+          ".remove-btn:hover { background: rgba(239,68,68,0.3); transform: scale(1.05); }"
           ".alert-banner { padding: 12px; border-radius: 8px; font-weight: bold; text-align: center; margin-bottom: 16px; font-size: 15px; }"
           ".b-grn   { background: rgba(34,197,94,0.3); color: #22c55e; border: 2px solid #22c55e; }"
           ".b-yell  { background: rgba(234,179,8,0.3); color: #eab308; border: 2px solid #eab308; }"
@@ -167,7 +109,6 @@ void handleHiveView(AsyncWebServerRequest *request) {
 
   html += "<div style='display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; width:100%; margin-bottom:15px; gap:10px;'>";
   html += "<div style='display:flex; align-items:center; gap:10px; width:100%;'><h2 style='margin:0;'>Kaptár:</h2>";
-  
   html += "<select onchange=\"location.href='/hive?hive='+encodeURIComponent(this.value)\" style='flex:1; padding:10px; border-radius:8px; background:#141428; color:var(--accent); border:1px solid var(--border); font-size:18px; font-weight:bold; cursor:pointer;'>";
   for (int i = 0; i < gHiveCount; i++) {
       html += "<option value='" + gHives[i].id + "'" + String(gHives[i].id == hiveId ? " selected" : "") + ">" + gHives[i].id + " (" + gHives[i].function + ")</option>";
@@ -177,27 +118,21 @@ void handleHiveView(AsyncWebServerRequest *request) {
 
   html += "<div style='display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; width:100%;'>";
   html += "<div style='display:flex; flex-direction:column; gap:16px;'>";
-
   html += "<div class='alert-banner " + boxClass + "'>Státusz: Aktív</div>";
 
+  // Dinamikus, JS alapú Kaptár Építő
   html += "<div class='card full' style='margin:0;'><h2>📦 Kaptár Állapot</h2>";
-  html += "<div class='hive-stack'>";
-  html += boxesHtml; 
-  html += "<div style='width:100%; height:10px; background:#444; border-radius:2px; margin-top:3px;'></div>";
-  html += "</div></div>";
+  html += "<div class='hive-stack' id='hive-stack-container'></div>";
+  
+  html += "<div id='edit-controls' style='display:none; gap:10px; margin-top:16px;'>";
+  html += "<button class='pri' style='flex:1; padding:12px; font-size:15px;' onclick='saveLayout()'>💾 Mentés</button>";
+  html += "<button class='sec' style='flex:1; padding:12px; font-size:15px;' onclick='cancelEdit()'>❌ Mégse</button>";
+  html += "</div>";
+  html += "<button id='btn-edit-mode' class='sec' style='width:100%; padding:12px; font-size:15px; margin-top:16px;' onclick='enterEditMode()'>✏️ Szerkesztés</button>";
+  html += "</div>";
 
   html += "<div class='card full' style='margin:0;'><h2>🐝 Család Adatok</h2>";
-  
-  String qColorCard = "";
-  switch (queenYear % 10) {
-      case 1: case 6: qColorCard = "#ffffff"; break;
-      case 2: case 7: qColorCard = "#eab308"; break;
-      case 3: case 8: qColorCard = "#ef4444"; break;
-      case 4: case 9: qColorCard = "#22c55e"; break;
-      case 5: case 0: qColorCard = "#3b82f6"; break;
-  }
-  
-  html += stateRow("👑 Anya évjárat", "<span style='color:" + qColorCard + "; font-weight:bold;'>" + String(queenYear) + "</span>", "");
+  html += stateRow("👑 Anya évjárat", "<span style='color:" + qColor + "; font-weight:bold;'>" + String(queenYear) + "</span>", "");
   html += stateRow("Család Állapota", famStatus, "");
   html += "<div class='row'><span class='k'>Funkció / Típus</span><span class='v' id='colony-func-display' style='color:var(--accent);'>" + funcText + "</span></div>";
   html += "<button class='sec' style='margin-top:10px; padding:8px; font-size:13px;' onclick='selectColonyFunction()'>⚙️ Funkció módosítása</button></div>";
@@ -211,15 +146,94 @@ void handleHiveView(AsyncWebServerRequest *request) {
   html += "<button class='warn' style='flex:1; padding:14px; font-size:16px;' onclick=\"location.href='/treatment?hive=" + hiveId + "'\">📝 Kezelés</button>";
   html += "<button class='warn' style='flex:1; padding:14px; font-size:16px; background:rgba(34,197,94,0.2); border-color:#22c55e; color:#22c55e;' onclick=\"location.href='/evaluation?hive=" + hiveId + "'\">📊 Értékelés</button></div>";
   html += "<button class='sec' style='width:100%; padding:14px; font-size:16px;' onclick=\"location.href='/config?hive=" + hiveId + "'\">⚙️ Konfig</button></div>"; 
-
   html += "</div>"; 
 
+  // Modal a funkcióknak
   html += "<div id='colonyModal' class='modal-overlay'><div class='modal-content'>";
   html += "<h2 style='margin-bottom:12px;'>Család funkció kiválasztása</h2><div id='modal-body'></div>";
   html += "<button class='sec' style='margin-top:15px; padding:14px; font-size:16px;' onclick='closeColonyModal()'>Mégse</button></div></div>";
 
-  html += "<script>"
-          "let colonyData = null;"
+  // JS Kódinjektálás
+  int initSupers = targetHive ? targetHive->honeySupers : 0;
+  int initBroods = targetHive ? targetHive->broodBoxes : 1;
+  String baseBoxId = targetHive && targetHive->baseBoxId.length() > 0 ? targetHive->baseBoxId : "Nincs";
+
+  html += "<script>\n";
+  html += "let hId = '" + hiveId + "';\n";
+  html += "let isEditMode = false;\n";
+  html += "let layout = { supers: " + String(initSupers) + ", broods: " + String(initBroods) + ", pollen: true, pollenActive: true };\n";
+  html += "let origLayout = JSON.parse(JSON.stringify(layout));\n";
+  html += "let boxColorClass = '" + boxClass + "';\n";
+  html += "let funcDisplay = '" + funcDisplay + "';\n";
+  html += "let queenYear = " + String(queenYear) + ";\n";
+  html += "let qColor = '" + qColor + "';\n";
+  html += "let baseBoxId = '" + baseBoxId + "';\n";
+
+  html += "function renderStack() {\n"
+          "  let h = '';\n"
+          "  let rowS = \"<div class='stack-row'>\"; let rowE = \"</div>\"; let spc = \"<div class='right-col'></div>\";\n"
+          "  if(isEditMode) h += \"<button onclick='layout.supers++; renderStack()' class='sec' style='width:100%; margin-bottom:8px;'>➕ Új Méztér</button>\";\n"
+          
+          "  for(let i=0; i<layout.supers; i++) {\n"
+          "    h += rowS + \"<div class='left-col'><div class='box-super box-square b-grn' style='flex-direction:column;'>\" +\n"
+          "         \"<div style='position:absolute; top:6px; left:8px; font-size:9px; opacity:0.6; font-weight:normal;'>ID: Nincs</div>\" +\n"
+          "         \"<span>Méztér \" + (layout.supers - i) + \"</span></div></div>\";\n"
+          "    if(isEditMode) h += \"<div class='right-col'><div class='remove-btn' onclick='layout.supers--; renderStack()'>❌</div></div>\"; else h += spc;\n"
+          "    h += rowE;\n"
+          "  }\n"
+          
+          "  if(isEditMode) h += \"<button onclick='layout.broods++; renderStack()' class='sec' style='width:100%; margin:8px 0;'>➕ Új Fészek</button>\";\n"
+          
+          "  for(let i=0; i<layout.broods; i++) {\n"
+          "    if(i === layout.broods - 1) {\n"
+          "      h += rowS + \"<div class='left-col'><div class='box-super box-square \" + boxColorClass + \"' style='flex-direction:column; justify-content:center; gap:4px; padding:6px;'>\" +\n"
+          "           \"<div style='position:absolute; top:6px; left:8px; font-size:9px; opacity:0.6; font-weight:normal;'>ID: \" + baseBoxId + \"</div>\" +\n"
+          "           \"<div style='position:absolute; top:4px; right:6px; font-size:14px; display:flex; gap:6px; opacity:0.95;'><span>📶</span><span>🔋</span></div>\" +\n"
+          "           \"<span style='font-size:12px; opacity:0.95; font-weight:700; text-align:center;'>\" + funcDisplay + \"</span>\" +\n"
+          "           \"<span style='display:flex; align-items:center; gap:6px; font-size:13px; font-weight:bold;'>\" +\n"
+          "           \"<span style='width:11px; height:11px; background-color:\" + qColor + \"; border-radius:50%; display:inline-block; border:1.5px solid rgba(255,255,255,0.8);'></span>\" + queenYear + \"</span>\" +\n"
+          "           \"<span style='font-size:11px; color:var(--accent); margin-top:3px; font-weight:bold; text-align:center;'>Nincs teendő</span></div></div>\" + spc + rowE;\n"
+          "    } else {\n"
+          "      h += rowS + \"<div class='left-col'><div class='box-super box-square \" + boxColorClass + \"' style='flex-direction:column;'>\" +\n"
+          "           \"<div style='position:absolute; top:6px; left:8px; font-size:9px; opacity:0.6; font-weight:normal;'>ID: Nincs</div>\" +\n"
+          "           \"<span>Fészek \" + (i + 1) + \"</span></div></div>\";\n"
+          "      if(isEditMode) h += \"<div class='right-col'><div class='remove-btn' onclick='if(layout.broods>1) layout.broods--; renderStack()'>❌</div></div>\"; else h += spc;\n"
+          "      h += rowE;\n"
+          "    }\n"
+          "  }\n"
+          
+          "  if(layout.pollen) {\n"
+          "    let pClass = layout.pollenActive ? 'pollen-active' : 'pollen-disabled';\n"
+          "    let pText = layout.pollenActive ? '⚠️ Napi felügyelet' : 'Inaktív';\n"
+          "    h += rowS + \"<div class='left-col'><div class='box-pollen \" + pClass + \"'>\" +\n"
+          "         \"<div style='display:flex; flex-direction:column; justify-content:center;'>\" +\n"
+          "         \"<span style='font-size:14px; letter-spacing:0.5px;'>🌼 Pollengyűjtő</span>\" +\n"
+          "         \"<span style='font-size:11px; opacity:0.85; margin-top:4px;'>\" + pText + \"</span></div>\" +\n"
+          "         \"<label class='pollen-sw'><input type='checkbox' \" + (layout.pollenActive?'checked':'') + \" onchange='togglePol(this.checked)'><span class='pollen-sl'></span></label></div></div>\";\n"
+          "    if(isEditMode) h += \"<div class='right-col'><div class='remove-btn' onclick='layout.pollen=false; renderStack()'>❌</div></div>\"; else h += spc;\n"
+          "    h += rowE;\n"
+          "  } else if(isEditMode) {\n"
+          "    h += \"<button onclick='layout.pollen=true; renderStack()' class='sec' style='width:100%; margin:8px 0;'>➕ Pollengyűjtő</button>\";\n"
+          "  }\n"
+          
+          "  h += rowS + \"<div class='left-col'><div style='width:100%; height:12px; background:#333; border-radius:4px; margin-top:2px; box-shadow: 0 4px 6px rgba(0,0,0,0.5);'></div></div>\" + spc + rowE;\n"
+          
+          "  document.getElementById('hive-stack-container').innerHTML = h;\n"
+          "  document.getElementById('edit-controls').style.display = isEditMode ? 'flex' : 'none';\n"
+          "  document.getElementById('btn-edit-mode').style.display = isEditMode ? 'none' : 'block';\n"
+          "}\n"
+          
+          "function togglePol(state) { layout.pollenActive = state; if(!isEditMode) fetch('/api/toggle_pollen?hive='+encodeURIComponent(hId)+'&active='+(state?'1':'0')); renderStack(); }\n"
+          "function enterEditMode() { isEditMode = true; renderStack(); }\n"
+          "function cancelEdit() { layout = JSON.parse(JSON.stringify(origLayout)); isEditMode = false; renderStack(); }\n"
+          "function saveLayout() {\n"
+          "  fetch('/api/save_layout?hive='+encodeURIComponent(hId)+'&supers='+layout.supers+'&broods='+layout.broods)\n"
+          "  .then(r => r.json()).then(d => { origLayout = JSON.parse(JSON.stringify(layout)); isEditMode = false; renderStack(); });\n"
+          "}\n"
+          "renderStack();\n";
+
+  // Colony Selector JS
+  html += "let colonyData = null;"
           "fetch('/api/colony_functions').then(r => r.json()).then(data => { colonyData = data; }).catch(e => { console.error('Hiba', e); });"
           "function selectColonyFunction() {"
           "  if (!colonyData || !colonyData.colony_functions) return;"
@@ -232,16 +246,32 @@ void handleHiveView(AsyncWebServerRequest *request) {
           "      body.appendChild(btn);"
           "    }); }); document.getElementById('colonyModal').style.display = 'flex';"
           "}"
-          "function togglePollen(hiveId, state) {"
-          "  fetch('/api/toggle_pollen?hive=' + encodeURIComponent(hiveId) + '&active=' + (state ? '1' : '0'))"
-          "  .then(r => r.json())"
-          "  .then(d => { location.reload(); })"
-          "  .catch(err => console.error('Hiba:', err));"
-          "}"
-          "function closeColonyModal() { document.getElementById('colonyModal').style.display = 'none'; }</script>";
+          "function closeColonyModal() { document.getElementById('colonyModal').style.display = 'none'; }\n"
+          "</script>";
 
   html += htmlFoot();
   request->send(200, "text/html", html);
+}
+
+// ─── ELRENDEZÉS MENTÉSE API ───
+void handleSaveLayoutApi(AsyncWebServerRequest *request) {
+  if (!checkPinGuard(request)) return;
+  
+  String hiveId = request->hasParam("hive") ? request->getParam("hive")->value() : "";
+  int supers = request->hasParam("supers") ? request->getParam("supers")->value().toInt() : 0;
+  int broods = request->hasParam("broods") ? request->getParam("broods")->value().toInt() : 1;
+  
+  for (int i = 0; i < gHiveCount; i++) {
+    if (gHives[i].id == hiveId) {
+      gHives[i].honeySupers = supers;
+      gHives[i].broodBoxes = broods;
+      hiveDbSave(); 
+      Serial.printf("[NAPLÓ] Kaptár %s felépítése frissítve (Méz: %d, Fészek: %d)\n", hiveId.c_str(), supers, broods);
+      break;
+    }
+  }
+  
+  request->send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
 // ─── KEZELÉSEK OLDAL (/treatment) ───
