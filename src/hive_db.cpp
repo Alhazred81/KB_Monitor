@@ -1,103 +1,108 @@
 #include "hive_db.h"
 #include <LittleFS.h>
-#include <ArduinoJson.h>
 
 HiveProfile gHives[MAX_HIVES];
 int gHiveCount = 0;
+sqlite3 *db = nullptr;
 
-void hiveDbInit() {
-    gHiveCount = 0;
+static int dbCallback(void *data, int argc, char **argv, char **azColName) {
+    return 0;
+}
+
+int executeSQL(const char *sql) {
+    char *zErrMsg = 0;
+    int rc = sqlite3_exec(db, sql, dbCallback, 0, &zErrMsg);
+    if (rc != SQLITE_OK) {
+        Serial.printf("[SQL HIBA] %s\n", zErrMsg);
+        sqlite3_free(zErrMsg);
+    }
+    return rc;
+}
+
+bool hiveDbInit() {
+    Serial.println("[HIVEDB] SQLite inicializálása...");
+    sqlite3_initialize();
+    
+    // A feltöltött adatbázis megnyitása
+    if (sqlite3_open("/littlefs/hive_db.db", &db)) {
+        Serial.printf("[HIVEDB] Hiba az adatbázis megnyitásakor: %s\n", sqlite3_errmsg(db));
+        return false;
+    }
+    Serial.println("[HIVEDB] Adatbázis sikeresen megnyitva!");
+    
+    // Induláskor azonnal feltölti a memóriát az SQL adatokkal
+    return hiveDbLoad();
+}
+
+void hiveDbClose() {
+    if (db) {
+        sqlite3_close(db);
+        Serial.println("[HIVEDB] Adatbázis lezárva.");
+    }
 }
 
 bool hiveDbLoad() {
-    if (!LittleFS.exists("/hives.json")) {
-        Serial.println("[DB] A hives.json nem létezik.");
-        return false;
-    }
-
-    File file = LittleFS.open("/hives.json", "r");
-    if (!file) {
-        Serial.println("[DB] Nem sikerült megnyitni a hives.json fájlt olvasásra.");
-        return false;
-    }
-
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, file);
-    file.close();
-
-    if (error) {
-        Serial.print("[DB] JSON parse hiba: ");
-        Serial.println(error.c_str());
-        return false;
-    }
-
     gHiveCount = 0;
-    JsonArray array = doc.as<JsonArray>();
-    for (JsonObject obj : array) {
+    
+    // Kaptár és Biológia (anya) adatok összekötése SQL szinten
+    const char* sql = 
+        "SELECT h.id, h.monitor_id, h.layout, h.pollen_active, h.lat, h.lon, "
+        "c.queen_year, c.queen_origin, c.origin_type, c.function "
+        "FROM hives h LEFT JOIN colonies c ON h.colony_id = c.id;";
+        
+    sqlite3_stmt *res;
+    if (sqlite3_prepare_v2(db, sql, -1, &res, 0) != SQLITE_OK) {
+        Serial.println("[HIVEDB] Lekérdezési hiba (vagy meg nincs letrehozva a tablak szerkezete)!");
+        return false;
+    }
+    
+    while (sqlite3_step(res) == SQLITE_ROW) {
         if (gHiveCount >= MAX_HIVES) break;
         
-        gHives[gHiveCount].id          = obj["id"].as<String>();
-        gHives[gHiveCount].monitorId   = obj["monitorId"] | 0;
-        gHives[gHiveCount].baseBoxId   = obj["baseBoxId"].as<String>();
-        gHives[gHiveCount].queenId     = obj["queenId"].as<String>();
-        gHives[gHiveCount].queenOrigin = obj["queenOrigin"].as<String>();
-        gHives[gHiveCount].queenYear   = obj["queenYear"] | 2026;
-        gHives[gHiveCount].originType  = obj["originType"].as<String>();
-        gHives[gHiveCount].function    = obj["function"].as<String>();
-        gHives[gHiveCount].lat         = obj["lat"] | 0.0f;
-        gHives[gHiveCount].lon         = obj["lon"] | 0.0f;
-        gHives[gHiveCount].honeySupers = obj["honeySupers"] | 0;
-        gHives[gHiveCount].broodBoxes  = obj["broodBoxes"] | 1;
-
+        HiveProfile& hp = gHives[gHiveCount];
+        hp.id = sqlite3_column_text(res, 0) ? (const char*)sqlite3_column_text(res, 0) : "";
+        hp.monitorId = sqlite3_column_int(res, 1);
+        hp.boxLayout = sqlite3_column_text(res, 2) ? (const char*)sqlite3_column_text(res, 2) : "";
+        hp.pollenActive = sqlite3_column_int(res, 3) > 0;
+        hp.lat = sqlite3_column_double(res, 4);
+        hp.lon = sqlite3_column_double(res, 5);
+        hp.queenYear = sqlite3_column_int(res, 6);
+        hp.queenOrigin = sqlite3_column_text(res, 7) ? (const char*)sqlite3_column_text(res, 7) : "";
+        hp.originType = sqlite3_column_text(res, 8) ? (const char*)sqlite3_column_text(res, 8) : "";
+        hp.function = sqlite3_column_text(res, 9) ? (const char*)sqlite3_column_text(res, 9) : "";
+        
         gHiveCount++;
     }
-
-    Serial.printf("[DB] Sikeresen betöltve %d kaptár a JSON-ből.\n", gHiveCount);
-    return true;
-}
-
-bool hiveDbSave() {
-    JsonDocument doc;
-    JsonArray array = doc.to<JsonArray>();
-
-    for (int i = 0; i < gHiveCount; i++) {
-        JsonObject obj = array.add<JsonObject>();
-        obj["id"]          = gHives[i].id;
-        obj["monitorId"]   = gHives[i].monitorId;
-        obj["baseBoxId"]   = gHives[i].baseBoxId;
-        obj["queenId"]     = gHives[i].queenId;
-        obj["queenOrigin"] = gHives[i].queenOrigin;
-        obj["queenYear"]   = gHives[i].queenYear;
-        obj["originType"]  = gHives[i].originType;
-        obj["function"]    = gHives[i].function;
-        obj["lat"]         = gHives[i].lat;
-        obj["lon"]         = gHives[i].lon;
-        obj["honeySupers"] = gHives[i].honeySupers;
-        obj["broodBoxes"]  = gHives[i].broodBoxes;
-    }
-
-    File file = LittleFS.open("/hives.json", "w");
-    if (!file) {
-        Serial.println("[DB] Nem sikerült megnyitni a hives.json fájl írásra.");
-        return false;
-    }
-
-    serializeJson(doc, file);
-    file.close();
+    sqlite3_finalize(res);
+    Serial.printf("[HIVEDB] Betöltve %d kaptár az SQLite adatbázisból.\n", gHiveCount);
     return true;
 }
 
 bool hiveDbAdd(const HiveProfile& hive) {
-    if (gHiveCount >= MAX_HIVES) return false;
-    gHives[gHiveCount++] = hive;
-    return hiveDbSave();
+    // Új kaptár mentése SQLite-ba
+    String colonyId = "C-" + String(hive.queenYear) + "-" + String(millis());
+    String sqlCol = "INSERT INTO colonies (id, queen_year, queen_origin, origin_type, function) VALUES ('" + 
+                    colonyId + "', " + String(hive.queenYear) + ", '" + hive.queenOrigin + "', '" + 
+                    hive.originType + "', '" + hive.function + "');";
+    executeSQL(sqlCol.c_str());
+
+    String sqlHive = "INSERT OR REPLACE INTO hives (id, monitor_id, colony_id, lat, lon, layout, pollen_active) VALUES ('" +
+                     hive.id + "', " + String(hive.monitorId) + ", '" + colonyId + "', " + 
+                     String(hive.lat) + ", " + String(hive.lon) + ", '" + hive.boxLayout + "', 1);";
+    executeSQL(sqlHive.c_str());
+    
+    return hiveDbLoad();
+}
+
+bool hiveDbSave() {
+    // A memóriatömböt nem kell külön kimenteni, mert az SQLite minden műveletnél azonnal ír a flash-re.
+    // Ez a függvény csak a korábbi kód kompatibilitása miatt maradt meg.
+    return true;
 }
 
 HiveProfile* hiveDbGet(const String& id) {
     for (int i = 0; i < gHiveCount; i++) {
-        if (gHives[i].id == id) {
-            return &gHives[i];
-        }
+        if (gHives[i].id == id) return &gHives[i];
     }
     return nullptr;
 }

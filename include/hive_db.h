@@ -1,28 +1,34 @@
 #pragma once
 #include <Arduino.h>
+#include <sqlite3.h>
 
-#define MAX_HIVES 500
+#define MAX_HIVES 100  
 
 struct HiveProfile {
-    String id;             // A kaptár egyedi logikai azonosítója (pl. MAC vagy belső ID)
-    uint8_t monitorId;     // A rádiós kaptármonitor (szenzor) azonosítója
-    String baseBoxId;      // A beolvasott fészekfiók vonalkódja/QR kódja
-    String queenId;        // Anya egyedi azonosítója (ha van rajta számozott lapka)
-    String queenOrigin;    // Származás (Saját nevelés, tenyésztő stb.)
-    int queenYear;         // Évjárat (szín, pl. 2026)
-    String originType;     // Kialakulás (Műraj, Raj stb.)
-    String function;       // Funkció (Termelő, Dajka stb.)
+    String id;
+    uint8_t monitorId;
+    String nfcTag;         // A korábbi baseBoxId helyett
+    String queenId;
+    String queenOrigin;
+    int queenYear;
+    String originType;
+    String function;
     float lat;
     float lon;
-    int honeySupers;       // Mézterek száma
-    int broodBoxes;        // Fészekfiókok száma
+    int honeySupers;
+    int broodBoxes;
+    String boxLayout;
+    bool pollenActive;
 };
 
 extern HiveProfile gHives[MAX_HIVES];
 extern int gHiveCount;
+extern sqlite3 *db;
 
-void hiveDbInit();
+bool hiveDbInit();
 bool hiveDbLoad();
 bool hiveDbSave();
 bool hiveDbAdd(const HiveProfile& hive);
 HiveProfile* hiveDbGet(const String& id);
+void hiveDbClose();
+int executeSQL(const char *sql);

@@ -11,6 +11,7 @@
 
 #define TINY_GSM_MODEM_SIM7000
 #define TINY_GSM_RX_BUFFER 1024
+#define SMS_INBOX_DEFAULT_LIMIT 10
 
 #include <TinyGsmClient.h>
 

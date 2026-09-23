@@ -360,7 +360,7 @@ void handleRegSave(AsyncWebServerRequest *request) {
   newHive.id = "24:6F:28:AB:CD:" + String(gRegMonitorId < 10 ? "0" : "") + String(gRegMonitorId);
   
   newHive.monitorId = gRegMonitorId;
-  newHive.baseBoxId = gRegBoxId;
+  newHive.nfcTag = gRegBoxId;
   
   newHive.queenOrigin = gRegCtx.queenOrigin;
   newHive.queenYear = gRegCtx.queenVintage;

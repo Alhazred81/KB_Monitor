@@ -1,32 +1,32 @@
-#include "config.h"
+  #include "config.h"
 
-#if CURRENT_DEVICE_ROLE == ROLE_SERVER
+  #if CURRENT_DEVICE_ROLE == ROLE_SERVER
 
-#include <Arduino.h>
-#include <ESPAsyncWebServer.h>
-#include "web_gsm.h"
-#include "modem_mgr.h"
-#include "web_common.h"
-#include "web_theme.h"
+  #include <Arduino.h>
+  #include <ESPAsyncWebServer.h>
+  #include "web_gsm.h"
+  #include "modem_mgr.h"
+  #include "web_common.h"
+  #include "web_theme.h"
 
-extern ModemState gModem;
-extern unsigned long gLastSms;
-extern bool gSmsSendRequested;
-extern String gSmsPendingNum;
-extern String gSmsPendingText;
-extern bool gSmsSendInProgress;
-extern bool gSmsSendDone;
-extern String gSmsSendResult;
+  extern ModemState gModem;
+  extern unsigned long gLastSms;
+  extern bool gSmsSendRequested;
+  extern String gSmsPendingNum;
+  extern String gSmsPendingText;
+  extern bool gSmsSendInProgress;
+  extern bool gSmsSendDone;
+  extern String gSmsSendResult;
 
-String modemBusyReason();
+  String modemBusyReason();
 
-bool sendModemBusyPage(AsyncWebServerRequest *request, const String& title, const String& active, const String& backUrl);
+  bool sendModemBusyPage(AsyncWebServerRequest *request, const String& title, const String& active, const String& backUrl);
 
-void handleGsm(AsyncWebServerRequest *request) {
+  void handleGsm(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   String html = htmlHead("GSM", "2");
 
-  // --- AJAX JS az SMS-hez, ami a háttérben kérdezi le az állapotot ---
+  // --- AJAX JS az SMS-hez ---
   html += R"script(<script>
   function sendAjaxSms() {
     var num = document.querySelector('input[name="num"]').value;
@@ -52,7 +52,7 @@ void handleGsm(AsyncWebServerRequest *request) {
         btn.disabled = false;
       } else {
         res.innerHTML = '<span style="color:var(--txt2)">⏳ Küldés folyamatban (modem dolgozik)...</span>';
-        smsPoll(); // Elindítjuk az állapot lekérdezését
+        smsPoll();
       }
     }).catch(function(e){
       res.innerHTML = '<span style="color:var(--err)">Hálózati hiba!</span>';
@@ -65,7 +65,7 @@ void handleGsm(AsyncWebServerRequest *request) {
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(!d.done){
-        setTimeout(smsPoll, 1000); // Még dolgozik, várunk 1 mp-t
+        setTimeout(smsPoll, 1000); 
         return;
       }
       var res = document.getElementById('smsResult');
@@ -80,14 +80,46 @@ void handleGsm(AsyncWebServerRequest *request) {
   }
   </script>)script";
 
+  // --- Beérkezett üzenetek kártya (ÚJ) ---
+  html += "<div class='card wide'><h2>Beérkezett üzenetek (" + String(gSmsInboxCount) + "/" + String(gSmsInboxLimit) + ")</h2>";
+  
+  if (gSmsInboxCount == 0) {
+      html += "<div class='msg warn'>Nincs beérkezett SMS. A rendszer 30 másodpercenként automatikusan ellenőrzi.</div>";
+  } else {
+      html += "<div style='display:flex; flex-direction:column; gap:10px;'>";
+      
+      // A puffer visszafelé olvasása, hogy a legújabb legyen legfelül
+      for(int i = 0; i < gSmsInboxCount; i++) {
+          int idx = (gSmsInboxHead - 1 - i + gSmsInboxLimit) % gSmsInboxLimit;
+          
+          String sender = gSmsInbox[idx].sender;
+          String timeStamp = gSmsInbox[idx].timestamp;
+          if (timeStamp.length() == 0) timeStamp = gSmsInbox[idx].ourTimestamp; // Fallback belső órára
+          String msgText = gSmsInbox[idx].text;
+          
+          html += "<div style='border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--card-alt);'>";
+          html += "<div style='display:flex; justify-content:space-between; border-bottom:1px solid var(--border); padding-bottom:6px; margin-bottom:6px; font-size:12px; color:var(--txt2);'>";
+          html += "<span>Feladó: <b style='color:var(--txt);'>" + htmlEscape(sender) + "</b></span>";
+          html += "<span>" + htmlEscape(timeStamp) + "</span>";
+          html += "</div>";
+          html += "<div style='font-size:14px; white-space:pre-wrap; word-break:break-word;'>" + htmlEscape(msgText) + "</div>";
+          html += "</div>";
+      }
+      
+      html += "</div>";
+  }
+  html += "<form action='/gsm' method='GET' style='margin-top:10px;'><button class='sec' style='width:auto;'>Frissítés</button></form>";
+  html += "</div>";
+
+  // --- SMS Küldés kártya ---
   html += "<div class='card wide'><h2>SMS Küldés</h2>";
-  // Kivettük a <form> taget, hogy a gomb JS-t hívjon
   html += phoneInputBlock("smsBtn", "num");
   html += "<label>Üzenet</label><textarea name='smstext' maxlength='160'></textarea>";
   html += "<button id='smsBtn' type='button' disabled onclick='sendAjaxSms()'>SMS Küldés</button>";
   html += "<div id='smsResult' style='margin-top:10px; font-weight:bold; display:none;'></div>";
   html += "</div>";
 
+  // --- Többi kártya ---
   html += "<div class='card'><h2>Hívásteszt</h2>";
   html += "<form action='/docall' method='POST'>";
   html += phoneInputBlock("callBtn", "cnum");
@@ -123,245 +155,245 @@ void handleGsm(AsyncWebServerRequest *request) {
   request->send(200, "text/html", html);
 }
 
-// Új, JSON alapú válaszadó, ami nem tölti újra az oldalt
-void handleDoSms(AsyncWebServerRequest *request) {
-  if(modemBusyReason().length() > 0) {
-    request->send(200, "application/json", "{\"error\":\"" + modemBusyReason() + "\"}");
-    return;
-  }
-
-  if(!request->hasParam("num") || !request->hasParam("smstext")){
-    request->send(200, "application/json", "{\"error\":\"Hiányzó adatok!\"}");
-    return;
-  }
-
-  unsigned long left = 0;
-  if(gLastSms > 0 && millis()-gLastSms < SMS_COOLDOWN_MS)
-    left = (SMS_COOLDOWN_MS-(millis()-gLastSms))/1000;
-  if(left > 0){
-    request->send(200, "application/json", "{\"error\":\"Várj " + String(left) + " másodpercet!\"}");
-    return;
-  }
-
-  String num = request->getParam("num")->value(); num.trim();
-  String smstext = request->getParam("smstext")->value(); smstext.trim();
-
-  String clean = "";
-  for(int i=0; i<(int)smstext.length() && i<SMS_MAX_LEN; i++){
-    char c = smstext[i];
-    if((uint8_t)c >= 0x80) continue;
-    clean += c;
-  }
-
-  if(!num.startsWith("+36") || num.length() != 12){
-    request->send(200, "application/json", "{\"error\":\"Érvénytelen telefonszám! Formátum: +36...\"}");
-    return;
-  }
-  if(clean.length() == 0){
-    request->send(200, "application/json", "{\"error\":\"Az üzenet üres maradt az ékezet-szűrés után.\"}");
-    return;
-  }
-
-  gSmsPendingNum  = num;
-  gSmsPendingText = clean;
-  gSmsSendDone    = false;
-  gSmsSendResult  = "";
-  gSmsSendRequested = true;
-
-  // Siker esetén egy üres hibaüzenettel térünk vissza, ami triggereli a JS oldali pollingot
-  request->send(200, "application/json", "{\"error\":\"\",\"started\":true}");
-}
-
-void handleSmsStatus(AsyncWebServerRequest *request) {
-  String json = "{";
-  json += "\"done\":" + String(gSmsSendDone ? "true" : "false") + ",";
-  json += "\"ok\":" + String(gSmsSendDone && gSmsSendResult.length()==0 ? "true" : "false") + ",";
-  json += "\"error\":\"" + jsEscape(gSmsSendResult) + "\"";
-  json += "}";
-  request->send(200, "application/json", json);
-}
-
-void handleDoCall(AsyncWebServerRequest *request) {
-  if(sendModemBusyPage(request, "Hívás", "2", "/gsm")) return;
-  if(!request->hasParam("num", true)){ request->redirect("/gsm"); return; }
-  String num = request->getParam("num", true)->value(); num.trim();
-  String html = htmlHead("Hívás", "2");
-
-  if(!num.startsWith("+36") || num.length() != 12){
-    html += "<div class='msg err'>Érvénytelen szám! A formátum: +36xxxxxxxxx.</div>";
-  } else {
-    String err = startCall(num);
-    if(err.length() == 0){
-      diagAdd("Hívás indítva -> " + num);
-      html += "<div class='msg ok'>📞 Hívás indítva: " + num + "</div>"
-              "<div class='hint'>A hívás automatikusan bontódik.</div>"
-              "<form action='/hangup' method='POST'>"
-              "<button class='danger' style='margin-top:14px'>🚫 Azonnali bontás</button></form>";
-    } else {
-      diagAdd("Hívás HIBA -> " + num + ": " + err);
-      html += "<div class='msg err'>Hívás indítás sikertelen: " + err + "</div>";
+  // Új, JSON alapú válaszadó, ami nem tölti újra az oldalt
+  void handleDoSms(AsyncWebServerRequest *request) {
+    if(modemBusyReason().length() > 0) {
+      request->send(200, "application/json", "{\"error\":\"" + modemBusyReason() + "\"}");
+      return;
     }
+
+    if(!request->hasParam("num") || !request->hasParam("smstext")){
+      request->send(200, "application/json", "{\"error\":\"Hiányzó adatok!\"}");
+      return;
+    }
+
+    unsigned long left = 0;
+    if(gLastSms > 0 && millis()-gLastSms < SMS_COOLDOWN_MS)
+      left = (SMS_COOLDOWN_MS-(millis()-gLastSms))/1000;
+    if(left > 0){
+      request->send(200, "application/json", "{\"error\":\"Várj " + String(left) + " másodpercet!\"}");
+      return;
+    }
+
+    String num = request->getParam("num")->value(); num.trim();
+    String smstext = request->getParam("smstext")->value(); smstext.trim();
+
+    String clean = "";
+    for(int i=0; i<(int)smstext.length() && i<SMS_MAX_LEN; i++){
+      char c = smstext[i];
+      if((uint8_t)c >= 0x80) continue;
+      clean += c;
+    }
+
+    if(!num.startsWith("+36") || num.length() != 12){
+      request->send(200, "application/json", "{\"error\":\"Érvénytelen telefonszám! Formátum: +36...\"}");
+      return;
+    }
+    if(clean.length() == 0){
+      request->send(200, "application/json", "{\"error\":\"Az üzenet üres maradt az ékezet-szűrés után.\"}");
+      return;
+    }
+
+    gSmsPendingNum  = num;
+    gSmsPendingText = clean;
+    gSmsSendDone    = false;
+    gSmsSendResult  = "";
+    gSmsSendRequested = true;
+
+    // Siker esetén egy üres hibaüzenettel térünk vissza, ami triggereli a JS oldali pollingot
+    request->send(200, "application/json", "{\"error\":\"\",\"started\":true}");
   }
-  html += "<a href='/gsm'><button class='sec'>Vissza</button></a>";
-  html += htmlFoot();
-  request->send(200, "text/html", html);
-}
 
-void handleHangup(AsyncWebServerRequest *request) {
-  hangUp();
-  diagAdd("Hívás bontva (manuális)");
-  request->redirect("/gsm");
-}
+  void handleSmsStatus(AsyncWebServerRequest *request) {
+    String json = "{";
+    json += "\"done\":" + String(gSmsSendDone ? "true" : "false") + ",";
+    json += "\"ok\":" + String(gSmsSendDone && gSmsSendResult.length()==0 ? "true" : "false") + ",";
+    json += "\"error\":\"" + jsEscape(gSmsSendResult) + "\"";
+    json += "}";
+    request->send(200, "application/json", json);
+  }
 
-void handleSetSmsc(AsyncWebServerRequest *request) {
-  if(sendModemBusyPage(request, "SMSC beállítás", "2", "/gsm")) return;
-  if(!request->hasParam("smsc", true)){ request->redirect("/gsm"); return; }
-  String smsc = request->getParam("smsc", true)->value(); smsc.trim();
+  void handleDoCall(AsyncWebServerRequest *request) {
+    if(sendModemBusyPage(request, "Hívás", "2", "/gsm")) return;
+    if(!request->hasParam("num", true)){ request->redirect("/gsm"); return; }
+    String num = request->getParam("num", true)->value(); num.trim();
+    String html = htmlHead("Hívás", "2");
 
-  String html = htmlHead("SMSC beállítás", "2");
+    if(!num.startsWith("+36") || num.length() != 12){
+      html += "<div class='msg err'>Érvénytelen szám! A formátum: +36xxxxxxxxx.</div>";
+    } else {
+      String err = startCall(num);
+      if(err.length() == 0){
+        diagAdd("Hívás indítva -> " + num);
+        html += "<div class='msg ok'>📞 Hívás indítva: " + num + "</div>"
+                "<div class='hint'>A hívás automatikusan bontódik.</div>"
+                "<form action='/hangup' method='POST'>"
+                "<button class='danger' style='margin-top:14px'>🚫 Azonnali bontás</button></form>";
+      } else {
+        diagAdd("Hívás HIBA -> " + num + ": " + err);
+        html += "<div class='msg err'>Hívás indítás sikertelen: " + err + "</div>";
+      }
+    }
+    html += "<a href='/gsm'><button class='sec'>Vissza</button></a>";
+    html += htmlFoot();
+    request->send(200, "text/html", html);
+  }
 
-  if(smsc.length() == 0) {
-    html += "<div class='msg err'>Az SMSC szám nem lehet üres.</div>";
-  } else {
-    String err = setSmsc(smsc);
+  void handleHangup(AsyncWebServerRequest *request) {
+    hangUp();
+    diagAdd("Hívás bontva (manuális)");
+    request->redirect("/gsm");
+  }
+
+  void handleSetSmsc(AsyncWebServerRequest *request) {
+    if(sendModemBusyPage(request, "SMSC beállítás", "2", "/gsm")) return;
+    if(!request->hasParam("smsc", true)){ request->redirect("/gsm"); return; }
+    String smsc = request->getParam("smsc", true)->value(); smsc.trim();
+
+    String html = htmlHead("SMSC beállítás", "2");
+
+    if(smsc.length() == 0) {
+      html += "<div class='msg err'>Az SMSC szám nem lehet üres.</div>";
+    } else {
+      String err = setSmsc(smsc);
+      if(err.length() == 0) {
+        diagAdd("SMSC beállítva: " + smsc);
+        html += "<div class='msg ok'>SMSC szám beállítva: " + htmlEscape(smsc) + "</div>";
+      } else {
+        diagAdd("SMSC beállítás HIBA: " + err);
+        html += "<div class='msg err'>" + err + "</div>";
+      }
+    }
+    html += "<a href='/gsm'><button class='sec'>Vissza</button></a>";
+    html += htmlFoot();
+    request->send(200, "text/html", html);
+  }
+
+  void handleNetAuto(AsyncWebServerRequest *request) {
+    if(sendModemBusyPage(request, "Hálózatváltás", "2", "/gsm")) return;
+    String err = setAutoNetwork();
     if(err.length() == 0) {
-      diagAdd("SMSC beállítva: " + smsc);
-      html += "<div class='msg ok'>SMSC szám beállítva: " + htmlEscape(smsc) + "</div>";
+      diagAdd("Hálózat visszaállítva automatikus módra.");
     } else {
-      diagAdd("SMSC beállítás HIBA: " + err);
-      html += "<div class='msg err'>" + err + "</div>";
+      diagAdd("Hiba automatikus hálózatváltáskor: " + err);
     }
+    request->redirect("/gsm");
   }
-  html += "<a href='/gsm'><button class='sec'>Vissza</button></a>";
-  html += htmlFoot();
-  request->send(200, "text/html", html);
-}
 
-void handleNetAuto(AsyncWebServerRequest *request) {
-  if(sendModemBusyPage(request, "Hálózatváltás", "2", "/gsm")) return;
-  String err = setAutoNetwork();
-  if(err.length() == 0) {
-    diagAdd("Hálózat visszaállítva automatikus módra.");
-  } else {
-    diagAdd("Hiba automatikus hálózatváltáskor: " + err);
-  }
-  request->redirect("/gsm");
-}
-
-void handleNetScan(AsyncWebServerRequest *request) {
-  if(sendModemBusyPage(request, "Hálózatkeresés", "2", "/gsm")) return;
-  diagAdd("Hálózatok keresése indítva (AT+COPS=)...");
-  String rawRes = scanAvailableNetworks();
-  diagAdd("Hálózat keresés eredménye: " + rawRes);
-  
-  String html = htmlHead("Hálózatválasztás", "2");
-  html += "<h1>Elérhető mobilhálózatok</h1>";
-  html += "<div class='card wide'>";
-  html += "<p class='hint'>Válaszd ki az alábbi listából a kívánt hálózatot a rögzítéshez:</p>";
-
-  html += "<form action='/netmanual' method='POST'>";
-  html += "<label>Talált hálózatok</label>";
-  html += "<select name='netcode' style='margin-bottom:12px'>";
-
-  int pos = 0;
-  bool foundAny = false;
-
-  while(true) {
-    int start = rawRes.indexOf('(', pos);
-    if(start < 0) break;
-    int end = rawRes.indexOf(')', start);
-    if(end < 0) break;
+  void handleNetScan(AsyncWebServerRequest *request) {
+    if(sendModemBusyPage(request, "Hálózatkeresés", "2", "/gsm")) return;
+    diagAdd("Hálózatok keresése indítva (AT+COPS=)...");
+    String rawRes = scanAvailableNetworks();
+    diagAdd("Hálózat keresés eredménye: " + rawRes);
     
-    String entry = rawRes.substring(start + 1, end);
-    pos = end + 1;
+    String html = htmlHead("Hálózatválasztás", "2");
+    html += "<h1>Elérhető mobilhálózatok</h1>";
+    html += "<div class='card wide'>";
+    html += "<p class='hint'>Válaszd ki az alábbi listából a kívánt hálózatot a rögzítéshez:</p>";
 
-    String parts[10];
-    int partCount = 0;
-    int pIdx = 0;
-    while(partCount < 10) {
-      int q1 = entry.indexOf('"', pIdx);
-      if(q1 < 0) break;
-      int q2 = entry.indexOf('"', q1 + 1);
-      if(q2 < 0) break;
-      parts[partCount++] = entry.substring(q1 + 1, q2);
-      pIdx = q2 + 1;
-    }
+    html += "<form action='/netmanual' method='POST'>";
+    html += "<label>Talált hálózatok</label>";
+    html += "<select name='netcode' style='margin-bottom:12px'>";
 
-    if(partCount >= 2) {
-      String netName = parts[0];
-      String netCode = "";
-      for(int i = 0; i < partCount; i++) {
-        if(parts[i].length() == 5 && isDigit(parts[i][0])) {
-          netCode = parts[i];
-          break;
+    int pos = 0;
+    bool foundAny = false;
+
+    while(true) {
+      int start = rawRes.indexOf('(', pos);
+      if(start < 0) break;
+      int end = rawRes.indexOf(')', start);
+      if(end < 0) break;
+      
+      String entry = rawRes.substring(start + 1, end);
+      pos = end + 1;
+
+      String parts[10];
+      int partCount = 0;
+      int pIdx = 0;
+      while(partCount < 10) {
+        int q1 = entry.indexOf('"', pIdx);
+        if(q1 < 0) break;
+        int q2 = entry.indexOf('"', q1 + 1);
+        if(q2 < 0) break;
+        parts[partCount++] = entry.substring(q1 + 1, q2);
+        pIdx = q2 + 1;
+      }
+
+      if(partCount >= 2) {
+        String netName = parts[0];
+        String netCode = "";
+        for(int i = 0; i < partCount; i++) {
+          if(parts[i].length() == 5 && isDigit(parts[i][0])) {
+            netCode = parts[i];
+            break;
+          }
+        }
+        if(netCode.length() > 0) {
+          foundAny = true;
+          html += "<option value='" + netCode + "'>" + htmlEscape(netName) + " (" + netCode + ")</option>";
         }
       }
-      if(netCode.length() > 0) {
-        foundAny = true;
-        html += "<option value='" + netCode + "'>" + htmlEscape(netName) + " (" + netCode + ")</option>";
-      }
     }
+
+    if(!foundAny) html += "<option value=''>Nem található értelmezhető hálózat</option>";
+
+    html += "</select>";
+    html += "<button style='margin-top:6px' " + String(foundAny ? "" : "disabled") + ">Kiválasztott hálózat rögzítése</button>";
+    html += "</form>";
+
+    html += "<details style='margin-top:20px'><summary class='hint' style='cursor:pointer'>Nyers modem válasz</summary>";
+    html += "<div class='diag' style='margin-top:6px'>" + htmlEscape(rawRes) + "</div></details>";
+
+    html += "<a href='/gsm'><button class='sec' style='margin-top:14px'>Vissza a GSM oldalra</button></a></div>";
+    html += htmlFoot();
+    request->send(200, "text/html", html);
   }
 
-  if(!foundAny) html += "<option value=''>Nem található értelmezhető hálózat</option>";
-
-  html += "</select>";
-  html += "<button style='margin-top:6px' " + String(foundAny ? "" : "disabled") + ">Kiválasztott hálózat rögzítése</button>";
-  html += "</form>";
-
-  html += "<details style='margin-top:20px'><summary class='hint' style='cursor:pointer'>Nyers modem válasz</summary>";
-  html += "<div class='diag' style='margin-top:6px'>" + htmlEscape(rawRes) + "</div></details>";
-
-  html += "<a href='/gsm'><button class='sec' style='margin-top:14px'>Vissza a GSM oldalra</button></a></div>";
-  html += htmlFoot();
-  request->send(200, "text/html", html);
-}
-
-void handleNetManual(AsyncWebServerRequest *request) {
-  if(sendModemBusyPage(request, "Kézi Hálózat", "2", "/gsm")) return;
-  if(!request->hasParam("netcode", true)) {
-    request->redirect("/gsm");
-    return;
+  void handleNetManual(AsyncWebServerRequest *request) {
+    if(sendModemBusyPage(request, "Kézi Hálózat", "2", "/gsm")) return;
+    if(!request->hasParam("netcode", true)) {
+      request->redirect("/gsm");
+      return;
+    }
+    String code = request->getParam("netcode", true)->value();
+    code.trim();
+    
+    String err = setManualNetwork(code, 7); 
+    String html = htmlHead("Hálózat rögzítés", "2");
+    html += "<h1>Kézi hálózat rögzítése</h1>";
+    
+    if(err.length() == 0) {
+      diagAdd("Sikeresen rögzítve a kézi hálózat: " + code);
+      html += "<div class='msg ok'>A hálózat sikeresen rögzítve: " + htmlEscape(code) + "</div>";
+    } else {
+      diagAdd("Hiba a hálózat rögzítésekor: " + err);
+      html += "<div class='msg err'>" + htmlEscape(err) + "</div>";
+    }
+    
+    html += "<a href='/gsm'><button class='sec'>Vissza a GSM oldalra</button></a>";
+    html += htmlFoot();
+    request->send(200, "text/html", html);
   }
-  String code = request->getParam("netcode", true)->value();
-  code.trim();
-  
-  String err = setManualNetwork(code, 7); 
-  String html = htmlHead("Hálózat rögzítés", "2");
-  html += "<h1>Kézi hálózat rögzítése</h1>";
-  
-  if(err.length() == 0) {
-    diagAdd("Sikeresen rögzítve a kézi hálózat: " + code);
-    html += "<div class='msg ok'>A hálózat sikeresen rögzítve: " + htmlEscape(code) + "</div>";
-  } else {
-    diagAdd("Hiba a hálózat rögzítésekor: " + err);
-    html += "<div class='msg err'>" + htmlEscape(err) + "</div>";
+
+  String modemBusyReason() {
+    if(gModemInitRequested || gModem.initInProgress) return "Modem inicializálás folyamatban, várj amíg befejeződik.";
+    if(gSmsSendRequested || gSmsSendInProgress) return "SMS küldés folyamatban, közben a modem soros portja foglalt.";
+    if(gData.inProgress) return "Adatkapcsolat váltás folyamatban, várj pár másodpercet.";
+    if(gData.pingInProgress) return "Ping teszt folyamatban, várj pár másodpercet.";
+    if(gModem.callActive) return "Hívás folyamatban, közben a modem soros portját nem piszkáljuk.";
+    return "";
   }
-  
-  html += "<a href='/gsm'><button class='sec'>Vissza a GSM oldalra</button></a>";
-  html += htmlFoot();
-  request->send(200, "text/html", html);
-}
 
-String modemBusyReason() {
-  if(gModemInitRequested || gModem.initInProgress) return "Modem inicializálás folyamatban, várj amíg befejeződik.";
-  if(gSmsSendRequested || gSmsSendInProgress) return "SMS küldés folyamatban, közben a modem soros portja foglalt.";
-  if(gData.inProgress) return "Adatkapcsolat váltás folyamatban, várj pár másodpercet.";
-  if(gData.pingInProgress) return "Ping teszt folyamatban, várj pár másodpercet.";
-  if(gModem.callActive) return "Hívás folyamatban, közben a modem soros portját nem piszkáljuk.";
-  return "";
-}
+  bool sendModemBusyPage(AsyncWebServerRequest *request, const String& title, const String& active, const String& backUrl) {
+    String reason = modemBusyReason();
+    if(reason.length() == 0) return false;
+    String html = htmlHead(title, active);
+    html += "<h1>Modem foglalt</h1>";
+    html += "<div class='msg warn'>" + htmlEscape(reason) + "</div>";
+    html += "<a href='" + backUrl + "'><button class='sec'>Vissza</button></a>";
+    html += htmlFoot();
+    request->send(200, "text/html", html);
+    return true;
+  }
 
-bool sendModemBusyPage(AsyncWebServerRequest *request, const String& title, const String& active, const String& backUrl) {
-  String reason = modemBusyReason();
-  if(reason.length() == 0) return false;
-  String html = htmlHead(title, active);
-  html += "<h1>Modem foglalt</h1>";
-  html += "<div class='msg warn'>" + htmlEscape(reason) + "</div>";
-  html += "<a href='" + backUrl + "'><button class='sec'>Vissza</button></a>";
-  html += htmlFoot();
-  request->send(200, "text/html", html);
-  return true;
-}
-
-#endif // ROLE_SERVER
+  #endif // ROLE_SERVER

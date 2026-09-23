@@ -156,7 +156,7 @@ void handleHiveView(AsyncWebServerRequest *request) {
   // JS Kódinjektálás
   int initSupers = targetHive ? targetHive->honeySupers : 0;
   int initBroods = targetHive ? targetHive->broodBoxes : 1;
-  String baseBoxId = targetHive && targetHive->baseBoxId.length() > 0 ? targetHive->baseBoxId : "Nincs";
+  String baseBoxId = targetHive && targetHive->nfcTag.length() > 0 ? targetHive->nfcTag : "Nincs";
 
   html += "<script>\n";
   html += "let hId = '" + hiveId + "';\n";
@@ -283,60 +283,55 @@ void handleTreatment(AsyncWebServerRequest *request) {
   html += "<div class='card full'><h2>📝 Kezelés rögzítése: " + hiveId + "</h2>";
   html += "<p class='hint'>Válassz az alábbi beavatkozások közül:</p>";
 
-  bool loadedFromJson = false;
-  if (LittleFS.exists("/treatment.json")) {
-    File file = LittleFS.open("/treatment.json", "r");
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, file);
-    file.close();
-
-    if (!error && doc["categories"].is<JsonArray>()) {
-      loadedFromJson = true;
-      JsonArray categories = doc["categories"];
-      for (JsonObject cat : categories) {
-        String catName = cat["name"];
-        html += "<h3 style='color:var(--accent); margin:16px 0 8px 0; font-size:14px; text-transform:uppercase;'>" + catName + "</h3>";
-        
-        JsonArray items = cat["items"];
-        for (JsonObject item : items) {
-          String label = item["label"];
-          String type = item["type"];
+  if (db == nullptr) {
+      html += "<p style='color:var(--err);'>Adatbázis hiba: Nincs kapcsolat!</p>";
+  } else {
+      const char* sql = "SELECT category_name, label, input_type, default_val, confirm_text FROM dict_treatments ORDER BY category_id, id;";
+      sqlite3_stmt *stmt;
+      
+      if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+          String lastCategory = "";
           
-          if (type == "prompt") {
-            String defVal = item["default"].is<const char*>() || item["default"].is<int>() ? item["default"].as<String>() : "1";
-            
-            html += "<div style='background:#141428; border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:10px;'>";
-            html += "<label style='font-weight:bold; color:#fff;'>" + label + "</label>";
-            html += "<form action='/treatment/save' method='POST' style='display:flex; gap:8px; margin-top:6px;'>";
-            html += "<input type='hidden' name='hive' value='" + hiveId + "'>";
-            html += "<input type='hidden' name='action_label' value='" + label + "'>";
-            html += "<input type='number' step='0.1' name='amount' value='" + defVal + "' style='margin:0; flex:1;'>";
-            html += "<button type='submit' class='pri' style='width:auto; padding:0 16px;'>Mentés</button>";
-            html += "</form></div>";
+          while (sqlite3_step(stmt) == SQLITE_ROW) {
+              String catName = sqlite3_column_text(stmt, 0) ? (const char*)sqlite3_column_text(stmt, 0) : "";
+              String label = sqlite3_column_text(stmt, 1) ? (const char*)sqlite3_column_text(stmt, 1) : "";
+              String type = sqlite3_column_text(stmt, 2) ? (const char*)sqlite3_column_text(stmt, 2) : "";
+              String defVal = sqlite3_column_text(stmt, 3) ? (const char*)sqlite3_column_text(stmt, 3) : "1";
+              String confirmText = sqlite3_column_text(stmt, 4) ? (const char*)sqlite3_column_text(stmt, 4) : "";
 
-          } else if (type == "alert" || type == "confirm") {
-            String confirmText = item["confirmText"].is<const char*>() ? item["confirmText"].as<String>() : "";
-            
-            html += "<form action='/treatment/save' method='POST' style='margin-bottom:8px;'>";
-            html += "<input type='hidden' name='hive' value='" + hiveId + "'>";
-            html += "<input type='hidden' name='action_label' value='" + label + "'>";
-            
-            if (type == "confirm") {
-              html += "<button type='submit' class='danger' onclick=\"return confirm('" + confirmText + "');\">" + label + "</button>";
-            } else {
-              html += "<button type='submit' class='sec'>" + label + "</button>";
-            }
-            html += "</form>";
+              // Kategória fejléc kiírása, ha újat találunk
+              if (catName != lastCategory) {
+                  html += "<h3 style='color:var(--accent); margin:16px 0 8px 0; font-size:14px; text-transform:uppercase;'>" + catName + "</h3>";
+                  lastCategory = catName;
+              }
+              
+              if (type == "prompt") {
+                  html += "<div style='background:#141428; border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:10px;'>";
+                  html += "<label style='font-weight:bold; color:#fff;'>" + label + "</label>";
+                  html += "<form action='/treatment/save' method='POST' style='display:flex; gap:8px; margin-top:6px;'>";
+                  html += "<input type='hidden' name='hive' value='" + hiveId + "'>";
+                  html += "<input type='hidden' name='action_label' value='" + label + "'>";
+                  html += "<input type='number' step='0.1' name='amount' value='" + defVal + "' style='margin:0; flex:1;'>";
+                  html += "<button type='submit' class='pri' style='width:auto; padding:0 16px;'>Mentés</button>";
+                  html += "</form></div>";
+
+              } else if (type == "alert" || type == "confirm") {
+                  html += "<form action='/treatment/save' method='POST' style='margin-bottom:8px;'>";
+                  html += "<input type='hidden' name='hive' value='" + hiveId + "'>";
+                  html += "<input type='hidden' name='action_label' value='" + label + "'>";
+                  
+                  if (type == "confirm") {
+                      html += "<button type='submit' class='danger' onclick=\"return confirm('" + confirmText + "');\">" + label + "</button>";
+                  } else {
+                      html += "<button type='submit' class='sec'>" + label + "</button>";
+                  }
+                  html += "</form>";
+              }
           }
-        }
+          sqlite3_finalize(stmt);
+      } else {
+          html += "<p style='color:var(--err);'>SQL lekérdezési hiba az opcióknál!</p>";
       }
-    }
-  }
-
-  if (!loadedFromJson) {
-    html += "<h3 style='color:var(--accent); margin:16px 0 8px 0; font-size:14px;'>🍯 Etetés (Alapértelmezett)</h3>";
-    html += "<form action='/treatment/save' method='POST' style='display:flex; gap:8px; margin-bottom:10px;'><input type='hidden' name='hive' value='" + hiveId + "'><input type='hidden' name='action_label' value='Szirup (l)'><input type='number' name='amount' value='1' style='margin:0; flex:1;'><button type='submit' class='pri'>Szirup Mentés</button></form>";
-    html += "<form action='/treatment/save' method='POST'><input type='hidden' name='hive' value='" + hiveId + "'><input type='hidden' name='action_label' value='Nosevit'><button type='submit' class='sec'>Nosevit rögzítése</button></form>";
   }
 
   html += "<button class='sec' style='margin-top:20px;' onclick=\"location.href='/hive?hive=" + hiveId + "'\">⬅️ Vissza a Kaptárhoz</button>";
@@ -352,14 +347,16 @@ void handleTreatmentPost(AsyncWebServerRequest *request) {
   String actionLabel = request->hasParam("action_label", true) ? request->getParam("action_label", true)->value() : "";
   String amount = request->hasParam("amount", true) ? request->getParam("amount", true)->value() : "";
 
+  // Ide majd beírjuk a logolást az adatbázisba:
   if (amount.length() > 0) {
     Serial.printf("[NAPLÓ] Kaptár: %s | Akció: %s | Mennyiség: %s\n", hiveId.c_str(), actionLabel.c_str(), amount.c_str());
+    // Ha "Szirup (l)", azt kifejezetten naplózzuk a betáplált mennyiséggel!
   } else {
     Serial.printf("[NAPLÓ] Kaptár: %s | Akció: %s\n", hiveId.c_str(), actionLabel.c_str());
   }
 
   request->redirect("/hive?hive=" + hiveId);
-}
+} 
 
 // ─── ÉRTÉKELÉS OLDAL (/evaluation) ───
 void handleEvaluation(AsyncWebServerRequest *request) {
