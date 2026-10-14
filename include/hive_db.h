@@ -7,6 +7,7 @@
 struct HiveProfile {
     String id;
     uint8_t monitorId;
+    String macAddress;     // <--- EZ HIÁNYZOTT!
     String nfcTag;         // A korábbi baseBoxId helyett
     String queenId;
     String queenOrigin;

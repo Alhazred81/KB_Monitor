@@ -16,7 +16,6 @@
 #include "time_mgr.h"
 #include "web_handlehive.h"
 
-
 extern AsyncWebServer server;
 extern String gApSSID;
 
@@ -109,6 +108,10 @@ void handleApiSimKnock(AsyncWebServerRequest *request);
 void handleApiResetKnock(AsyncWebServerRequest *request);
 void handleApiStartLearn(AsyncWebServerRequest *request);
 
+// --- ÚJ VÉGPONTOK DEKLARÁCIÓI ---
+extern void handleManualAddPost(AsyncWebServerRequest *request);
+extern void handleTogglePollen(AsyncWebServerRequest *request);
+
 extern Aht20State gAht20;
 extern Bmp280State gBmp280;
 extern String aht20ValueText();
@@ -144,7 +147,6 @@ void handleRoot(AsyncWebServerRequest *request) {
 
   html += "<div style='width: 100%; margin-bottom: 16px;'><div style='font-size:20px; font-weight:bold; color:#fff;'>Műszerfal</div></div>";
   html += "<div class='dash-grid'>";
-  html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px;'>📱 NFC / RFID</h2><div style='flex:1; display:flex; align-items:stretch;'><button style='width:100%; min-height:100px; font-size:24px; font-weight:900; background:var(--accent); color:#fff; border:none; border-radius:12px; box-shadow:0 8px 16px rgba(77,77,255,0.3); text-transform:uppercase; letter-spacing:1px; cursor:pointer;' onclick=\"location.href='/nfc'\">📡 Olvasás</button></div></div>";
 
   String modemDot = gModem.ready ? "dot-g" : "dot-r";
   String gsmDot = gModem.registered ? "dot-g" : "dot-r";
@@ -247,7 +249,6 @@ void handleRoot(AsyncWebServerRequest *request) {
 
   html += "<div style='width: 100%; margin-bottom: 16px;'><div style='font-size:20px; font-weight:bold; color:#fff;'>Műszerfal</div></div>";
   html += "<div class='dash-grid'>";
-  html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px;'>📱 NFC / RFID</h2><div style='flex:1; display:flex; align-items:stretch;'><button style='width:100%; min-height:100px; font-size:24px; font-weight:900; background:var(--accent); color:#fff; border:none; border-radius:12px; box-shadow:0 8px 16px rgba(77,77,255,0.3); text-transform:uppercase; letter-spacing:1px; cursor:pointer;' onclick=\"location.href='/nfc'\">📡 Olvasás</button></div></div>";
 
   String modemDot = gModem.ready ? "dot-g" : "dot-r";
   String gsmDot = gModem.registered ? "dot-g" : "dot-r";
@@ -402,11 +403,19 @@ void webBegin() {
   server.on("/reg/queen", HTTP_POST, handleRegQueen);
   server.on("/reg/survey", HTTP_GET, handleRegSurvey);
   server.on("/api/survey_status", HTTP_GET, handleApiSurveyStatus);
-  server.on("/api/check_pairing", HTTP_GET, handleCheckPairingAPI);
   server.on("/reg/summary", HTTP_GET, handleRegSummary);
   server.on("/reg/save", HTTP_POST, handleRegSave);
   server.on("/reg/cancel", HTTP_POST, handleRegCancel);
+  server.on("/api/check_pairing", HTTP_GET, handleCheckPairingAPI);
+  server.on("/supply", HTTP_GET, handleSupply);
+  server.on("/config", HTTP_GET, handleConfig);
+  server.on("/config_post", HTTP_POST, handleConfigPost);
+  server.on("/api/simknock", HTTP_POST, handleApiSimKnock);
+  server.on("/api/resetknock", HTTP_POST, handleApiResetKnock);
   server.on("/api/startlearn", HTTP_POST, handleApiStartLearn);
+
+  // --- ÚJ VÉGPONTOK REGISZTRÁLÁSA ---
+  server.on("/api/manual_add", HTTP_POST, handleManualAddPost);
   server.on("/api/toggle_pollen", HTTP_GET, handleTogglePollen);
 
   server.serveStatic("/", LittleFS, "/");

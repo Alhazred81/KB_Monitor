@@ -12,6 +12,12 @@
 unsigned long currentServerTimestamp = 1787680000; 
 extern uint8_t gApChannel;
 
+// --- PÁROSÍTÁSHOZ SZÜKSÉGES GLOBÁLIS VÁLTOZÓK ---
+extern volatile bool gPairingMode;
+extern volatile uint8_t gNewlyPairedMonitorId;
+extern String gRegMacAddress;
+// ------------------------------------------------
+
 // ─── WEBES DIAGNOSZTIKA NAPLÓ ÉS RAM GYORSTÁR ───
 static String gRadioLog = "";
 RadioNodeState gRadioNodes[MAX_RADIO_NODES];
@@ -109,7 +115,6 @@ void processIncomingJson(const String& payload, const String& protocol, const St
         return;
     }
 
-    // Támogatja a régi (hosszú) és az új (rövid) kulcsokat is
     String commType = doc["comm_type"] | doc["t"] | "unknown";
     if (commType == "aud") commType = "comm_aud";
     if (commType == "tel") commType = "comm_tel";
@@ -186,7 +191,49 @@ void onEspNowReceive(const uint8_t *mac_addr, const uint8_t *incomingData, int l
     int rssi = -65; 
     String payload = String((char*)incomingData, len);
 
+    // --- DIAGNOSZTIKA: Nyers bejövő csomag naplózása ---
+    Serial.printf("[ESP-NOW DIAG] Bejövő tőle: %s | Tartalom: %s\n", macStr, payload.c_str());
+    // ----------------------------------------------------
+
     addEspNowLog(String(macStr), "Méret: " + String(len) + "b");
+
+    // --- PÁROSÍTÁS (KNOCK) ELKAPÁSA ---
+    JsonDocument tempDoc;
+    DeserializationError jsonErr = deserializeJson(tempDoc, payload);
+    if (!jsonErr) {
+        String commType = tempDoc["t"] | tempDoc["comm_type"] | "";
+        if (commType == "knock") {
+            if (gPairingMode) {
+                Serial.printf("[ESP-NOW] Párosítási kérés érkezett: %s\n", macStr);
+                
+                JsonDocument ackDoc;
+                ackDoc["t"] = "knock_ack";
+                String ackPayload;
+                serializeJson(ackDoc, ackPayload);
+                
+                if (!esp_now_is_peer_exist(mac_addr)) {
+                    esp_now_peer_info_t peerInfo = {};
+                    memcpy(peerInfo.peer_addr, mac_addr, 6);
+                    peerInfo.channel = 0;
+                    peerInfo.encrypt = false;
+                    esp_now_add_peer(&peerInfo);
+                }
+                
+                esp_now_send(mac_addr, (uint8_t*)ackPayload.c_str(), ackPayload.length());
+                
+                gRegMacAddress = String(macStr);
+                gNewlyPairedMonitorId = 99; 
+                gPairingMode = false;      
+                
+                Serial.println("[ESP-NOW] Párosítás sikeres, knock_ack elküldve!");
+            } else {
+                // Szigorú megvezetés, ha a szerver nincs haverkodó üzemben
+                Serial.printf("[ESP-NOW] na na na, so geht es aber nicht, du kleiner Drecksack (MAC: %s)\n", macStr);
+            }
+            return; 
+        }
+    }
+    // ----------------------------------
 
     String logMsg = "ESP-NOW csomag érkezett (" + String(len) + " bájt) | Nyers: " + payload;
     addLogEntry("ESP-NOW", String(macStr), logMsg);
@@ -198,7 +245,6 @@ void onEspNowReceive(const uint8_t *mac_addr, const uint8_t *incomingData, int l
 void initServerEspNow() {
     Serial.printf("[WIFI/ESP-NOW] Indítás a szinkronizált %d. csatornán...\n", gApChannel);
     
-    // Rákényszerítjük a hardveres rádiót az aktuális csatornára!
     esp_wifi_set_channel(gApChannel, WIFI_SECOND_CHAN_NONE);
 
     if (esp_now_init() != ESP_OK) {
@@ -206,7 +252,6 @@ void initServerEspNow() {
         return;
     }
     
-    // Most már a helyes, szerver-oldali callback van itt!
     esp_now_register_recv_cb((esp_now_recv_cb_t)onEspNowReceive);
     
     Serial.println("[ESP-NOW] Készen áll a rögzített csatornán.");

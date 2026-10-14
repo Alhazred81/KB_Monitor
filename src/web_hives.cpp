@@ -16,6 +16,7 @@ volatile bool gPairingMode = false;
 volatile uint8_t gNewlyPairedMonitorId = 0;
 uint32_t gPairingStartTime = 0;
 
+String gRegMacAddress = "";
 String gRegBoxId = "";
 String gRegOriginType = "";
 uint8_t gRegMonitorId = 0;
@@ -187,7 +188,7 @@ void handleCheckPairingAPI(AsyncWebServerRequest *request) {
     }
 }
 
-// 2. FÉSZEKFIÓK AZONOSÍTÁSA
+// 2. FÉSZEKFIÓK AZONOSÍTÁSA (Kamerás + Kézi + NFC opcióval)
 void handleRegBarcode(AsyncWebServerRequest *request) {
   if (!checkPinGuard(request)) return;
   if (request->hasParam("monitor_id")) {
@@ -198,12 +199,28 @@ void handleRegBarcode(AsyncWebServerRequest *request) {
   html += "<script src=\"https://unpkg.com/html5-qrcode\"></script>";
   html += "<div class='card wide'><h2>📷 Fészekfiók Azonosítása</h2>";
   html += "<p style='color:var(--ok); font-weight:bold; margin-bottom:10px;'>✅ Monitor csatlakoztatva! (ID: " + String(gRegMonitorId) + ")</p>";
-  html += "<p class='hint' style='margin-bottom:15px;'>Olvasd be a fészekfiókon lévő QR vagy vonalkódot.</p>";
+  html += "<p class='hint' style='margin-bottom:15px;'>Olvasd be a fészekfiókon lévő QR vagy vonalkódot, vagy add meg alább:</p>";
   
   html += "<div style='background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:12px; padding:16px; text-align:center;'>";
   html += "<div id='reader' style='width:100%; max-width:320px; margin:0 auto; border-radius:8px; overflow:hidden;'></div>";
   html += "<button type='button' id='startBtn' class='pri' style='margin-top:12px; width:100%; padding:14px; font-size:16px;' onclick='startScanner()'>▶ Kamera indítása</button>";
   html += "<div id='scanResult' style='margin-top:12px; font-weight:bold;'></div>";
+  html += "</div>";
+
+  // Kézi bevitel blokk
+  html += "<div style='border-top: 1px solid var(--border); padding-top: 15px; margin-top: 15px;'>";
+  html += "<p style='font-size:13px; font-weight:bold; color:var(--accent); margin-bottom:10px;'>Vagy írd be kézzel a fiók azonosítóját:</p>";
+  html += "<div style='display: flex; gap: 8px; margin-bottom: 12px;'>";
+  html += "<input type='text' id='manual-box-id' placeholder='Fiók ID (pl. BOX-003)' style='flex: 1; padding: 12px; background: #141428; color: var(--txt); border: 1px solid var(--border); border-radius: 8px; font-size:14px;'>";
+  html += "<button type='button' class='pri' style='padding: 0 16px;' onclick='submitManualBox()'>Küldés</button>";
+  html += "</div>";
+
+  // NFC UID input
+  html += "<p style='font-size:13px; font-weight:bold; color:var(--accent); margin-bottom:10px;'>Vagy keresés NFC UID alapján:</p>";
+  html += "<div style='display: flex; gap: 8px;'>";
+  html += "<input type='text' id='manual-nfc-id' placeholder='NFC UID (pl. 04A1B2C3)...' style='flex: 1; padding: 12px; background: #141428; color: var(--txt); border: 1px solid var(--border); border-radius: 8px; font-size:14px;'>";
+  html += "<button type='button' class='sec' style='padding: 0 16px;' onclick='submitNfcBox()'>NFC ellenőrzés</button>";
+  html += "</div>";
   html += "</div>";
 
   html += R"script(<script>
@@ -226,6 +243,33 @@ void handleRegBarcode(AsyncWebServerRequest *request) {
       (errorMessage) => {}).catch(err => {
           resBox.style.color = 'var(--err)';
           resBox.innerText = 'Kamera hiba: ' + err;
+      });
+  }
+
+  function submitManualBox() {
+      let id = document.getElementById('manual-box-id').value.trim();
+      if(id) {
+          window.location.href = '/reg/queen?barcode=' + encodeURIComponent(id);
+      } else {
+          alert('Kérlek add meg a fiók azonosítóját!');
+      }
+  }
+
+  function submitNfcBox() {
+      let nfc = document.getElementById('manual-nfc-id').value.trim();
+      if(!nfc) {
+          alert('Kérlek add meg az NFC UID-t!');
+          return;
+      }
+      fetch('/api/inventory').then(r => r.json()).then(data => {
+          let found = data.find(item => item.nfc === nfc);
+          if(found) {
+              window.location.href = '/reg/queen?barcode=' + encodeURIComponent(found.id);
+          } else {
+              alert('Nincs ilyen NFC UID a raktárkészletben!');
+          }
+      }).catch(e => {
+          alert('Hiba az inventory lekérdezésekor.');
       });
   }
   </script>)script";

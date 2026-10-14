@@ -341,7 +341,3 @@ void handleApiResetKnock(AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "ok");
 }
 
-void handleApiStartLearn(AsyncWebServerRequest *request) {
-    startKnockLearning();
-    request->send(200, "text/plain", "ok");
-}
