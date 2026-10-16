@@ -562,6 +562,352 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     );
   }
 
+  // --- SZERVER / IDŐJÁRÁS-ÁLLOMÁS RÉSZLETEK (Meteo & Hálózat adatokkal) ---
+  void _showStationDetails(StationData station) {
+    HapticFeedback.lightImpact();
+    bool isWeather = (station.type == 'weather_station');
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          title: Row(
+            children: [
+              Icon(
+                isWeather ? Icons.wb_sunny : Icons.dns,
+                color: isWeather ? Colors.tealAccent : Colors.blueAccent,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  station.name,
+                  style: const TextStyle(
+                    color: Colors.amberAccent,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Azonosító: ${station.id}',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+                const Divider(color: Colors.white24, height: 20),
+                _buildStationRow(
+                  'Hőmérséklet',
+                  '${station.temp} °C',
+                  Icons.thermostat,
+                  Colors.amber,
+                ),
+                const SizedBox(height: 8),
+                _buildStationRow(
+                  'Páratartalom',
+                  '${station.humidity} %',
+                  Icons.water_drop,
+                  Colors.lightBlueAccent,
+                ),
+                const SizedBox(height: 8),
+                _buildStationRow(
+                  'Légnyomás',
+                  '${station.pressure} hPa',
+                  Icons.speed,
+                  Colors.orangeAccent,
+                ),
+                if (isWeather) ...[
+                  const SizedBox(height: 8),
+                  _buildStationRow(
+                    'UV-index',
+                    '${station.uvIndex}',
+                    Icons.wb_sunny_outlined,
+                    Colors.yellowAccent,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildStationRow(
+                    'Fényerősség',
+                    '${station.lightLux.toInt()} Lux',
+                    Icons.light_mode,
+                    Colors.amberAccent,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildStationRow(
+                    'Szélsebesség',
+                    '${station.windSpeed} m/s (${station.windDirection})',
+                    Icons.air,
+                    Colors.cyanAccent,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildStationRow(
+                    'Esőmennyiség',
+                    '${station.rainAmount} mm',
+                    Icons.umbrella,
+                    Colors.blueAccent,
+                  ),
+                ],
+                const SizedBox(height: 8),
+                _buildStationRow(
+                  'Akkumulátor / Táp',
+                  '${station.batteryVoltage} V',
+                  Icons.battery_full,
+                  Colors.greenAccent,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Bezárás'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- ITATÓ RÉSZLETEK ---
+  void _showWatererDetails(WatererData waterer) {
+    HapticFeedback.lightImpact();
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          title: Row(
+            children: [
+              const Icon(Icons.water, color: Colors.lightBlueAccent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  waterer.name,
+                  style: const TextStyle(
+                    color: Colors.amberAccent,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Azonosító: ${waterer.id}',
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              const Divider(color: Colors.white24, height: 20),
+              _buildStationRow(
+                'Vízszint',
+                '${waterer.waterLevel}%',
+                Icons.waves,
+                Colors.lightBlueAccent,
+              ),
+              const SizedBox(height: 8),
+              _buildStationRow(
+                'Vízhőmérséklet',
+                '${waterer.waterTemp} °C',
+                Icons.thermostat,
+                Colors.amber,
+              ),
+              const SizedBox(height: 8),
+              _buildStationRow(
+                'Akkumulátor',
+                '${waterer.batteryVoltage} V',
+                Icons.battery_full,
+                Colors.greenAccent,
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Bezárás'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- SZIRUPSZIVATTYÚ RÉSZLETEK ---
+  void _showSyrupPumpDetails(SyrupPumpData pump) {
+    double selectedLiters = 1.0;
+    String targetHive = _repository.hives.isNotEmpty
+        ? _repository.hives.first.name
+        : '1. Család';
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              title: Row(
+                children: [
+                  const Icon(
+                    Icons.settings_input_component,
+                    color: Colors.orangeAccent,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      pump.name,
+                      style: const TextStyle(
+                        color: Colors.amberAccent,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Összes kiszivattyúzott: ${pump.totalPumpedLiters.toStringAsFixed(1)} liter',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                  Text(
+                    'Állapot: ${pump.lastOperationStatus}',
+                    style: const TextStyle(
+                      color: Colors.greenAccent,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const Divider(color: Colors.white24, height: 20),
+                  const Text(
+                    'Szirup adagolása családnak:',
+                    style: TextStyle(
+                      color: Colors.amberAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButton<String>(
+                    value: targetHive,
+                    dropdownColor: const Color(0xFF2C2C2C),
+                    style: const TextStyle(color: Colors.white),
+                    isExpanded: true,
+                    items: _repository.hives
+                        .map(
+                          (h) => DropdownMenuItem(
+                            value: h.name,
+                            child: Text(h.name),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => targetHive = val);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Mennyiség: ${selectedLiters.toStringAsFixed(1)} liter',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                  Slider(
+                    value: selectedLiters,
+                    min: 0.5,
+                    max: 5.0,
+                    divisions: 9,
+                    activeColor: Colors.amber,
+                    onChanged: (val) =>
+                        setDialogState(() => selectedLiters = val),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Mégse',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber,
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed: () {
+                    _repository.pumpSyrup(pump, selectedLiters, targetHive);
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Sikeres szirupadagolás ($targetHive részére: ${selectedLiters.toStringAsFixed(1)}L)!',
+                        ),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  },
+                  child: const Text('Szivattyúzás indítása'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildStationRow(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ],
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    );
+  }
+
   void _openConfigDialog(HiveData hive) {
     showDialog(
       context: context,
@@ -674,6 +1020,8 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                             ),
                     ),
                   ),
+
+                  // 1. Kaptár markerek
                   for (var hive in _repository.hives)
                     Marker(
                       point: hive.location,
@@ -727,6 +1075,106 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                             );
                           }
                         }(),
+                      ),
+                    ),
+
+                  // 2. Szerver és Időjárás-állomás markerek
+                  for (var station in _repository.stations)
+                    Marker(
+                      point: station.location,
+                      width: 42,
+                      height: 42,
+                      child: GestureDetector(
+                        onTap: () => _showStationDetails(station),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: station.type == 'server'
+                                ? Colors.blue.shade800
+                                : Colors.teal.shade700,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black45,
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child: Icon(
+                              station.type == 'server'
+                                  ? Icons.dns
+                                  : Icons.wb_sunny,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // 3. Itató marker
+                  for (var waterer in _repository.waterers)
+                    Marker(
+                      point: waterer.location,
+                      width: 42,
+                      height: 42,
+                      child: GestureDetector(
+                        onTap: () => _showWatererDetails(waterer),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.lightBlue.shade700,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black45,
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.water,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // 4. Szirupszivattyú marker
+                  for (var pump in _repository.syrupPumps)
+                    Marker(
+                      point: pump.location,
+                      width: 42,
+                      height: 42,
+                      child: GestureDetector(
+                        onTap: () => _showSyrupPumpDetails(pump),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade800,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black45,
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.settings_input_component,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                 ],

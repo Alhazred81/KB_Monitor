@@ -37,7 +37,6 @@ class HiveRepository extends ChangeNotifier {
   ];
 
   final List<HiveData> _hives = [
-    // 1. ZÖLD: Minden szenzor és fiók rendben (Dadant)
     HiveData(
       id: 'HIVE_01',
       name: '1. Család (Termelő)',
@@ -82,8 +81,6 @@ class HiveRepository extends ChangeNotifier {
       ],
       serverConnection: 'Wi-Fi / ESP-NOW OK (-62 dBm)',
     ),
-
-    // 2. SÁRGA: Fészek rendben, de a felső Hunor méztér megtelt (NB rendszer)
     HiveData(
       id: 'HIVE_02',
       name: '2. Család (Pergetésre vár)',
@@ -134,8 +131,6 @@ class HiveRepository extends ChangeNotifier {
       ],
       serverConnection: 'Wi-Fi / ESP-NOW OK (-68 dBm)',
     ),
-
-    // 3. SÁRGA: Anyacsere esedékes + alacsonyabb súly és gyenge térerő
     HiveData(
       id: 'HIVE_03',
       name: '3. Család (Anyacsere + Etetés)',
@@ -181,8 +176,6 @@ class HiveRepository extends ChangeNotifier {
       serverConnection: 'Gyenge jel (-86 dBm)',
       protocol: 'grumpy',
     ),
-
-    // 4. PIROS: Magas fészekhőmérséklet, merülő akku és magas akusztikai frekvencia
     HiveData(
       id: 'HIVE_04',
       name: '4. Család (Túlmelegedés / Akku)',
@@ -226,8 +219,6 @@ class HiveRepository extends ChangeNotifier {
       ],
       serverConnection: 'Wi-Fi / ESP-NOW OK (-71 dBm)',
     ),
-
-    // 5. VILLOGÓ PIROS: Hans-protokoll (Fertőzés / Karantén)
     HiveData(
       id: 'HIVE_05',
       name: '5. Család (Vészhelyzet!)',
@@ -274,10 +265,54 @@ class HiveRepository extends ChangeNotifier {
     ),
   ];
 
+  // Egyesített szerver és időjárás-állomás
+  final List<StationData> _stations = [
+    StationData(
+      id: 'SERVER_WEATHER_01',
+      name: 'szerver és időjárás-állomás',
+      location: const LatLng(37.423000, -122.084000),
+      temp: 22.4,
+      humidity: 54.0,
+      pressure: 1013.2,
+      uvIndex: 4.5,
+      lightLux: 45000.0,
+      windSpeed: 3.2,
+      windDirection: 'ÉNy',
+      rainAmount: 0.0,
+      batteryVoltage: 4.85,
+      status: 'green',
+    ),
+  ];
+
+  final List<WatererData> _waterers = [
+    WatererData(
+      id: 'WATER_01',
+      name: 'itató',
+      location: const LatLng(37.422800, -122.085200),
+      waterLevel: 78.5,
+      waterTemp: 19.2,
+      batteryVoltage: 4.05,
+      status: 'green',
+    ),
+  ];
+
+  final List<SyrupPumpData> _syrupPumps = [
+    SyrupPumpData(
+      id: 'PUMP_01',
+      name: 'szirupszivattyú',
+      location: const LatLng(37.422200, -122.083800),
+      totalPumpedLiters: 45.0,
+      lastOperationStatus: 'Utolsó adag: 1.5L (OK)',
+      status: 'green',
+    ),
+  ];
+
   List<HiveData> get hives => _hives;
   List<QueenData> get queens => _queens;
+  List<StationData> get stations => _stations;
+  List<WatererData> get waterers => _waterers;
+  List<SyrupPumpData> get syrupPumps => _syrupPumps;
 
-  // Keresés elsődleges vagy másodlagos (NFC/QR) kód alapján
   dynamic findElementByCode(String scannedCode) {
     final cleanCode = scannedCode.trim();
     for (var hive in _hives) {
@@ -307,6 +342,13 @@ class HiveRepository extends ChangeNotifier {
   }
 
   void updateHive(HiveData hive) {
+    notifyListeners();
+  }
+
+  void pumpSyrup(SyrupPumpData pump, double liters, String targetHiveName) {
+    pump.totalPumpedLiters += liters;
+    pump.lastOperationStatus =
+        'Cél: $targetHiveName - ${liters.toStringAsFixed(1)}L (OK)';
     notifyListeners();
   }
 }

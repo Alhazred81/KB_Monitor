@@ -165,3 +165,73 @@ class HiveData {
     return 'green';
   }
 }
+
+class StationData {
+  final String id;
+  final String name; // 'szerver és időjárás-állomás'
+  final LatLng location;
+  final double temp;
+  final double humidity;
+  final double pressure; // Légnyomás (hPa)
+  final double uvIndex; // UV-index
+  final double lightLux; // Fényerősség (Lux)
+  final double windSpeed; // Szélerősség (m/s)
+  final String windDirection; // Szélirány
+  final double rainAmount; // Esőmennyiség (mm)
+  final double batteryVoltage;
+  final String status;
+
+  StationData({
+    required this.id,
+    required this.name,
+    required this.location,
+    required this.temp,
+    required this.humidity,
+    required this.pressure,
+    required this.uvIndex,
+    required this.lightLux,
+    required this.windSpeed,
+    required this.windDirection,
+    required this.rainAmount,
+    required this.batteryVoltage,
+    this.status = 'green',
+  });
+}
+
+class WatererData {
+  final String id;
+  final String name;
+  final LatLng location;
+  double waterLevel; // % vagy liter
+  double waterTemp; // °C
+  final double batteryVoltage;
+  final String status;
+
+  WatererData({
+    required this.id,
+    required this.name,
+    required this.location,
+    required this.waterLevel,
+    required this.waterTemp,
+    required this.batteryVoltage,
+    this.status = 'green',
+  });
+}
+
+class SyrupPumpData {
+  final String id;
+  final String name;
+  final LatLng location;
+  double totalPumpedLiters;
+  String lastOperationStatus;
+  final String status;
+
+  SyrupPumpData({
+    required this.id,
+    required this.name,
+    required this.location,
+    required this.totalPumpedLiters,
+    required this.lastOperationStatus,
+    this.status = 'green',
+  });
+}
