@@ -13,9 +13,9 @@ unsigned long currentServerTimestamp = 1787680000;
 extern uint8_t gApChannel;
 
 // --- PÁROSÍTÁSHOZ SZÜKSÉGES GLOBÁLIS VÁLTOZÓK ---
-extern volatile bool gPairingMode;
-extern volatile uint8_t gNewlyPairedMonitorId;
-extern String gRegMacAddress;
+volatile bool gPairingMode = false;
+volatile uint8_t gNewlyPairedMonitorId = 0;
+String gRegMacAddress = "";
 // ------------------------------------------------
 
 // ─── WEBES DIAGNOSZTIKA NAPLÓ ÉS RAM GYORSTÁR ───

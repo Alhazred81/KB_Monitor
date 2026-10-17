@@ -15,13 +15,12 @@
 #include "config.h"
 #include "crypto.h"
 #include "gnss_mgr.h"
-#include "hive_db.h"
 #include "modem_mgr.h"
 #include "NtfyClient.h"
 #include "sensors.h"
+#include "supabase_sync.h" // <--- ÚJ: Supabase szinkronizáció bevonása
 #include "connections.h"
 #include "time_mgr.h"
-#include "weather_mgr.h"
 #include "web_ui.h"
 #include "wifi_sta.h"
 #include "web_diag.h"
@@ -36,7 +35,6 @@ extern void initIotRoutes();
 extern String loadReportConfig();
 extern void monitorCall();
 extern void updateModemStats();
-extern void backgroundTaskLoop();
 extern void checkAndSendScheduledReport();
 extern int gSmsInboxLimit;
 extern bool gNtfyStartupMsg;
@@ -309,7 +307,7 @@ void setup() {
   initDiagRoutes();
   initConfigRoutes();
   initIotRoutes();
-  hiveDbLoad();
+
 
   gReportTimes = loadReportConfig();
   gApPass    = loadApPass();
@@ -336,11 +334,15 @@ void setup() {
   ntfy.setDebugStream(&Serial);
 
   ntpStart();
-  weatherInit();
 
   gModem.bootTime = millis();
   modemPowerOn(); 
   
+  // --- ÚJ: Supabase szinkronizáció inicializálása szerver szerepkörben ---
+  #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+  initSupabaseSync();
+  #endif
+
   diagAdd("Rendszer UI elindult. Modem ebresztese...");
   Serial.println(F("=== Kész. Ird 'help' a serial parancsokhoz. ==="));
 }
@@ -393,8 +395,12 @@ void loop() {
   wifiStaWatchdog();
   smsInboxLoop();
   sensorsLoop();
-  backgroundTaskLoop();
-  
+    
+  // --- ÚJ: Supabase háttérszinkronizációs ciklus futtatása ---
+  #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+  supabaseSyncLoop();
+  #endif
+
   // Kopogás figyelő futtatása folyamatosan
   knockLoop();
 
