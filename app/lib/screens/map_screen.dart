@@ -190,7 +190,6 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     String macAddress = '';
 
     String selectedType = 'honey';
-    String selectedSize = 'fel_dadant';
     String boxName = 'Méztér';
     String? secondaryCode;
     HiveData? selectedTargetHive = _repository.hives.isNotEmpty
@@ -405,9 +404,6 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                           if (val != null) {
                             setDialogState(() {
                               selectedType = val;
-                              selectedSize = (val == 'honey')
-                                  ? 'fel_dadant'
-                                  : val;
                               boxName = (val == 'honey')
                                   ? 'Méztér'
                                   : 'Tartozék';
@@ -521,7 +517,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                           code: primaryCode,
                           secondaryCode: secondaryCode,
                           type: selectedType,
-                          size: selectedSize,
+                          size: selectedType,
                           status: 'green',
                         ),
                       );
@@ -556,17 +552,19 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
         redFlashOpacityAnim: _redFlashOpacityAnim,
         onConfigurePressed: () {
           Navigator.pop(context);
-          _openConfigDialog(hive);
+          _openSetupDialog();
         },
       ),
     );
   }
 
-  // --- SZERVER / IDŐJÁRÁS-ÁLLOMÁS RÉSZLETEK (Meteo & Hálózat adatokkal) ---
+  void _openSetupDialog() {
+    showDialog(context: context, builder: (context) => const HiveSetupDialog());
+  }
+
+  // --- IDŐJÁRÁS-ÁLLOMÁS RÉSZLETEK ---
   void _showStationDetails(StationData station) {
     HapticFeedback.lightImpact();
-    bool isWeather = (station.type == 'weather_station');
-
     showDialog(
       context: context,
       builder: (context) {
@@ -574,10 +572,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
           backgroundColor: const Color(0xFF1E1E1E),
           title: Row(
             children: [
-              Icon(
-                isWeather ? Icons.wb_sunny : Icons.dns,
-                color: isWeather ? Colors.tealAccent : Colors.blueAccent,
-              ),
+              const Icon(Icons.wb_sunny, color: Colors.tealAccent),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -624,36 +619,34 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   Icons.speed,
                   Colors.orangeAccent,
                 ),
-                if (isWeather) ...[
-                  const SizedBox(height: 8),
-                  _buildStationRow(
-                    'UV-index',
-                    '${station.uvIndex}',
-                    Icons.wb_sunny_outlined,
-                    Colors.yellowAccent,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildStationRow(
-                    'Fényerősség',
-                    '${station.lightLux.toInt()} Lux',
-                    Icons.light_mode,
-                    Colors.amberAccent,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildStationRow(
-                    'Szélsebesség',
-                    '${station.windSpeed} m/s (${station.windDirection})',
-                    Icons.air,
-                    Colors.cyanAccent,
-                  ),
-                  const SizedBox(height: 8),
-                  _buildStationRow(
-                    'Esőmennyiség',
-                    '${station.rainAmount} mm',
-                    Icons.umbrella,
-                    Colors.blueAccent,
-                  ),
-                ],
+                const SizedBox(height: 8),
+                _buildStationRow(
+                  'UV-index',
+                  '${station.uvIndex}',
+                  Icons.wb_sunny_outlined,
+                  Colors.yellowAccent,
+                ),
+                const SizedBox(height: 8),
+                _buildStationRow(
+                  'Fényerősség',
+                  '${station.lightLux.toInt()} Lux',
+                  Icons.light_mode,
+                  Colors.amberAccent,
+                ),
+                const SizedBox(height: 8),
+                _buildStationRow(
+                  'Szélsebesség',
+                  '${station.windSpeed} m/s (${station.windDirection})',
+                  Icons.air,
+                  Colors.cyanAccent,
+                ),
+                const SizedBox(height: 8),
+                _buildStationRow(
+                  'Esőmennyiség',
+                  '${station.rainAmount} mm',
+                  Icons.umbrella,
+                  Colors.blueAccent,
+                ),
                 const SizedBox(height: 8),
                 _buildStationRow(
                   'Akkumulátor / Táp',
@@ -908,24 +901,6 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     );
   }
 
-  void _openConfigDialog(HiveData hive) {
-    showDialog(
-      context: context,
-      builder: (context) => HiveConfigDialog(
-        hive: hive,
-        onSaved: (updatedHive) {
-          _repository.updateHive(updatedHive);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Kaptár konfiguráció sikeresen mentve!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   Color _getStatusColor(String status) {
     switch (status) {
       case 'green':
@@ -1021,12 +996,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     ),
                   ),
 
-                  // 1. Kaptár markerek
+                  // 1. Kaptár markerek (Feliratmentes, csak tiszta státuszszínek)
                   for (var hive in _repository.hives)
                     Marker(
                       point: hive.location,
-                      width: 45,
-                      height: 45,
+                      width: 36,
+                      height: 36,
                       child: GestureDetector(
                         onTap: () => _showHiveDetails(hive),
                         child: () {
@@ -1047,7 +1022,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                   child: Icon(
                                     Icons.warning,
                                     color: Colors.white,
-                                    size: 24,
+                                    size: 20,
                                   ),
                                 ),
                               ),
@@ -1062,121 +1037,105 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                   width: 2,
                                 ),
                               ),
-                              child: Center(
-                                child: Text(
-                                  hive.id.replaceAll('HIVE_', ''),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
                             );
                           }
                         }(),
                       ),
                     ),
 
-                  // 2. Szerver és Időjárás-állomás markerek
-                  for (var station in _repository.stations)
-                    Marker(
-                      point: station.location,
-                      width: 42,
-                      height: 42,
-                      child: GestureDetector(
-                        onTap: () => _showStationDetails(station),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: station.type == 'server'
-                                ? Colors.blue.shade800
-                                : Colors.teal.shade700,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black45,
-                                blurRadius: 4,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Center(
-                            child: Icon(
-                              station.type == 'server'
-                                  ? Icons.dns
-                                  : Icons.wb_sunny,
-                              color: Colors.white,
-                              size: 20,
+                  // 2. Időjárás-állomás marker
+                  Marker(
+                    point: _repository.weatherStation.location,
+                    width: 42,
+                    height: 42,
+                    child: GestureDetector(
+                      onTap: () =>
+                          _showStationDetails(_repository.weatherStation),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade700,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black45,
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
                             ),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.wb_sunny,
+                            color: Colors.white,
+                            size: 20,
                           ),
                         ),
                       ),
                     ),
+                  ),
 
                   // 3. Itató marker
-                  for (var waterer in _repository.waterers)
-                    Marker(
-                      point: waterer.location,
-                      width: 42,
-                      height: 42,
-                      child: GestureDetector(
-                        onTap: () => _showWatererDetails(waterer),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.lightBlue.shade700,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black45,
-                                blurRadius: 4,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.water,
-                              color: Colors.white,
-                              size: 20,
+                  Marker(
+                    point: _repository.waterer.location,
+                    width: 42,
+                    height: 42,
+                    child: GestureDetector(
+                      onTap: () => _showWatererDetails(_repository.waterer),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.lightBlue.shade700,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black45,
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
                             ),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.water,
+                            color: Colors.white,
+                            size: 20,
                           ),
                         ),
                       ),
                     ),
+                  ),
 
                   // 4. Szirupszivattyú marker
-                  for (var pump in _repository.syrupPumps)
-                    Marker(
-                      point: pump.location,
-                      width: 42,
-                      height: 42,
-                      child: GestureDetector(
-                        onTap: () => _showSyrupPumpDetails(pump),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade800,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black45,
-                                blurRadius: 4,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.settings_input_component,
-                              color: Colors.white,
-                              size: 20,
+                  Marker(
+                    point: _repository.syrupPump.location,
+                    width: 42,
+                    height: 42,
+                    child: GestureDetector(
+                      onTap: () => _showSyrupPumpDetails(_repository.syrupPump),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade800,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black45,
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
                             ),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.settings_input_component,
+                            color: Colors.white,
+                            size: 20,
                           ),
                         ),
                       ),
                     ),
+                  ),
                 ],
               ),
             ],
@@ -1198,59 +1157,97 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
           Positioned(
             top: 12,
             right: 12,
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                FloatingActionButton.small(
-                  heroTag: 'centerPositionBtn',
-                  backgroundColor: const Color(0xB3000000),
-                  foregroundColor: Colors.lightBlueAccent,
-                  tooltip: 'Saját helyzetre ugrás',
-                  onPressed: _refreshPosition,
-                  child: const Icon(Icons.my_location),
-                ),
-                const SizedBox(width: 8),
-                FloatingActionButton.small(
-                  heroTag: 'rotateBtn',
-                  backgroundColor: const Color(0xB3000000),
-                  foregroundColor: _isMapFreeRotate
-                      ? Colors.greenAccent
-                      : Colors.amberAccent,
-                  tooltip: 'Térkép forgatása',
-                  child: Icon(
-                    _isMapFreeRotate ? Icons.navigation : Icons.explore,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _isMapFreeRotate = !_isMapFreeRotate;
-                      if (!_isMapFreeRotate) {
-                        _mapController.rotate(0);
-                      }
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          _isMapFreeRotate
-                              ? 'Térkép nézet: Iránykövető'
-                              : 'Térkép nézet: Észak alapú',
-                        ),
-                        duration: const Duration(seconds: 1),
+                Row(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'settingsBtn',
+                      backgroundColor: const Color(0xB3000000),
+                      foregroundColor: Colors.amberAccent,
+                      tooltip: 'Beállítások & Mestertervek',
+                      onPressed: _openSetupDialog,
+                      child: const Icon(Icons.settings),
+                    ),
+                    const SizedBox(width: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'centerPositionBtn',
+                      backgroundColor: const Color(0xB3000000),
+                      foregroundColor: Colors.lightBlueAccent,
+                      tooltip: 'Saját helyzetre ugrás',
+                      onPressed: _refreshPosition,
+                      child: const Icon(Icons.my_location),
+                    ),
+                    const SizedBox(width: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'rotateBtn',
+                      backgroundColor: const Color(0xB3000000),
+                      foregroundColor: _isMapFreeRotate
+                          ? Colors.greenAccent
+                          : Colors.amberAccent,
+                      tooltip: 'Térkép forgatása',
+                      child: Icon(
+                        _isMapFreeRotate ? Icons.navigation : Icons.explore,
                       ),
-                    );
-                  },
+                      onPressed: () {
+                        setState(() {
+                          _isMapFreeRotate = !_isMapFreeRotate;
+                          if (!_isMapFreeRotate) {
+                            _mapController.rotate(0);
+                          }
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'advancedBtn',
+                      backgroundColor: _isAdvancedMode
+                          ? Colors.amber
+                          : const Color(0xB3000000),
+                      foregroundColor: _isAdvancedMode
+                          ? Colors.black
+                          : Colors.white,
+                      tooltip: 'Részletes GPS adatok',
+                      child: const Icon(Icons.tune),
+                      onPressed: () =>
+                          setState(() => _isAdvancedMode = !_isAdvancedMode),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                FloatingActionButton.small(
-                  heroTag: 'advancedBtn',
-                  backgroundColor: _isAdvancedMode
-                      ? Colors.amber
-                      : const Color(0xB3000000),
-                  foregroundColor: _isAdvancedMode
-                      ? Colors.black
-                      : Colors.white,
-                  tooltip: 'Részletes GPS adatok',
-                  child: const Icon(Icons.tune),
-                  onPressed: () =>
-                      setState(() => _isAdvancedMode = !_isAdvancedMode),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'zoomInBtn',
+                      backgroundColor: const Color(0xB3000000),
+                      foregroundColor: Colors.white,
+                      tooltip: 'Közelítés',
+                      onPressed: () {
+                        final zoom = _mapController.camera.zoom;
+                        _mapController.move(
+                          _mapController.camera.center,
+                          zoom + 1,
+                        );
+                      },
+                      child: const Icon(Icons.add),
+                    ),
+                    const SizedBox(width: 8),
+                    FloatingActionButton.small(
+                      heroTag: 'zoomOutBtn',
+                      backgroundColor: const Color(0xB3000000),
+                      foregroundColor: Colors.white,
+                      tooltip: 'Távolítás',
+                      onPressed: () {
+                        final zoom = _mapController.camera.zoom;
+                        _mapController.move(
+                          _mapController.camera.center,
+                          zoom - 1,
+                        );
+                      },
+                      child: const Icon(Icons.remove),
+                    ),
+                  ],
                 ),
               ],
             ),

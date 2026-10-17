@@ -1,322 +1,114 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../hive_model.dart';
+import 'treatment_adviser.dart';
 
 class HiveRepository extends ChangeNotifier {
   static final HiveRepository instance = HiveRepository._internal();
-  HiveRepository._internal();
+  HiveRepository._internal() {
+    _loadConfig();
+  }
 
-  final List<QueenData> _queens = [
-    QueenData(
-      id: 'QUEEN_2026_01',
-      origin: 'Saját nevelés',
-      vintage: '2026 (Fehér)',
-    ),
-    QueenData(
-      id: 'QUEEN_2024_08',
-      origin: 'Saját nevelés (Krajnai)',
-      vintage: '2024 (Zöld)',
-    ),
-    QueenData(
-      id: 'QUEEN_2023_14',
-      origin: 'Vásárolt',
-      vintage: '2023 (Piros)',
-      needsReplacement: true,
-    ),
-    QueenData(
-      id: 'QUEEN_2025_03',
-      origin: 'Saját anyanevelés',
-      vintage: '2025 (Kék)',
-    ),
-    QueenData(
-      id: 'QUEEN_2025_02',
-      origin: 'Vásárolt (Buckfast)',
-      vintage: '2025 (Kék)',
-    ),
-  ];
+  // --- SUPABASE KONFIGURÁCIÓ ---
+  String _supabaseUrl = '';
+  String _supabaseAnonKey = '';
+  bool _isSyncing = false;
+  String _syncStatusText = 'Még nincs beállítva a Supabase kapcsolat';
 
-  final List<HiveData> _hives = [
-    HiveData(
-      id: 'HIVE_01',
-      name: '1. Család (Termelő)',
-      location: const LatLng(37.422500, -122.084500),
-      status: 'green',
-      temp: 34.5,
-      humidity: 62.0,
-      extTemp: 22.4,
-      extHumidity: 54.0,
-      weight: 42.5,
-      batteryVoltage: 4.12,
-      zcr: 3820.0,
-      queen: QueenData(
-        id: 'QUEEN_2026_01',
-        origin: 'Saját nevelés',
-        vintage: '2026 (Fehér)',
-      ),
-      familyFunction: 'gyujto_mez',
-      boxes: [
-        BoxElement(
-          name: 'Fészekfiók',
-          code: 'BOX_01_A',
-          secondaryCode: 'NFC_9988',
-          type: 'nest',
-          size: 'dadant',
-          status: 'green',
-        ),
-        BoxElement(
-          name: 'Méztér',
-          code: 'BOX_01_B',
-          type: 'honey',
-          size: 'fel_dadant',
-          status: 'green',
-        ),
-        BoxElement(
-          name: 'Etető',
-          code: 'BOX_01_C',
-          type: 'feeder',
-          size: 'etetö',
-          status: 'green',
-        ),
-      ],
-      serverConnection: 'Wi-Fi / ESP-NOW OK (-62 dBm)',
-    ),
-    HiveData(
-      id: 'HIVE_02',
-      name: '2. Család (Pergetésre vár)',
-      location: const LatLng(37.422350, -122.084200),
-      status: 'yellow',
-      temp: 34.8,
-      humidity: 58.0,
-      extTemp: 22.4,
-      extHumidity: 54.0,
-      weight: 56.2,
-      batteryVoltage: 3.98,
-      zcr: 3650.0,
-      queen: QueenData(
-        id: 'QUEEN_2024_08',
-        origin: 'Saját nevelés (Krajnai)',
-        vintage: '2024 (Zöld)',
-      ),
-      familyFunction: 'gyujto_mez',
-      boxes: [
-        BoxElement(
-          name: 'Fészekfiók',
-          code: 'BOX_02_A',
-          type: 'nest',
-          size: 'nb',
-          status: 'green',
-        ),
-        BoxElement(
-          name: 'Méztér',
-          code: 'BOX_02_B',
-          type: 'honey',
-          size: 'hunor',
-          status: 'green',
-        ),
-        BoxElement(
-          name: 'Méztér',
-          code: 'BOX_02_C',
-          type: 'honey',
-          size: 'hunor',
-          status: 'yellow',
-        ),
-        BoxElement(
-          name: 'Tető',
-          code: 'BOX_02_D',
-          type: 'roof',
-          size: 'roof',
-          status: 'green',
-        ),
-      ],
-      serverConnection: 'Wi-Fi / ESP-NOW OK (-68 dBm)',
-    ),
-    HiveData(
-      id: 'HIVE_03',
-      name: '3. Család (Anyacsere + Etetés)',
-      location: const LatLng(37.422150, -122.084650),
-      status: 'yellow',
-      temp: 31.2,
-      humidity: 64.0,
-      extTemp: 22.1,
-      extHumidity: 55.0,
-      weight: 24.5,
-      batteryVoltage: 3.85,
-      zcr: 4350.0,
-      queen: QueenData(
-        id: 'QUEEN_2023_14',
-        origin: 'Vásárolt',
-        vintage: '2023 (Piros)',
-        needsReplacement: true,
-      ),
-      familyFunction: 'szaporitas_anya',
-      boxes: [
-        BoxElement(
-          name: 'Fészekfiók',
-          code: 'BOX_03_A',
-          type: 'nest',
-          size: 'dadant',
-          status: 'yellow',
-        ),
-        BoxElement(
-          name: 'Etető',
-          code: 'BOX_03_B',
-          type: 'feeder',
-          size: 'feeder',
-          status: 'green',
-        ),
-        BoxElement(
-          name: 'Szellőző',
-          code: 'BOX_03_C',
-          type: 'vent',
-          size: 'vent',
-          status: 'green',
-        ),
-      ],
-      serverConnection: 'Gyenge jel (-86 dBm)',
-      protocol: 'grumpy',
-    ),
-    HiveData(
-      id: 'HIVE_04',
-      name: '4. Család (Túlmelegedés / Akku)',
-      location: const LatLng(37.422600, -122.083600),
-      status: 'red',
-      temp: 38.2,
-      humidity: 45.0,
-      extTemp: 23.0,
-      extHumidity: 50.0,
-      weight: 33.0,
-      batteryVoltage: 3.45,
-      zcr: 4850.0,
-      queen: QueenData(
-        id: 'QUEEN_2025_03',
-        origin: 'Saját anyanevelés',
-        vintage: '2025 (Kék)',
-      ),
-      familyFunction: 'gyujto_viragpor',
-      boxes: [
-        BoxElement(
-          name: 'Fészekfiók',
-          code: 'BOX_04_A',
-          type: 'nest',
-          size: 'nb',
-          status: 'red',
-        ),
-        BoxElement(
-          name: 'Pollengyűjtő',
-          code: 'BOX_04_B',
-          type: 'pollen_trap',
-          size: 'pollen_trap',
-          status: 'green',
-        ),
-        BoxElement(
-          name: 'Méztér',
-          code: 'BOX_04_C',
-          type: 'honey',
-          size: 'fel_nb',
-          status: 'green',
-        ),
-      ],
-      serverConnection: 'Wi-Fi / ESP-NOW OK (-71 dBm)',
-    ),
-    HiveData(
-      id: 'HIVE_05',
-      name: '5. Család (Vészhelyzet!)',
-      location: const LatLng(37.422700, -122.083900),
-      status: 'flashing_red',
-      temp: 40.2,
-      humidity: 28.0,
-      extTemp: 24.1,
-      extHumidity: 48.0,
-      weight: 64.0,
-      batteryVoltage: 3.31,
-      zcr: 5100.0,
-      queen: QueenData(
-        id: 'QUEEN_2025_02',
-        origin: 'Vásárolt (Buckfast)',
-        vintage: '2025 (Kék)',
-      ),
-      familyFunction: 'hans',
-      boxes: [
-        BoxElement(
-          name: 'Fészekfiók',
-          code: 'BOX_05_A',
-          type: 'nest',
-          size: 'dadant',
-          status: 'flashing_red',
-        ),
-        BoxElement(
-          name: 'Szöktető',
-          code: 'BOX_05_B',
-          type: 'escapement',
-          size: 'szokteto',
-          status: 'flashing_red',
-        ),
-        BoxElement(
-          name: 'Méztér',
-          code: 'BOX_05_C',
-          type: 'honey',
-          size: 'fel_dadant',
-          status: 'flashing_red',
-        ),
-      ],
-      serverConnection: 'Kritikus - Utolsó jel: 4 perce',
-      protocol: 'hans',
-    ),
-  ];
+  String get supabaseUrl => _supabaseUrl;
+  String get supabaseAnonKey => _supabaseAnonKey;
+  bool get isSyncing => _isSyncing;
+  String get syncStatusText => _syncStatusText;
 
-  // Egyesített szerver és időjárás-állomás
-  final List<StationData> _stations = [
-    StationData(
-      id: 'SERVER_WEATHER_01',
-      name: 'szerver és időjárás-állomás',
-      location: const LatLng(37.423000, -122.084000),
-      temp: 22.4,
-      humidity: 54.0,
-      pressure: 1013.2,
-      uvIndex: 4.5,
-      lightLux: 45000.0,
-      windSpeed: 3.2,
-      windDirection: 'ÉNy',
-      rainAmount: 0.0,
-      batteryVoltage: 4.85,
-      status: 'green',
-    ),
-  ];
+  String get sheetUrl => _supabaseUrl;
 
-  final List<WatererData> _waterers = [
-    WatererData(
-      id: 'WATER_01',
-      name: 'itató',
-      location: const LatLng(37.422800, -122.085200),
-      waterLevel: 78.5,
-      waterTemp: 19.2,
-      batteryVoltage: 4.05,
-      status: 'green',
-    ),
-  ];
+  Future<void> _loadConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    _supabaseUrl = prefs.getString('supabase_url') ?? '';
+    _supabaseAnonKey = prefs.getString('supabase_anon_key') ?? '';
+    if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+      _syncStatusText = 'Supabase konfigurálva. Szinkronizációra kész.';
+    }
+    notifyListeners();
+  }
 
-  final List<SyrupPumpData> _syrupPumps = [
-    SyrupPumpData(
-      id: 'PUMP_01',
-      name: 'szirupszivattyú',
-      location: const LatLng(37.422200, -122.083800),
-      totalPumpedLiters: 45.0,
-      lastOperationStatus: 'Utolsó adag: 1.5L (OK)',
-      status: 'green',
-    ),
-  ];
+  Future<void> setSupabaseConfig(String url, String anonKey) async {
+    _supabaseUrl = url.trim().replaceAll(RegExp(r'/$'), '');
+    _supabaseAnonKey = anonKey.trim();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('supabase_url', _supabaseUrl);
+    await prefs.setString('supabase_anon_key', _supabaseAnonKey);
+    notifyListeners();
+  }
+
+  // --- LOKÁLIS ADATOK ÉS GYORSÍTÓTÁR ---
+  final List<QueenData> _queens = [];
+  final List<HiveData> _hives = [];
+  final List<FrameAnalysisRecord> _pendingFrameAnalyses = [];
+  final List<ScheduledTask> _scheduledTasks = [];
+
+  StationData _weatherStation = StationData(
+    id: 'WEATHER_01',
+    name: 'időjárás-állomás',
+    location: const LatLng(37.422000, -122.085000),
+    temp: 21.5,
+    humidity: 54.0,
+    pressure: 1013.2,
+    uvIndex: 4.5,
+    lightLux: 45000.0,
+    windSpeed: 3.2,
+    windDirection: 'ÉNy',
+    rainAmount: 0.0,
+    batteryVoltage: 4.10,
+    status: 'green',
+  );
+
+  final WatererData _waterer = WatererData(
+    id: 'WATER_01',
+    name: 'itató',
+    location: const LatLng(37.422800, -122.085200),
+    waterLevel: 78.5,
+    waterTemp: 19.2,
+    batteryVoltage: 4.05,
+    status: 'green',
+  );
+
+  final SyrupPumpData _syrupPump = SyrupPumpData(
+    id: 'PUMP_01',
+    name: 'szirupszivattyú',
+    location: const LatLng(37.422200, -122.083800),
+    totalPumpedLiters: 0.0,
+    lastOperationStatus: 'Készenlétben',
+    status: 'green',
+  );
 
   List<HiveData> get hives => _hives;
   List<QueenData> get queens => _queens;
-  List<StationData> get stations => _stations;
-  List<WatererData> get waterers => _waterers;
-  List<SyrupPumpData> get syrupPumps => _syrupPumps;
+  List<FrameAnalysisRecord> get pendingFrameAnalyses => _pendingFrameAnalyses;
+  List<ScheduledTask> get scheduledTasks => _scheduledTasks;
+  StationData get weatherStation => _weatherStation;
+  WatererData get waterer => _waterer;
+  SyrupPumpData get syrupPump => _syrupPump;
+
+  Map<String, String> get _headers => {
+    'apikey': _supabaseAnonKey,
+    'Authorization': 'Bearer $_supabaseAnonKey',
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+  };
 
   dynamic findElementByCode(String scannedCode) {
     final cleanCode = scannedCode.trim();
     for (var hive in _hives) {
-      if (hive.id == cleanCode) return hive;
+      if (hive.id == cleanCode) {
+        return hive;
+      }
       for (var box in hive.boxes) {
         if (box.code == cleanCode || box.secondaryCode == cleanCode) {
           return {'hive': hive, 'box': box};
@@ -328,16 +120,66 @@ class HiveRepository extends ChangeNotifier {
 
   void addQueen(QueenData queen) {
     _queens.add(queen);
+    _postToSupabase('queens', {
+      'queen_number': queen.id,
+      'origin': queen.origin,
+      'birth_year':
+          int.tryParse(queen.vintage.replaceAll(RegExp(r'[^0-9]'), '')) ??
+          DateTime.now().year,
+      'status': queen.isAlive ? 'Aktív' : 'Elveszett',
+    });
     notifyListeners();
   }
 
   void addHive(HiveData hive) {
+    if (!hive.boxes.any((b) => b.type == 'bottom')) {
+      hive.boxes.insert(
+        0,
+        BoxElement(
+          name: 'Aljdeszka',
+          code: '${hive.id}_BOT',
+          type: 'bottom',
+          size: 'bottom',
+          isActive: false,
+        ),
+      );
+    }
     _hives.add(hive);
+    _postToSupabase('monitors', {
+      'mac_address': hive.id,
+      'hive_number': hive.name,
+    });
     notifyListeners();
   }
 
   void addBoxToHive(HiveData hive, BoxElement box) {
     hive.boxes.add(box);
+    _postToSupabase('bodies', {
+      'monitor_mac': hive.id,
+      'body_type': box.size,
+      'body_function': box.type,
+      'position_index': hive.boxes.length,
+      'is_active': box.isActive,
+    });
+    notifyListeners();
+  }
+
+  void toggleBoxActiveState(HiveData hive, BoxElement box, bool newValue) {
+    box.isActive = newValue;
+    box.statusUpdatedAt = DateTime.now();
+
+    final String eventDesc = box.type == 'bottom'
+        ? (newValue
+              ? 'Aljdeszka betolva (3 napos varroa kontroll indítva)'
+              : 'Aljdeszka kihúzva')
+        : (newValue ? 'Pollengyűjtő bekapcsolva' : 'Pollengyűjtő kikapcsolva');
+
+    _postToSupabase('history_logs', {
+      'monitor_mac': hive.id,
+      'event_type': box.type == 'bottom' ? 'atkaellenőrzés' : 'pollengyűjtő',
+      'description': eventDesc,
+    });
+
     notifyListeners();
   }
 
@@ -349,6 +191,243 @@ class HiveRepository extends ChangeNotifier {
     pump.totalPumpedLiters += liters;
     pump.lastOperationStatus =
         'Cél: $targetHiveName - ${liters.toStringAsFixed(1)}L (OK)';
+
+    for (var hive in _hives) {
+      if (hive.name == targetHiveName) {
+        hive.syrupLiters += liters;
+        _postToSupabase('treatments', {
+          'monitor_mac': hive.id,
+          'treatment_type': 'Szirup etetés',
+          'scheduled_date': DateTime.now().toIso8601String().split('T').first,
+          'is_completed': true,
+          'dosage': '${liters.toStringAsFixed(1)} liter',
+          'notes':
+              'Összesen kapott szirup: ${hive.syrupLiters.toStringAsFixed(1)} L',
+        });
+        _postToSupabase('history_logs', {
+          'monitor_mac': hive.id,
+          'event_type': 'etetés',
+          'description':
+              'Adagolva: ${liters.toStringAsFixed(1)} L szirup (Összesen: ${hive.syrupLiters.toStringAsFixed(1)} L)',
+        });
+        break;
+      }
+    }
     notifyListeners();
+  }
+
+  void schedulePlanForHive(String hiveId, String planType, DateTime startDate) {
+    List<ScheduledTask> newTasks = [];
+    if (planType == 'petes_mesterterv') {
+      newTasks = TreatmentAdviser.generatePetesMasterPlan(hiveId, startDate);
+    } else if (planType == 'alcas_mesterterv') {
+      newTasks = TreatmentAdviser.generateAlcasMasterPlan(hiveId, startDate);
+    } else if (planType == 'grumpy_cat') {
+      newTasks = TreatmentAdviser.generateGrumpyCatProtocol(hiveId, startDate);
+    } else if (planType == 'oxalsav_egyszeri') {
+      newTasks = TreatmentAdviser.generateOxalicPlan(
+        hiveId,
+        startDate,
+        isSeries: false,
+      );
+    } else if (planType == 'oxalsav_sorozat') {
+      newTasks = TreatmentAdviser.generateOxalicPlan(
+        hiveId,
+        startDate,
+        isSeries: true,
+      );
+    } else if (planType == 'hereskeret') {
+      newTasks = TreatmentAdviser.generateDroneFramePlan(hiveId, startDate);
+    }
+
+    _scheduledTasks.addAll(newTasks);
+
+    for (var t in newTasks) {
+      _postToSupabase('treatments', {
+        'monitor_mac': hiveId,
+        'treatment_type': t.title,
+        'scheduled_date': t.scheduledDate.toIso8601String().split('T').first,
+        'is_completed': false,
+        'notes': t.description,
+      });
+    }
+    notifyListeners();
+  }
+
+  void addLocalFrameAnalysis(FrameAnalysisRecord record) {
+    _pendingFrameAnalyses.add(record);
+    notifyListeners();
+  }
+
+  Future<int> syncPendingFramesAndCleanup() async {
+    int processedCount = 0;
+    final unsynced = _pendingFrameAnalyses
+        .where((r) => !r.isSyncedWithCloud)
+        .toList();
+
+    for (var record in unsynced) {
+      try {
+        await _postToSupabase('history_logs', {
+          'monitor_mac': record.hiveId,
+          'event_type': 'keret_ai_elemzes',
+          'description':
+              'Népesség: ${record.populationEstimate}, Fedett fiasítás: ${record.cappedBroodPct}%, Nyílt: ${record.openBroodPct}%',
+          'metadata': {
+            'population': record.populationEstimate,
+            'capped_brood_pct': record.cappedBroodPct,
+            'open_brood_pct': record.openBroodPct,
+            'queen_cells': record.queenCellsDetected,
+            'health_note': record.broodHealthNote,
+          },
+        });
+
+        record.isSyncedWithCloud = true;
+        record.cloudDetailedReport = 'Felhős elemzés kész, adatbázisba mentve.';
+
+        final file = File(record.localImagePath);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        processedCount++;
+      } catch (e) {
+        debugPrint('Hiba a keret szinkronizálásakor: $e');
+      }
+    }
+
+    _pendingFrameAnalyses.removeWhere((r) => r.isSyncedWithCloud);
+    notifyListeners();
+    return processedCount;
+  }
+
+  Future<void> _postToSupabase(String table, Map<String, dynamic> data) async {
+    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      return;
+    }
+    try {
+      await http.post(
+        Uri.parse('$_supabaseUrl/rest/v1/$table'),
+        headers: _headers,
+        body: jsonEncode(data),
+      );
+    } catch (e) {
+      debugPrint('Supabase írási hiba ($table): $e');
+    }
+  }
+
+  Future<void> syncWithSupabase() async {
+    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      _syncStatusText = 'Hiba: Add meg a Supabase URL-t és a kulcsot!';
+      notifyListeners();
+      return;
+    }
+
+    _isSyncing = true;
+    _syncStatusText = 'Szinkronizáció a Supabase adatbázissal...';
+    notifyListeners();
+
+    try {
+      // 1. Összes kaptár / monitor lekérése
+      final monitorsRes = await http.get(
+        Uri.parse('$_supabaseUrl/rest/v1/monitors?select=*'),
+        headers: _headers,
+      );
+
+      if (monitorsRes.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(monitorsRes.body);
+        _hives.clear();
+
+        int index = 0;
+        for (var row in data) {
+          final String mac = row['mac_address'] ?? 'HIVE_01';
+          final String name = row['hive_number'] ?? 'Család ($mac)';
+
+          // Eltolás a GPS koordinátákban, hogy ne egymáson legyenek a markerek
+          double latOffset = (index % 3) * 0.00015;
+          double lngOffset = (index ~/ 3) * 0.00015;
+
+          _hives.add(
+            HiveData(
+              id: mac,
+              name: name,
+              location: LatLng(37.422500 + latOffset, -122.084500 + lngOffset),
+              status: 'green',
+              temp: 34.5,
+              humidity: 60.0,
+              extTemp: _weatherStation.temp,
+              extHumidity: _weatherStation.humidity,
+              weight: 35.0,
+              batteryVoltage: 4.1,
+              zcr: 3800.0,
+              boxes: [
+                BoxElement(
+                  name: 'Aljdeszka',
+                  code: '${mac}_BOT',
+                  type: 'bottom',
+                  size: 'bottom',
+                  isActive: false,
+                ),
+                BoxElement(
+                  name: 'Fészek',
+                  code: '${mac}_NEST',
+                  type: 'nest',
+                  size: 'hunor',
+                  status: 'green',
+                ),
+              ],
+              serverConnection: 'Supabase OK',
+            ),
+          );
+          index++;
+        }
+      }
+
+      // 2. Időjárás-állomás adatok lekérése
+      final envRes = await http.get(
+        Uri.parse(
+          '$_supabaseUrl/rest/v1/environments?select=*&order=recorded_at.desc&limit=1',
+        ),
+        headers: _headers,
+      );
+      if (envRes.statusCode == 200) {
+        final List<dynamic> envData = jsonDecode(envRes.body);
+        if (envData.isNotEmpty) {
+          final latest = envData.first;
+          _weatherStation = StationData(
+            id: latest['station_mac'] ?? 'WEATHER_01',
+            name: 'időjárás-állomás',
+            location: _weatherStation.location,
+            temp: (latest['temp'] as num?)?.toDouble() ?? _weatherStation.temp,
+            humidity:
+                (latest['humidity'] as num?)?.toDouble() ??
+                _weatherStation.humidity,
+            pressure:
+                (latest['pressure'] as num?)?.toDouble() ??
+                _weatherStation.pressure,
+            uvIndex:
+                (latest['uv_index'] as num?)?.toDouble() ??
+                _weatherStation.uvIndex,
+            lightLux:
+                (latest['sun'] as num?)?.toDouble() ?? _weatherStation.lightLux,
+            windSpeed:
+                (latest['wind_speed'] as num?)?.toDouble() ??
+                _weatherStation.windSpeed,
+            windDirection:
+                latest['wind_direction'] ?? _weatherStation.windDirection,
+            rainAmount:
+                (latest['rain'] as num?)?.toDouble() ??
+                _weatherStation.rainAmount,
+            batteryVoltage: _weatherStation.batteryVoltage,
+          );
+        }
+      }
+
+      _syncStatusText =
+          'Sikeres Supabase szinkron! (${_hives.length} kaptár betöltve)';
+    } catch (e) {
+      _syncStatusText = 'Hálózati hiba: $e';
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
   }
 }
