@@ -1,7 +1,7 @@
 //crypto.cpp
 
 #include "crypto.h"
-
+#include <Preferences.h>
 
 // ─── XTEA (64-bit blokk, 128-bit kulcs, 32 kör) ────────────
 static void xteaEncrypt(uint32_t v[2], const uint32_t k[4]) {
@@ -45,7 +45,6 @@ String xteaEncryptStr(const String& plain) {
   uint32_t v[2]; memcpy(v, buf, 8);
   xteaEncrypt(v, k);
   memcpy(buf, v, 8);
-  // hex string visszatérítés
   String out = "";
   for(int i=0;i<8;i++){
     if(buf[i]<16) out+="0";
@@ -64,7 +63,7 @@ String xteaDecryptStr(const uint8_t raw[8]) {
   String out = "";
   for(int i=0;i<8;i++){
     if(buf[i]==0) break;
-    if(buf[i]<0x20||buf[i]>0x7E) return ""; // nem printable → szemét
+    if(buf[i]<0x20||buf[i]>0x7E) return "";
     out += (char)buf[i];
   }
   return out;
@@ -76,7 +75,6 @@ void saveApPass(const String& pass) {
   uint8_t buf[32] = {0};
   int len = min((int)pass.length(), 31);
   for(int i=0;i<len;i++) buf[i] = (uint8_t)pass[i];
-  // 4 blokk titkosítás
   for(int b=0;b<4;b++){
     uint32_t v[2]; memcpy(v, buf+b*8, 8);
     xteaEncrypt(v, k);
@@ -90,11 +88,9 @@ String loadApPass() {
   uint32_t k[4]; buildKey(k);
   uint8_t buf[32];
   for(int i=0;i<32;i++) buf[i] = EEPROM.read(ADDR_AP_PASS+i);
-  // Inicializálatlan?
   bool allFF=true;
   for(int i=0;i<32;i++) if(buf[i]!=0xFF){allFF=false;break;}
   if(allFF) return DEFAULT_AP_PASS;
-  // 4 blokk visszafejtés
   for(int b=0;b<4;b++){
     uint32_t v[2]; memcpy(v, buf+b*8, 8);
     xteaDecrypt(v, k);
@@ -132,7 +128,6 @@ String loadPin() {
   for(int i=0;i<8;i++){if(buf[i]!=0x00)allZ=false; if(buf[i]!=0xFF)allF=false;}
   if(allZ||allF) return "";
   String pin = xteaDecryptStr(buf);
-  // Validáció: 4-8 ASCII szám
   if(pin.length()<4) return "";
   for(char c:pin) if(c<'0'||c>'9') return "";
   return pin;
@@ -171,13 +166,11 @@ void clearCCID() {
   EEPROM.commit();
 }
 
-// ─── Általános, tetszőleges hosszú string XTEA mentés/betöltés ─
-// blockBytes-nek 8-cal oszthatónak kell lennie (XTEA 64-bit blokk).
-// A tárolt szöveg mindig null-terminált marad a puffer belsejében.
+// ─── Általános, tetszőleges hosszú string XTEA mentés/betöltés EEPROM-ba ─
 void xteaSaveBlock(int addr, int blockBytes, const String& plain) {
   uint32_t k[4]; buildKey(k);
   uint8_t* buf = (uint8_t*)calloc(blockBytes, 1);
-  if(!buf) return; // OOM védelem - nagyon valószínűtlen ekkora bufferre
+  if(!buf) return;
   int len = min((int)plain.length(), blockBytes - 1);
   for(int i=0;i<len;i++) buf[i] = (uint8_t)plain[i];
   int blocks = blockBytes / 8;
@@ -210,7 +203,7 @@ String xteaLoadBlock(int addr, int blockBytes) {
   String out = "";
   for(int i=0;i<blockBytes-1;i++){
     if(buf[i]==0) break;
-    if(buf[i]<0x20 || buf[i]>0x7E){ free(buf); return ""; } // szemét → üres
+    if(buf[i]<0x20 || buf[i]>0x7E){ free(buf); return ""; }
     out += (char)buf[i];
   }
   free(buf);
@@ -244,3 +237,79 @@ void clearStaCreds() {
   Serial.println(F("[CRYPTO] STA WiFi adatok torolve."));
 }
 
+// ─── XTEA titkosított mentés és betöltés Preferences-be (pl. Supabase API kulcshoz) ───
+void xteaSavePref(const char* ns, const char* key, const String& plain) {
+  Preferences p;
+  p.begin(ns, false);
+  if (plain.length() == 0) {
+    p.remove(key);
+    p.end();
+    return;
+  }
+
+  uint32_t k[4]; buildKey(k);
+  int rawLen = plain.length() + 1; // +1 a lezáró null karakternek
+  int paddedLen = ((rawLen + 7) / 8) * 8; // 8 bájtos XTEA blokkhatárra kerekítés
+
+  uint8_t* buf = (uint8_t*)calloc(paddedLen, 1);
+  if (!buf) {
+    p.end();
+    return;
+  }
+
+  memcpy(buf, plain.c_str(), plain.length());
+  int blocks = paddedLen / 8;
+  for (int b = 0; b < blocks; b++) {
+    uint32_t v[2];
+    memcpy(v, buf + b * 8, 8);
+    xteaEncrypt(v, k);
+    memcpy(buf + b * 8, v, 8);
+  }
+
+  p.putBytes(key, buf, paddedLen);
+  free(buf);
+  p.end();
+  Serial.println(F("[CRYPTO] Érték XTEA-titkosítva elmentve az NVS-be."));
+}
+
+String xteaLoadPref(const char* ns, const char* key) {
+  Preferences p;
+  p.begin(ns, true);
+  size_t len = p.getBytesLength(key);
+  if (len == 0 || (len % 8) != 0) {
+    p.end();
+    return "";
+  }
+
+  uint8_t* buf = (uint8_t*)malloc(len + 1);
+  if (!buf) {
+    p.end();
+    return "";
+  }
+
+  p.getBytes(key, buf, len);
+  p.end();
+
+  uint32_t k[4]; buildKey(k);
+  int blocks = len / 8;
+  for (int b = 0; b < blocks; b++) {
+    uint32_t v[2];
+    memcpy(v, buf + b * 8, 8);
+    xteaDecrypt(v, k);
+    memcpy(buf + b * 8, v, 8);
+  }
+  buf[len] = 0; // Biztonsági null-terminátor
+
+  String out = "";
+  for (size_t i = 0; i < len; i++) {
+    if (buf[i] == 0) break;
+    if (buf[i] < 0x20 || buf[i] > 0x7E) { // Ha nem nyomtatható ASCII karakter, akkor sérült
+      free(buf);
+      return "";
+    }
+    out += (char)buf[i];
+  }
+
+  free(buf);
+  return out;
+} 

@@ -27,3 +27,7 @@ void saveStaCreds(const String& ssid, const String& pass);
 String loadStaSSID();
 String loadStaPass();
 void clearStaCreds();
+
+// --- ÚJ: XTEA titkosított mentés/betöltés Preferences (NVS) tárolóba ---
+void xteaSavePref(const char* ns, const char* key, const String& plain);
+String xteaLoadPref(const char* ns, const char* key);
