@@ -54,10 +54,10 @@ class BoxElement {
   String name;
   String code; // QR-kód
   String? secondaryCode; // NFC azonosító
-  String type; // 'nest', 'honey', 'feeder', 'escapement', 'vent', 'pollen_trap', 'bottom', 'roof'
+  String type; // 'brood_box', 'honey', 'feeder', 'escapement', 'vent', 'pollen_trap', 'bottom', 'roof'
   String size; // 'hunor', 'nb_rakodo', 'nb_fekvo', 'fel_nb', 'lang_deep', 'lang_med', 'lang_shal', 'dadant', 'fel_dadant'
   String status; // 'green', 'yellow', 'red', 'flashing_red'
-  bool isActive; // Aljdeszka bent/kint, vagy pollengyűjtő be/ki (alapértelmezett: false)
+  bool isActive; // Aljdeszka bent/kint, vagy pollengyűjtő be/ki
   DateTime? statusUpdatedAt;
 
   BoxElement({
@@ -71,7 +71,6 @@ class BoxElement {
     this.statusUpdatedAt,
   });
 
-  // Ellenőrzi, hogy az aljdeszka 3 napja bent van-e (varroa ellenőrzés esedékes)
   bool get isVarroaCheckDue {
     if (type != 'bottom' || !isActive || statusUpdatedAt == null) {
       return false;
@@ -85,11 +84,11 @@ class FrameAnalysisRecord {
   final String hiveId;
   final String localImagePath;
   final DateTime capturedAt;
-  final String populationEstimate; // 'Gyenge', 'Közepes', 'Erős'
-  final int cappedBroodPct; // Fedett fiasítás %
-  final int openBroodPct; // Nyílt fiasítás %
-  final bool queenCellsDetected; // Anyabölcső gyanú
-  final String broodHealthNote; // Fiasítás képe / megjegyzés
+  final String populationEstimate;
+  final int cappedBroodPct;
+  final int openBroodPct;
+  final bool queenCellsDetected;
+  final String broodHealthNote;
   bool isSyncedWithCloud;
   String? cloudDetailedReport;
 
@@ -108,10 +107,33 @@ class FrameAnalysisRecord {
   });
 }
 
+class VarroaAnalysisRecord {
+  final String id;
+  final String hiveId;
+  final String localImagePath;
+  final DateTime capturedAt;
+  int miteCount;
+  int daysInserted;
+  bool isSyncedWithCloud;
+
+  VarroaAnalysisRecord({
+    required this.id,
+    required this.hiveId,
+    required this.localImagePath,
+    required this.capturedAt,
+    required this.miteCount,
+    this.daysInserted = 3,
+    this.isSyncedWithCloud = false,
+  });
+
+  double get dailyDrop =>
+      daysInserted > 0 ? miteCount / daysInserted : miteCount.toDouble();
+}
+
 class ScheduledTask {
   final String id;
   final String hiveId;
-  final String category; // 'anyaneveles_petes', 'anyaneveles_alcas', 'grumpy_cat', 'oxalsav', 'hangyasav', 'hereskeret'
+  final String category;
   final String title;
   final String description;
   final DateTime scheduledDate;
@@ -129,7 +151,7 @@ class ScheduledTask {
 }
 
 class HiveData {
-  final String id; // Kaptármonitor MAC-cím vagy egyedi ID
+  final String id;
   String name;
   LatLng location;
   String status;
@@ -140,7 +162,9 @@ class HiveData {
   double weight;
   double batteryVoltage;
   double zcr;
-  double syrupLiters; // Kaptárnak adott szirup mennyisége (liter)
+  double syrupLiters;
+  double swarmIndex;
+  double dailyVarroaDrop;
   QueenData? queen;
   EvaluationData evaluation;
   String familyFunction;
@@ -161,6 +185,8 @@ class HiveData {
     required this.batteryVoltage,
     required this.zcr,
     this.syrupLiters = 0.0,
+    this.swarmIndex = 0.0,
+    this.dailyVarroaDrop = 0.0,
     this.queen,
     EvaluationData? evaluation,
     this.familyFunction = 'gyujto_mez',
@@ -169,7 +195,6 @@ class HiveData {
     this.protocol,
   }) : evaluation = evaluation ?? EvaluationData();
 
-  // EGYESÍTÉSI ÉS ÖSSZEHASONLÍTÁSI OPERÁTOROK (A Dropdown hibák elkerüléséhez)
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -179,55 +204,35 @@ class HiveData {
   int get hashCode => id.hashCode;
 
   String get tempStatus {
-    if (temp >= 32.0 && temp <= 36.0) {
-      return 'green';
-    }
+    if (temp >= 32.0 && temp <= 36.0) return 'green';
     if ((temp >= 28.0 && temp < 32.0) || (temp > 36.0 && temp <= 37.5)) {
       return 'yellow';
     }
-    if (temp > 39.0 || temp < 15.0) {
-      return 'flashing_red';
-    }
+    if (temp > 39.0 || temp < 15.0) return 'flashing_red';
     return 'red';
   }
 
   String get extTempStatus {
-    if (extTemp >= 12.0 && extTemp <= 30.0) {
-      return 'green';
-    }
+    if (extTemp >= 12.0 && extTemp <= 30.0) return 'green';
     if ((extTemp >= 5.0 && extTemp < 12.0) ||
         (extTemp > 30.0 && extTemp <= 35.0)) {
       return 'yellow';
     }
-    if (extTemp < -5.0 || extTemp > 38.0) {
-      return 'flashing_red';
-    }
+    if (extTemp < -5.0 || extTemp > 38.0) return 'flashing_red';
     return 'red';
   }
 
   String get weightStatus {
-    if (weight >= 30.0) {
-      return 'green';
-    }
-    if (weight >= 20.0) {
-      return 'yellow';
-    }
-    if (weight < 12.0) {
-      return 'flashing_red';
-    }
+    if (weight >= 30.0) return 'green';
+    if (weight >= 20.0) return 'yellow';
+    if (weight < 12.0) return 'flashing_red';
     return 'red';
   }
 
   String get micStatus {
-    if (zcr >= 3000.0 && zcr <= 4200.0) {
-      return 'green';
-    }
-    if (zcr > 4200.0 && zcr <= 4700.0) {
-      return 'yellow';
-    }
-    if (zcr > 5000.0) {
-      return 'flashing_red';
-    }
+    if (zcr >= 3000.0 && zcr <= 4200.0) return 'green';
+    if (zcr > 4200.0 && zcr <= 4700.0) return 'yellow';
+    if (zcr > 5000.0) return 'flashing_red';
     return 'red';
   }
 
@@ -238,9 +243,7 @@ class HiveData {
         lower.contains('supabase')) {
       return 'green';
     }
-    if (lower.contains('gyenge')) {
-      return 'yellow';
-    }
+    if (lower.contains('gyenge')) return 'yellow';
     if (lower.contains('kritikus') || lower.contains('hiba')) {
       return 'flashing_red';
     }
@@ -248,61 +251,51 @@ class HiveData {
   }
 
   String get batteryStatus {
-    if (batteryVoltage >= 3.8) {
-      return 'green';
-    }
-    if (batteryVoltage >= 3.55) {
-      return 'yellow';
-    }
-    if (batteryVoltage < 3.4) {
-      return 'flashing_red';
-    }
+    if (batteryVoltage >= 3.8) return 'green';
+    if (batteryVoltage >= 3.55) return 'yellow';
+    if (batteryVoltage < 3.4) return 'flashing_red';
     return 'red';
   }
 
+  String get varroaStatus {
+    if (dailyVarroaDrop >= 5.0) return 'red';
+    if (dailyVarroaDrop >= 2.0) return 'yellow';
+    return 'green';
+  }
+
   String get nestCalculatedStatus {
-    if (status == 'flashing_red' || protocol == 'hans') {
-      return 'flashing_red';
-    }
+    if (status == 'flashing_red' || protocol == 'hans') return 'flashing_red';
     final statuses = [
       tempStatus,
       weightStatus,
       micStatus,
       signalStatus,
       batteryStatus,
+      varroaStatus,
       if (queen?.needsReplacement == true) 'yellow',
       if (boxes.any((b) => b.isVarroaCheckDue)) 'yellow',
     ];
-    if (statuses.contains('flashing_red')) {
-      return 'flashing_red';
-    }
-    if (statuses.contains('red')) {
-      return 'red';
-    }
-    if (statuses.contains('yellow')) {
-      return 'yellow';
-    }
+    if (statuses.contains('flashing_red')) return 'flashing_red';
+    if (statuses.contains('red')) return 'red';
+    if (statuses.contains('yellow')) return 'yellow';
     return 'green';
   }
 
   String get worstStatus {
-    if (status == 'flashing_red' || protocol == 'hans') {
-      return 'flashing_red';
+    if (status == 'flashing_red' || protocol == 'hans') return 'flashing_red';
+    if (status == 'purple' || swarmIndex >= 70.0) return 'purple';
+    if (boxes.any((b) => b.type == 'pollen_trap' && b.isActive)) {
+      return 'orange';
     }
+
     final statuses = [
       nestCalculatedStatus,
       extTempStatus,
       for (var box in boxes) box.status,
     ];
-    if (statuses.contains('flashing_red')) {
-      return 'flashing_red';
-    }
-    if (statuses.contains('red')) {
-      return 'red';
-    }
-    if (statuses.contains('yellow')) {
-      return 'yellow';
-    }
+    if (statuses.contains('flashing_red')) return 'flashing_red';
+    if (statuses.contains('red')) return 'red';
+    if (statuses.contains('yellow')) return 'yellow';
     return 'green';
   }
 }
