@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import '../widgets/scanner_controls.dart';
 import '../widgets/scanner_overlay.dart';
 import '../widgets/top_gps_bar.dart';
 import 'new_hive_wizard_screen.dart';
+import 'firmware_screen.dart';
 
 const String kSecretProtocolPassword = "Multioptipupiloptómia";
 
@@ -38,6 +40,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   bool _isAdvancedMode = false;
   bool _isMapFreeRotate = true;
+
+  // --- FIRMWARE OTA ÁLLAPOTOK ---
+  bool _isApAndOtaServerActive = false;
+  String? _serverFwPath;
+  String? _monitorFwPath;
+  HttpServer? _localOtaServer;
 
   late AnimationController _nfcAnimController;
   late Animation<Color?> _nfcColorAnim;
@@ -113,12 +121,48 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   @override
   void dispose() {
+    _localOtaServer?.close(force: true);
     _repository.removeListener(_onRepositoryChanged);
     _nfcAnimController.dispose();
     _redFlashingAnimController.dispose();
     _compassRedAnimController.dispose();
     _idController.dispose();
     super.dispose();
+  }
+
+  Future<void> _manageLocalOtaServer(bool enable) async {
+    await _localOtaServer?.close(force: true);
+    _localOtaServer = null;
+
+    if (!enable) return;
+
+    try {
+      _localOtaServer = await HttpServer.bind(InternetAddress.anyIPv4, 8080);
+      _localOtaServer!.listen((HttpRequest request) async {
+        final String path = request.uri.path;
+        String? targetFile;
+
+        if (path == '/server.bin') {
+          targetFile = _serverFwPath;
+        } else {
+          targetFile = _monitorFwPath ?? _serverFwPath;
+        }
+
+        if (targetFile != null && await File(targetFile).exists()) {
+          final file = File(targetFile);
+          request.response.headers.contentType = ContentType.binary;
+          request.response.contentLength = await file.length();
+          await request.response.addStream(file.openRead());
+          await request.response.close();
+        } else {
+          request.response.statusCode = HttpStatus.notFound;
+          request.response.write('Firmware binaris nem talalhato.');
+          await request.response.close();
+        }
+      });
+    } catch (e) {
+      debugPrint('OTA HTTP szerver hiba: $e');
+    }
   }
 
   Future<void> _refreshPosition() async {
@@ -425,215 +469,53 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
   }
 
   void _openDatabaseConfigDialog() {
-    final TextEditingController urlController = TextEditingController(
-      text: _serverUrl,
-    );
-    final TextEditingController keyController = TextEditingController(
-      text: _anonKey,
-    );
-    bool isTesting = false;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF141428),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: Row(
-                children: [
-                  const Icon(Icons.storage, color: Colors.lightBlueAccent),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Adatbázis & GPS Beállítások',
-                      style: TextStyle(color: Colors.amberAccent, fontSize: 16),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _repository.isOnline
-                          ? Colors.green.withAlpha(50)
-                          : Colors.red.withAlpha(50),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _repository.isOnline
-                            ? Colors.greenAccent
-                            : Colors.redAccent,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _repository.isOnline
-                              ? Icons.cloud_done
-                              : Icons.cloud_off,
-                          color: _repository.isOnline
-                              ? Colors.greenAccent
-                              : Colors.redAccent,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _repository.isOnline
-                              ? 'Online'
-                              : 'Offline (${_repository.offlineQueueLength})',
-                          style: TextStyle(
-                            color: _repository.isOnline
-                                ? Colors.greenAccent
-                                : Colors.redAccent,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Részletes GPS sáv megjelenítése a főképernyőn:',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    const SizedBox(height: 6),
-                    SwitchListTile(
-                      title: const Text(
-                        'Részletes GPS adatok',
-                        style: TextStyle(color: Colors.white, fontSize: 13),
-                      ),
-                      value: _isAdvancedMode,
-                      activeThumbColor: Colors.amber,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: (val) {
-                        setDialogState(() => _isAdvancedMode = val);
-                        setState(() {});
-                      },
-                    ),
-                    const Divider(color: Colors.white24, height: 24),
-                    const Text(
-                      'Add meg a Supabase projekt adatait és teszteld a kapcsolatot:',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: urlController,
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                      decoration: const InputDecoration(
-                        labelText: 'Supabase / Szerver URL',
-                        labelStyle: TextStyle(color: Colors.amber),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: keyController,
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                      decoration: const InputDecoration(
-                        labelText: 'Supabase Anon Key',
-                        labelStyle: TextStyle(color: Colors.amber),
-                      ),
-                      obscureText: true,
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.tealAccent,
-                          side: const BorderSide(color: Colors.tealAccent),
-                        ),
-                        onPressed: isTesting
-                            ? null
-                            : () async {
-                                setDialogState(() => isTesting = true);
-                                await _repository.setSupabaseConfig(
-                                  urlController.text,
-                                  keyController.text,
-                                );
-                                final result = await _repository
-                                    .testSupabaseConnection();
-                                setDialogState(() => isTesting = false);
-
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(result['message']),
-                                      backgroundColor: result['success']
-                                          ? Colors.green
-                                          : Colors.red,
-                                    ),
-                                  );
-                                }
-                              },
-                        icon: isTesting
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.tealAccent,
-                                ),
-                              )
-                            : const Icon(Icons.wifi_protected_setup, size: 16),
-                        label: Text(
-                          isTesting
-                              ? 'Kapcsolat tesztelése...'
-                              : 'Kapcsolat tesztelése',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Mégse',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.amber,
-                    foregroundColor: Colors.black,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _serverUrl = urlController.text.trim();
-                      _anonKey = keyController.text.trim();
-                    });
-                    _repository.setSupabaseConfig(_serverUrl, _anonKey);
-                    _repository.syncWithSupabase();
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Beállítások elmentve és szinkronizálás indítva.',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  },
-                  child: const Text('Mentés'),
-                ),
-              ],
-            );
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => FullScreenSettingsPage(
+          repository: _repository,
+          initialUrl: _serverUrl,
+          initialAnonKey: _anonKey,
+          initialAdvancedMode: _isAdvancedMode,
+          onAdvancedModeChanged: (val) {
+            setState(() {
+              _isAdvancedMode = val;
+            });
           },
-        );
-      },
+          onConfigSaved: (newUrl, newKey, newAdv) {
+            setState(() {
+              _serverUrl = newUrl;
+              _anonKey = newKey;
+              _isAdvancedMode = newAdv;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  void _openFirmwareScreen() {
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => FirmwareScreen(
+          initialApEnabled: _isApAndOtaServerActive,
+          initialServerFwPath: _serverFwPath,
+          initialMonitorFwPath: _monitorFwPath,
+          onSave: (apEnabled, serverFw, monitorFw) async {
+            setState(() {
+              _isApAndOtaServerActive = apEnabled;
+              _serverFwPath = serverFw;
+              _monitorFwPath = monitorFw;
+            });
+            await _manageLocalOtaServer(apEnabled);
+          },
+        ),
+      ),
     );
   }
 
@@ -1360,7 +1242,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     ),
                   ),
 
-                  // 3. Itató marker (folyadékszint kijelzéssel)
+                  // 3. Itató marker
                   Marker(
                     point: _repository.waterer.location,
                     width: 58,
@@ -1423,7 +1305,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     ),
                   ),
 
-                  // 4. Szirupszivattyú marker (folyadékszint kijelzéssel)
+                  // 4. Szirupszivattyú marker
                   Marker(
                     point: _repository.syrupPump.location,
                     width: 58,
@@ -1528,7 +1410,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             ),
           ),
 
-        // Felső vezérlőgombok
+        // Felső vezérlőgombok (Firmware + Beállítások + Pozíció + Forgatás)
         if (!_isCameraActive)
           AnimatedPositioned(
             duration: const Duration(milliseconds: 250),
@@ -1538,6 +1420,17 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                FloatingActionButton.small(
+                  heroTag: 'firmwareBtn',
+                  backgroundColor: const Color(0xB3000000),
+                  foregroundColor: _isApAndOtaServerActive
+                      ? Colors.greenAccent
+                      : Colors.tealAccent,
+                  tooltip: 'Firmware',
+                  onPressed: _openFirmwareScreen,
+                  child: const Icon(Icons.system_update_alt),
+                ),
+                const SizedBox(width: 8),
                 FloatingActionButton.small(
                   heroTag: 'settingsBtn',
                   backgroundColor: const Color(0xB3000000),
@@ -1676,6 +1569,328 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             }),
           ),
       ],
+    );
+  }
+}
+
+// ============================================================================
+// TELJES KÉPERNYŐS BEÁLLÍTÁSOK OLDAL
+// ============================================================================
+class FullScreenSettingsPage extends StatefulWidget {
+  final HiveRepository repository;
+  final String initialUrl;
+  final String initialAnonKey;
+  final bool initialAdvancedMode;
+  final ValueChanged<bool> onAdvancedModeChanged;
+  final void Function(String url, String key, bool advMode) onConfigSaved;
+
+  const FullScreenSettingsPage({
+    super.key,
+    required this.repository,
+    required this.initialUrl,
+    required this.initialAnonKey,
+    required this.initialAdvancedMode,
+    required this.onAdvancedModeChanged,
+    required this.onConfigSaved,
+  });
+
+  @override
+  State<FullScreenSettingsPage> createState() => _FullScreenSettingsPageState();
+}
+
+class _FullScreenSettingsPageState extends State<FullScreenSettingsPage> {
+  late TextEditingController _urlController;
+  late TextEditingController _keyController;
+  late bool _isAdvancedMode;
+  bool _isTesting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _urlController = TextEditingController(text: widget.initialUrl);
+    _keyController = TextEditingController(text: widget.initialAnonKey);
+    _isAdvancedMode = widget.initialAdvancedMode;
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    _keyController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isOnline = widget.repository.isOnline;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF141428),
+        foregroundColor: Colors.amberAccent,
+        title: const Row(
+          children: [
+            Icon(Icons.storage, color: Colors.lightBlueAccent, size: 22),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Adatbázis & GPS Beállítások',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isOnline
+                  ? Colors.green.withAlpha(50)
+                  : Colors.red.withAlpha(50),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isOnline ? Colors.greenAccent : Colors.redAccent,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isOnline ? Icons.cloud_done : Icons.cloud_off,
+                  color: isOnline ? Colors.greenAccent : Colors.redAccent,
+                  size: 15,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  isOnline
+                      ? 'Online'
+                      : 'Offline (${widget.repository.offlineQueueLength})',
+                  style: TextStyle(
+                    color: isOnline ? Colors.greenAccent : Colors.redAccent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141428),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Főképernyő megjelenítés',
+                    style: TextStyle(
+                      color: Colors.amberAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SwitchListTile(
+                    title: const Text(
+                      'Részletes GPS adatok sáv megjelenítése',
+                      style: TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                    value: _isAdvancedMode,
+                    activeThumbColor: Colors.amber,
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: (val) {
+                      setState(() => _isAdvancedMode = val);
+                      widget.onAdvancedModeChanged(val);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141428),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Supabase Projekt & Szerver Kapcsolat',
+                    style: TextStyle(
+                      color: Colors.amberAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Add meg a Supabase projekt adatait és teszteld a kapcsolatot:',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _urlController,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      labelText: 'Supabase / Szerver URL',
+                      labelStyle: const TextStyle(color: Colors.amber),
+                      filled: true,
+                      fillColor: const Color(0xFF0F172A),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _keyController,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Supabase Anon Key',
+                      labelStyle: const TextStyle(color: Colors.amber),
+                      filled: true,
+                      fillColor: const Color(0xFF0F172A),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.tealAccent,
+                        side: const BorderSide(color: Colors.tealAccent),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: _isTesting
+                          ? null
+                          : () async {
+                              setState(() => _isTesting = true);
+                              await widget.repository.setSupabaseConfig(
+                                _urlController.text,
+                                _keyController.text,
+                              );
+                              final result = await widget.repository
+                                  .testSupabaseConnection();
+                              if (mounted) {
+                                setState(() => _isTesting = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(result['message']),
+                                    backgroundColor: result['success']
+                                        ? Colors.green
+                                        : Colors.red,
+                                  ),
+                                );
+                              }
+                            },
+                      icon: _isTesting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.tealAccent,
+                              ),
+                            )
+                          : const Icon(Icons.wifi_protected_setup, size: 20),
+                      label: Text(
+                        _isTesting
+                            ? 'Kapcsolat tesztelése...'
+                            : 'Kapcsolat tesztelése',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 28),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 50,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Mégse'),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: SizedBox(
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: () {
+                        final trimmedUrl = _urlController.text.trim();
+                        final trimmedKey = _keyController.text.trim();
+                        widget.onConfigSaved(
+                          trimmedUrl,
+                          trimmedKey,
+                          _isAdvancedMode,
+                        );
+                        widget.repository.setSupabaseConfig(
+                          trimmedUrl,
+                          trimmedKey,
+                        );
+                        widget.repository.syncWithSupabase();
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Beállítások elmentve és szinkronizálás indítva.',
+                            ),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.save),
+                      label: const Text(
+                        'Mentés',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

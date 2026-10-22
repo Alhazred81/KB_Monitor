@@ -59,7 +59,6 @@ extern void handleSensConfig(AsyncWebServerRequest *request);
 extern void handleSensToggle(AsyncWebServerRequest *request);
 extern void handleSensStatus(AsyncWebServerRequest *request);
 extern void handleSensTest(AsyncWebServerRequest *request);
-extern void handleApiI2cScan(AsyncWebServerRequest *request);
 extern void handleSaveWifi(AsyncWebServerRequest *request);
 extern void handleWifiScan(AsyncWebServerRequest *request);
 extern void handleStaConnect(AsyncWebServerRequest *request);
@@ -68,6 +67,7 @@ extern void handleDiag(AsyncWebServerRequest *request);
 extern void handleAtAjax(AsyncWebServerRequest *request);
 extern void handleAtStatus(AsyncWebServerRequest *request);
 extern void handleSupply(AsyncWebServerRequest *request);
+extern void initDiagRoutes();
 void handleApiSimKnock(AsyncWebServerRequest *request);
 void handleApiResetKnock(AsyncWebServerRequest *request);
 
@@ -327,16 +327,16 @@ void webBegin() {
   server.on("/senstoggle", HTTP_POST, handleSensToggle);
   server.on("/sensstatus", HTTP_GET, handleSensStatus);
   server.on("/senstest", HTTP_POST, handleSensTest);
-  server.on("/api/i2cscan", HTTP_GET, handleApiI2cScan);
   server.on("/savewifi", HTTP_POST, handleSaveWifi);
   server.on("/wifiscan", HTTP_GET, handleWifiScan);
   server.on("/staconnect", HTTP_POST, handleStaConnect);
   server.on("/stadisconnect", HTTP_POST, handleStaDisconnect);
-  server.on("/diag", HTTP_GET, handleDiag);
-  server.on("/at_ajax", HTTP_GET, handleAtAjax);
   server.on("/atstatus", HTTP_GET, handleAtStatus);
   server.on("/api/simknock", HTTP_POST, handleApiSimKnock);
   server.on("/api/resetknock", HTTP_POST, handleApiResetKnock);
+
+  // Diagnosztikai és OTA végpontok regisztrálása (web_diag.cpp)
+  initDiagRoutes();
 
   server.serveStatic("/", LittleFS, "/"); 
 }

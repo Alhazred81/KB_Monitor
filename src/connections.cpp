@@ -12,12 +12,19 @@
 
 unsigned long currentServerTimestamp = 1787680000; 
 extern uint8_t gApChannel;
+extern bool gHasLocalChanges;
 
 // --- PÁROSÍTÁSHOZ SZÜKSÉGES GLOBÁLIS VÁLTOZÓK ---
 bool gPairingMode = false;
 uint8_t gNewlyPairedMonitorId = 0;
 String gRegMacAddress = "";
-// ------------------------------------------------
+
+// --- KAPTÁRMONITOR OTA FRISSÍTÉS VÁLTOZÓK (web_diag.cpp-ből) ---
+extern bool gMonitorOtaEnabled;
+extern String gMonitorOtaSsid;
+extern String gMonitorOtaPass;
+extern String gMonitorOtaUrl;
+// ---------------------------------------------------------------
 
 // ─── WEBES DIAGNOSZTIKA NAPLÓ ÉS RAM GYORSTÁR ───
 static String gRadioLog = "";
@@ -78,6 +85,7 @@ void addLogEntry(const String& proto, const String& mac, const String& info) {
 
 // Gyorstár frissítő függvény
 void updateNodeRamCache(const String& mac, float temp, float hum, float vbat) {
+    gHasLocalChanges = true; // Új adat érkezett, szükséges lesz a Supabase szinkron
     for (int i = 0; i < gRadioNodeCount; i++) {
         if (gRadioNodes[i].macAddress == mac) {
             gRadioNodes[i].tempInt = temp;
@@ -138,6 +146,7 @@ void processIncomingJson(const String& payload, const String& protocol, const St
     } else {
         float zcr = doc["audio"]["zcr_hz"] | doc["a"]["z"] | doc["z"] | 0.0;
         info = "Audio csomag érkezett (ZCR: " + String(zcr, 1) + " Hz)";
+        gHasLocalChanges = true;
     }
 
     addLogEntry(protocol, deviceMac, info);
@@ -198,11 +207,58 @@ void onEspNowReceive(const uint8_t *mac_addr, const uint8_t *incomingData, int l
 
     addEspNowLog(String(macStr), "Méret: " + String(len) + "b");
 
-    // --- PÁROSÍTÁS (KNOCK) ELKAPÁSA ---
+    // --- PÁROSÍTÁS (KNOCK) ÉS RIASZTÁSOS OTA FRISSÍTÉS ELKAPÁSA ---
     JsonDocument tempDoc;
     DeserializationError jsonErr = deserializeJson(tempDoc, payload);
     if (!jsonErr) {
         String commType = tempDoc["t"] | tempDoc["comm_type"] | "";
+        String wakeReason = tempDoc["wake"] | tempDoc["w"] | ""; 
+        bool isAlarmWake = (commType == "knock" || commType == "alarm" || wakeReason == "motion" || wakeReason == "alarm" || tempDoc["alarm"] == true);
+
+        // 1. Ha a kaptármonitor OTA befejezésről küld visszajelzést (OK / NOK)
+        if (commType == "ota_res") {
+            String status = tempDoc["status"] | "UNKNOWN";
+            String msg = "OTA frissítés eredménye: " + status;
+            addLogEntry("OTA", String(macStr), msg);
+            addEspNowLog(String(macStr), msg);
+            diagAdd("[OTA] Kaptármonitor (" + String(macStr) + ") -> " + status);
+            return;
+        }
+
+        // 2. Ha fizikai mozgatásra/riasztásra ébredt ÉS be van kapcsolva a Firmware frissítés
+        if (isAlarmWake && gMonitorOtaEnabled && gMonitorOtaSsid.length() > 0) {
+            Serial.printf("[ESP-NOW OTA] Riasztott kaptármonitor (%s) -> OTA utasítás küldése!\n", macStr);
+            addLogEntry("OTA", String(macStr), "OTA parancs kiküldve (AP: " + gMonitorOtaSsid + ")");
+            addEspNowLog(String(macStr), "OTA -> AP: " + gMonitorOtaSsid);
+            diagAdd("[OTA] Frissítési parancs elküldve: " + String(macStr));
+
+            JsonDocument otaDoc;
+            otaDoc["comm_type"] = "comm_ota";
+            otaDoc["t"]    = "ota";
+            otaDoc["ssid"] = gMonitorOtaSsid;
+            otaDoc["pass"] = gMonitorOtaPass;
+            otaDoc["url"]  = gMonitorOtaUrl;
+
+            String otaPayload;
+            serializeJson(otaDoc, otaPayload);
+
+            if (!esp_now_is_peer_exist(mac_addr)) {
+                esp_now_peer_info_t peerInfo = {};
+                memcpy(peerInfo.peer_addr, mac_addr, 6);
+                peerInfo.channel = 0;
+                peerInfo.encrypt = false;
+                esp_now_add_peer(&peerInfo);
+            }
+
+            if (esp_now_send(mac_addr, (uint8_t*)otaPayload.c_str(), otaPayload.length()) != ESP_OK) {
+                Serial.println("[ESP-NOW OTA] Hiba az OTA csomag küldésekor!");
+            } else {
+                Serial.println("[ESP-NOW OTA] OTA csomag sikeresen elküldve!");
+            }
+            return;
+        }
+
+        // 3. Normál párosítási (knock) kérés kezelése, ha nincs OTA mód
         if (commType == "knock") {
             if (gPairingMode) {
                 Serial.printf("[ESP-NOW] Párosítási kérés érkezett: %s\n", macStr);
@@ -228,13 +284,12 @@ void onEspNowReceive(const uint8_t *mac_addr, const uint8_t *incomingData, int l
                 
                 Serial.println("[ESP-NOW] Párosítás sikeres, knock_ack elküldve!");
             } else {
-                // Szigorú megvezetés, ha a szerver nincs haverkodó üzemben
-                Serial.printf("[ESP-NOW] na na na, so geht es aber nicht, du kleiner Drecksack (MAC: %s)\n", macStr);
+                Serial.printf("[ESP-NOW] Váratlan kopogás (nincs párosítás vagy OTA mód): %s\n", macStr);
             }
             return; 
         }
     }
-    // ----------------------------------
+    // --------------------------------------------------------------
 
     String logMsg = "ESP-NOW csomag érkezett (" + String(len) + " bájt) | Nyers: " + payload;
     addLogEntry("ESP-NOW", String(macStr), logMsg);
