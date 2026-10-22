@@ -4,9 +4,6 @@
 
 extern String macSuffix();
 
-// Behúzzuk a globális változót a módváltáshoz
-extern bool gFieldMode;
-
 // ─── HTML Fejléc és Navigációs menü ───────────────────────────
 String htmlHead(const String& title, const String& activeTab) {
   String s = "<!DOCTYPE html><html lang='hu'><head><meta charset='utf-8'>";
@@ -16,49 +13,22 @@ String htmlHead(const String& title, const String& activeTab) {
   s += "<link rel='icon' href=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐝</text></svg>\">";
   s += "<link rel='stylesheet' href='/s.css'>";
   
-  // Script a módváltáshoz (közvetlen átirányítással)
-  s += R"script(
-  <script>
-    function toggleMode(cb) {
-      const mode = cb.checked ? 'setup' : 'field';
-      location.href = '/setmode?m=' + mode;
-    }
-  </script>
-  )script";
-  
   s += "</head><body>";
   s += "<nav>";
   
-  // ─── Bal oldali menüpontok ───
+  // ─── Aktív menüpontok (A részletes SVG műhold ikonnal a GNSS-nél) ───
   s += "<div class='nav-left'>";
   s += "<a href='/'" + String(activeTab=="1"?" class='on'":"") + ">🏠 Főoldal</a>";
   s += "<a href='/hives'" + String(activeTab=="9"?" class='on'":"") + ">🗺 Kaptárak</a>";
-  s += "<a href='/hive'" + String(activeTab=="11"?" class='on'":"") + ">🐝 Kaptár</a>";
-
-  if (!gFieldMode) {
-    s += "<a href='/gsm'" + String(activeTab=="2"?" class='on'":"") + ">📱 GSM</a>";
-    s += "<a href='/iot'" + String(activeTab=="3"?" class='on'":"") + ">🌐 IoT</a>";
-    s += "<a href='/gnss'" + String(activeTab=="6"?" class='on'":"") + ">🛰 GNSS</a>";
-    s += "<a href='/sensors'" + String(activeTab=="7"?" class='on'":"") + ">🌡 Szenzor</a>";
-    s += "<a href='/cfg'" + String(activeTab=="4"?" class='on'":"") + ">⚙ Konfig</a>";
-    s += "<a href='/diag'" + String(activeTab=="5"?" class='on'":"") + ">🩺 Diag</a>";
-  }
-  s += "</div>";
-
-  // ─── Jobb oldali Módváltó Kapcsoló ───
-  s += "<div class='nav-right'>";
-  s += "<div class='mode-switch'>";
-  s += "<span class='mode-label" + String(!gFieldMode ? " dim" : "") + "'>🌱 Terep</span>";
-  s += "<label class='m-slider-wrap'>";
-  s += "<input type='checkbox' onchange='toggleMode(this)'" + String(!gFieldMode ? " checked" : "") + ">";
-  s += "<span class='m-slider'></span>";
-  s += "</label>";
-  s += "<span class='mode-label" + String(gFieldMode ? " dim" : "") + "' style='color:" + String(!gFieldMode ? "#ffcc00" : "var(--txt2)") + "'>⚙️ Setup</span>";
-  s += "</div>";
+  s += "<a href='/gsm'" + String(activeTab=="2"?" class='on'":"") + ">📱 GSM</a>";
+  s += "<a href='/iot'" + String(activeTab=="3"?" class='on'":"") + ">🌐 IoT</a>";
+  s += "<a href='/gnss'" + String(activeTab=="6"?" class='on'":"") + ">📡 GNSS</a>";
+  s += "<a href='/sensors'" + String(activeTab=="7"?" class='on'":"") + ">🌡 Szenzor</a>";
+  s += "<a href='/cfg'" + String(activeTab=="4"?" class='on'":"") + ">⚙ Konfig</a>";
+  s += "<a href='/diag'" + String(activeTab=="5"?" class='on'":"") + ">🩺 Diag</a>";
   s += "</div>";
 
   s += "</nav><div class='wrap'>";
-  
   s += "<h1>" + title + "</h1>";
   
   return s;
@@ -89,22 +59,6 @@ void handleCss(AsyncWebServerRequest *request) {
     font-weight:600;font-size:13px;border-bottom:2px solid transparent;transition:.2s}
     nav a:hover {color:var(--txt)}
     nav a.on {color:var(--accent);border-bottom-color:var(--accent)}
-    
-    /* Üzemmód kapcsoló a Navigáción belül */
-    .nav-right {padding-right: 8px;}
-    .mode-switch {display:flex;align-items:center;background:#1a1a2e;padding:4px 12px;border-radius:20px;
-    border:1px solid var(--border);gap:8px;}
-    .mode-label {font-size:12px;font-weight:bold;transition:0.3s;}
-    .mode-label.dim {opacity:0.5;}
-    
-    .m-slider-wrap {position:relative;display:inline-block;width:40px;height:20px;}
-    .m-slider-wrap input {opacity:0;width:0;height:0;}
-    .m-slider {position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;
-    background-color:#555;transition:.4s;border-radius:20px;}
-    .m-slider:before {position:absolute;content:"";height:14px;width:14px;left:3px;bottom:3px;
-    background-color:white;transition:.4s;border-radius:50%;}
-    .m-slider-wrap input:checked + .m-slider {background-color:var(--warn);}
-    .m-slider-wrap input:checked + .m-slider:before {transform:translateX(20px);}
 
     /* Elrendezés */
     .wrap {max-width:1850px;margin:0 auto;padding:16px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}

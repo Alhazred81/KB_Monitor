@@ -73,7 +73,7 @@ void handleSavedWifi(AsyncWebServerRequest *request) {
 }
 
 void handleConfigPage(AsyncWebServerRequest *request) {
-  String html = htmlHead("Kommunikáció", "");
+  String html = htmlHead("Kommunikáció", "4"); // <-- Itt lett beállítva a Konfig fül indexe ("4")
   
   html += "<style>";
   html += ".switch { position: relative; display: inline-block; width: 60px; height: 34px; }";

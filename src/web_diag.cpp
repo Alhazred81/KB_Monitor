@@ -16,13 +16,13 @@
   extern ModemState gModem;
   extern TimeState gTime;
   extern String gAtStatusSnapshot;
-  extern String getEspNowLogsJson(); // Külső deklaráció a pufferhez
+  extern String getEspNowLogsJson(); 
 #endif
 
 extern AsyncWebServer server;
 
 void handleDiag(AsyncWebServerRequest *request) {
-    String html = htmlHead("Diagnosztika", "4");
+    String html = htmlHead("Diagnosztika", "5"); // <-- Javítva 5-re a Diag fül indexe
     
     // --- ÉLŐ TERMINÁL BLOKK ---
     html += "<div class='card wide'><h2>Élő Rendszer Napló (Terminál)</h2>";
@@ -236,7 +236,7 @@ void initDiagRoutes() {
         server.on("/at_ajax", HTTP_GET, handleAtAjax);
         server.on("/api/hives/delete", HTTP_POST, handleDeleteHive);
         server.on("/api/rs485scan", HTTP_GET, [](AsyncWebServerRequest *request){
-            request->send(200, "text/plain", "RS485 Node-ok keresése...\n- Node ID: 0x01 (Válaszolt)");
+            request->send(200, "text/plain", "RS485 Node-ok keresése...\nNode ID: 0x01 (Válaszolt)");
         });
 
         server.on("/api/barcode_scanned", HTTP_GET, [](AsyncWebServerRequest *request){

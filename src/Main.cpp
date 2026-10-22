@@ -15,13 +15,12 @@
 #include "config.h"
 #include "crypto.h"
 #include "gnss_mgr.h"
-#include "hive_db.h"
 #include "modem_mgr.h"
 #include "NtfyClient.h"
+#include "supabase_client.h"
 #include "sensors.h"
 #include "connections.h"
 #include "time_mgr.h"
-#include "weather_mgr.h"
 #include "web_ui.h"
 #include "wifi_sta.h"
 #include "web_diag.h"
@@ -36,7 +35,6 @@ extern void initIotRoutes();
 extern String loadReportConfig();
 extern void monitorCall();
 extern void updateModemStats();
-extern void backgroundTaskLoop();
 extern void checkAndSendScheduledReport();
 extern int gSmsInboxLimit;
 extern bool gNtfyStartupMsg;
@@ -44,6 +42,7 @@ extern bool gNtfyStartupMsg;
 HardwareSerial modemSerial(1);
 TinyGsm        modem(modemSerial);
 bool gStartupNtfySent = false;
+bool gStartupSupabaseTested = false;
 bool gDelayedWifiStarted = false;
 
 NtfyClient     ntfy(modemSerial, "kb_sim7000g_balazs", "ntfy.sh");
@@ -59,11 +58,11 @@ WindDirState   gWindDir;
 ShtSensorState gSht;
 RainSensorState gRain;
 Mpu6050State    gMpu;
-Ltr390State      gLtr;
+Ltr390State     gLtr;
 
 String         gApSSID    = "";
-String         gStaSSID = "";
-String         gStaPass = "";
+String         gStaSSID   = "";
+String         gStaPass   = "";
 int            gRadioMode = 0; // 0: ESP-NOW, 1: LoRa
 String         gApPass    = DEFAULT_AP_PASS;
 uint8_t        gApChannel = DEFAULT_CHANNEL;
@@ -72,9 +71,9 @@ bool           gDiagEnabled = true;
 
 bool           gModemInitRequested = false;
 
-bool           gSmsSendRequested = false;
-String         gSmsPendingNum    = "";
-String         gSmsPendingText   = "";
+bool           gSmsSendRequested  = false;
+String         gSmsPendingNum     = "";
+String         gSmsPendingText    = "";
 bool           gSmsSendInProgress = false;
 bool           gSmsSendDone       = false;
 String         gSmsSendResult     = ""; 
@@ -235,9 +234,12 @@ void handleSerial() {
     Serial.println("Operator:      " + gModem.operatorName);
     Serial.println("Signal:        " + String(gModem.signalQuality));
     Serial.println("NetType:       " + gModem.netType);
+    Serial.println("Data active:   " + String(gData.active ? "IGEN (" + gData.ip + ")" : "NEM"));
     Serial.println("CCID:          " + gModem.simCCID);
     Serial.println("IMEI:          " + gModem.simIMEI);
     Serial.println("Ido/NTP:       " + String(gTime.synced ? "OK " : "nincs ") + gTime.localTime);
+    Serial.println("Supabase URL:  " + (gSupabaseUrl.length() ? gSupabaseUrl : "(nincs beallitva)"));
+    Serial.println("Supabase Key:  " + (gSupabaseKey.length() ? "Beallitva (" + String(gSupabaseKey.length()) + " kar)" : "(nincs beallitva)"));
     Serial.println("AP SSID:       " + gApSSID);
     Serial.println("AP IP:         " + WiFi.softAPIP().toString());
     if(gSta.mode == NetMode::STA_CONNECTED) {
@@ -249,6 +251,10 @@ void handleSerial() {
     }
     Serial.println("Free heap:     " + String(ESP.getFreeHeap()));
     Serial.println("Uptime:        " + String(millis()/1000) + "s");
+  }
+  else if(cmd == "supatest") {
+    Serial.println("Supabase kapcsolat tesztelése...");
+    supabaseTestConnection();
   }
   else if(cmd == "reinit") {
     Serial.println("Modem ujraindit...");
@@ -269,6 +275,7 @@ void handleSerial() {
   else if(cmd == "help") {
     Serial.println("Parancsok:");
     Serial.println("  status   - modem/halozat allapot");
+    Serial.println("  supatest - Supabase kapcsolat tesztelese");
     Serial.println("  reinit   - modem ujraindit");
     Serial.println("  diag     - esemenynaplo");
     Serial.println("  at <cmd> - AT parancs kuldese (pl: at +CSQ)");
@@ -306,10 +313,10 @@ void setup() {
   loadSensorConfig();
   sensorsApplyEnabled();
   loadNtfyConfig();
+  loadSupabaseConfig();
   initDiagRoutes();
   initConfigRoutes();
   initIotRoutes();
-  hiveDbLoad();
 
   gReportTimes = loadReportConfig();
   gApPass    = loadApPass();
@@ -336,7 +343,6 @@ void setup() {
   ntfy.setDebugStream(&Serial);
 
   ntpStart();
-  weatherInit();
 
   gModem.bootTime = millis();
   modemPowerOn(); 
@@ -393,7 +399,6 @@ void loop() {
   wifiStaWatchdog();
   smsInboxLoop();
   sensorsLoop();
-  backgroundTaskLoop();
   
   // Kopogás figyelő futtatása folyamatosan
   knockLoop();
@@ -412,6 +417,14 @@ void loop() {
   if (millis() - lastReportCheck > 15000) { 
     lastReportCheck = millis();
     checkAndSendScheduledReport();
+  }
+
+  // --- SUPABASE STARTUP TESZT (Csak ha már van aktív internet!) ---
+  bool hasInternet = gData.active || (WiFi.status() == WL_CONNECTED);
+  if (!gStartupSupabaseTested && hasInternet) {
+    gStartupSupabaseTested = true;
+    Serial.println(F("\n[DIAG] Internetkapcsolat aktív -> Supabase elérhetőség tesztelése..."));
+    supabaseTestConnection();
   }
   
   if (!gStartupNtfySent && gTime.synced && gData.active) {

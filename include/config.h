@@ -73,7 +73,7 @@
 #define ADDR_AP_HIDE  254 // 1 byte (AP rejtett SSID opció)
 
 // ─── Szenzor beallitasok EEPROM cimei (256-tol) ─────────────
-#define ADDR_SENS_FLAG           256
+#define ADDR_SENS_FLAG          256
 #define ADDR_SENS_ENABLE_MASK    257
 #define ADDR_SENS_RS485_BAUD     258
 #define ADDR_SENS_ADDR_WINDSPEED 262

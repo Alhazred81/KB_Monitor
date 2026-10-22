@@ -11,10 +11,7 @@
 #include "sensors.h"
 #include "modem_mgr.h"
 #include "gnss_mgr.h"
-#include "weather_mgr.h"
-#include "calendar.h"
 #include "time_mgr.h"
-#include "web_handlehive.h"
 
 extern AsyncWebServer server;
 extern String gApSSID;
@@ -35,18 +32,6 @@ extern void handleCfg(AsyncWebServerRequest *request);
 extern void handleReinit(AsyncWebServerRequest *request);
 extern void handleEspRestart(AsyncWebServerRequest *request);
 extern void handleHives(AsyncWebServerRequest *request);
-extern void handleHiveView(AsyncWebServerRequest *request);
-extern void handleEvaluation(AsyncWebServerRequest *request);
-extern void handleEvaluatePost(AsyncWebServerRequest *request);
-extern void handleTreatment(AsyncWebServerRequest *request);
-extern void handleTreatmentPost(AsyncWebServerRequest *request);
-extern void handleGetTreatmentsJson(AsyncWebServerRequest *request);
-extern void handleRegisterPart(AsyncWebServerRequest *request);
-extern void handleRegisterPartPost(AsyncWebServerRequest *request);
-extern void handleGetEvaluationsJson(AsyncWebServerRequest *request);
-extern void handleGetColonyFunctionsJson(AsyncWebServerRequest *request);
-extern void handleGetDiseasesJson(AsyncWebServerRequest *request);
-extern void handleNfc(AsyncWebServerRequest *request);
 extern void handleGsm(AsyncWebServerRequest *request);
 extern void handleModemStatus(AsyncWebServerRequest *request);
 extern void handleDoSms(AsyncWebServerRequest *request);
@@ -58,9 +43,6 @@ extern void handleNetAuto(AsyncWebServerRequest *request);
 extern void handleNetScan(AsyncWebServerRequest *request);
 extern void handleNetManual(AsyncWebServerRequest *request);
 extern void handleIot(AsyncWebServerRequest *request);
-extern void handleDataOn(AsyncWebServerRequest *request);
-extern void handleDataOff(AsyncWebServerRequest *request);
-extern void handleDataPing(AsyncWebServerRequest *request);
 extern void handleNtfySend(AsyncWebServerRequest *request);
 extern void handleNtfyPoll(AsyncWebServerRequest *request);
 extern void handleSaveNtfy(AsyncWebServerRequest *request);
@@ -72,16 +54,12 @@ extern void handleGnss(AsyncWebServerRequest *request);
 extern void handleGnssStatus(AsyncWebServerRequest *request);
 extern void handleGnssAssist(AsyncWebServerRequest *request);
 extern void handleGnssCtl(AsyncWebServerRequest *request);
-extern void handleMapStatusApi(AsyncWebServerRequest *request);
 extern void handleSensors(AsyncWebServerRequest *request);
 extern void handleSensConfig(AsyncWebServerRequest *request);
 extern void handleSensToggle(AsyncWebServerRequest *request);
 extern void handleSensStatus(AsyncWebServerRequest *request);
 extern void handleSensTest(AsyncWebServerRequest *request);
-extern void handleSaveWeatherCfg(AsyncWebServerRequest *request);
-extern void handleTestWeatherAlert(AsyncWebServerRequest *request);
 extern void handleApiI2cScan(AsyncWebServerRequest *request);
-extern void handleApiWeatherSync(AsyncWebServerRequest *request);
 extern void handleSaveWifi(AsyncWebServerRequest *request);
 extern void handleWifiScan(AsyncWebServerRequest *request);
 extern void handleStaConnect(AsyncWebServerRequest *request);
@@ -89,28 +67,9 @@ extern void handleStaDisconnect(AsyncWebServerRequest *request);
 extern void handleDiag(AsyncWebServerRequest *request);
 extern void handleAtAjax(AsyncWebServerRequest *request);
 extern void handleAtStatus(AsyncWebServerRequest *request);
-extern void handleGetHivesJson(AsyncWebServerRequest *request);
-extern void handleDeleteHive(AsyncWebServerRequest *request);
-extern void handleAddDummyHive(AsyncWebServerRequest *request);
-extern void handleRegStart(AsyncWebServerRequest *request);
-extern void handleRegBarcode(AsyncWebServerRequest *request);
-extern void handleRegQueen(AsyncWebServerRequest *request);
-extern void handleRegSurvey(AsyncWebServerRequest *request);
-extern void handleApiSurveyStatus(AsyncWebServerRequest *request);
-extern void handleRegSummary(AsyncWebServerRequest *request);
-extern void handleRegSave(AsyncWebServerRequest *request);
-extern void handleRegCancel(AsyncWebServerRequest *request);
-extern void handleCheckPairingAPI(AsyncWebServerRequest *request);
 extern void handleSupply(AsyncWebServerRequest *request);
-extern void handleConfig(AsyncWebServerRequest *request);
-extern void handleConfigPost(AsyncWebServerRequest *request);
 void handleApiSimKnock(AsyncWebServerRequest *request);
 void handleApiResetKnock(AsyncWebServerRequest *request);
-void handleApiStartLearn(AsyncWebServerRequest *request);
-
-// --- ÚJ VÉGPONTOK DEKLARÁCIÓI ---
-extern void handleManualAddPost(AsyncWebServerRequest *request);
-extern void handleTogglePollen(AsyncWebServerRequest *request);
 
 extern Aht20State gAht20;
 extern Bmp280State gBmp280;
@@ -159,8 +118,9 @@ void handleRoot(AsyncWebServerRequest *request) {
     if (gGnss.hdop < 2.5 && gGnss.satUsed >= 5) { fixDot = "dot-g"; fixText = "3D (" + String(gGnss.satUsed) + ")"; }
     else { fixDot = "dot-y"; fixText = "2D (" + String(gGnss.satUsed) + ")"; }
   }
+  String ntpDot = gTime.synced ? "dot-g" : "dot-y";
 
-  html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px;'>📶 Hálózat & GNSS</h2><div style='flex:1;'><div class='compact-row'><span><span class='dot " + modemDot + "'></span>Modem</span><b>" + String(gModem.ready ? "Kész" : "Init") + "</b></div><div class='compact-row'><span><span class='dot " + gsmDot + "'></span>GSM</span><b>" + String(gModem.registered ? "OK" : "Offline") + "</b></div><div class='compact-row'><span><span class='dot " + netDot + "'></span>Adat</span><b>" + String(gData.active ? "Aktív" : "Inaktív") + "</b></div><div class='compact-row'><span><span class='dot " + opDot + "'></span>Opr.</span><b>" + (gModem.registered ? gModem.operatorName : "-") + "</b></div><hr style='border:0; border-top:1px solid rgba(255,255,255,0.1); margin:6px 0;'><div class='compact-row'><span><span class='dot " + gnssPwrDot + "'></span>GNSS</span><b>" + String(gGnss.enabled ? "BE" : "KI") + "</b></div><div class='compact-row'><span><span class='dot " + fixDot + "'></span>Fix</span><b>" + fixText + "</b></div><div class='compact-row'><span>HDOP</span><b>" + String(gGnss.hdop, 1) + "</b></div></div>";
+  html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px;'>📶 Hálózat & 🛰️ GNSS</h2><div style='flex:1;'><div class='compact-row'><span><span class='dot " + modemDot + "'></span>Modem</span><b>" + String(gModem.ready ? "Kész" : "Init") + "</b></div><div class='compact-row'><span><span class='dot " + gsmDot + "'></span>GSM</span><b>" + String(gModem.registered ? "OK" : "Offline") + "</b></div><div class='compact-row'><span><span class='dot " + netDot + "'></span>Adat</span><b>" + String(gData.active ? "Aktív" : "Inaktív") + "</b></div><div class='compact-row'><span><span class='dot " + opDot + "'></span>Opr.</span><b>" + (gModem.registered ? gModem.operatorName : "-") + "</b></div><div class='compact-row'><span><span class='dot dot-r' id='supaDot'></span>Adatbázis (DB)</span><b id='supaText'>Ellenőrzés...</b></div><hr style='border:0; border-top:1px solid rgba(255,255,255,0.1); margin:6px 0;'><div class='compact-row'><span><span class='dot " + gnssPwrDot + "'></span>🛰️ Vevő</span><b>" + String(gGnss.enabled ? "BE" : "KI") + "</b></div><div class='compact-row'><span><span class='dot " + fixDot + "'></span>🛰️ Fix</span><b>" + fixText + "</b></div><div class='compact-row'><span>HDOP</span><b>" + String(gGnss.hdop, 1) + "</b></div><div class='compact-row'><span><span class='dot " + ntpDot + "'></span>NTP Idő</span><b>" + String(gTime.synced ? gTime.localTime : "Várakozás") + "</b></div></div>";
   if(!gFieldMode) { html += "<div style='display:flex; gap:6px; margin-top:8px;'><a href='/gsm' style='flex:1;'><button class='sec' style='padding:6px; font-size:11px; width:100%;'>GSM</button></a><a href='/gnss' style='flex:1;'><button class='sec' style='padding:6px; font-size:11px; width:100%;'>GNSS</button></a></div>"; }
   html += "</div>";
 
@@ -187,43 +147,42 @@ void handleRoot(AsyncWebServerRequest *request) {
   if(!gFieldMode) html += "<a href='/sensors' style='margin-top:8px;'><button class='sec' style='padding:6px; font-size:11px; width:100%;'>Összes szenzor</button></a>";
   html += "</div>";
 
-  html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;'><span>🌤 Időjárás & Előrejelzés</span>";
-  if (gData.active) html += "<button class='sec' style='padding:2px 8px; font-size:10px; margin:0;' onclick=\"this.innerText='Töltés...'; fetch('/api/weathersync').then(()=>setTimeout(()=>location.reload(), 3000));\">Frissítés</button>";
-  html += "</h2><div style='font-size:12px; margin-bottom:6px;'><b>NTP Szinkron:</b> " + String(gTime.synced ? "Aktív" : "Várakozás") + "</div><hr style='border:0; border-top:1px solid var(--border); margin:6px 0;'><div style='flex:1;'>";
-  if(gWeatherHasData) {
-    const char* dayNames[] = {"Ma", "Holnap", "Holnapután"};
-    const char* timeSlots[] = {"00-06", "06-12", "12-18", "18-24"};
-    html += "<div style='display:flex; flex-direction:column; gap:8px;'>";
-    for(int d = 0; d < 3; d++) {
-      html += "<div><div style='font-weight:bold; color:var(--accent); font-size:12px; margin-bottom:4px;'>" + String(dayNames[d]) + "</div><div style='display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; text-align:center; font-size:11px;'>";
-      for(int b = 0; b < 4; b++) {
-        float minT = gForecast[d].blocks[b].tempMin; 
-        float maxT = gForecast[d].blocks[b].tempMax; 
-        float p = gForecast[d].blocks[b].precip;
-        String icon = "☀️";
-        if (p > 15.0) icon = "🧊"; 
-        else if (p > 5.0) icon = "⚡"; 
-        else if (p > 0.5) icon = "🌧️"; 
-        else if ((minT + maxT) / 2.0 < 15) icon = "⛅";
-        html += "<div style='background:rgba(255,255,255,0.04); padding:4px 2px; border-radius:6px; border:1px solid var(--border);'>";
-        html += "<div style='font-size:9px; color:var(--txt2);'>" + String(timeSlots[b]) + "</div>";
-        html += "<div style='font-size:14px; margin:2px 0;'>" + icon + "</div>";
-        html += "<div style='font-size:10px; font-weight:bold;'>" + String(minT, 0) + " - " + String(maxT, 0) + "°C</div>";
-        if (p > 0.0) html += "<div style='font-size:9px; color:#60a5fa; margin-top:2px;'>💧 " + String(p, 1) + " mm</div>";
-        else html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>";
-        html += "</div>";
-      }
-      html += "</div></div>";
-    }
-    html += "</div><p class='hint' style='margin-top:8px; margin-bottom:0; font-size:11px;'>Frissítve: " + ageText(gLastWeatherSync) + "</p>";
-  } else {
-    html += "<p class='hint' style='margin:0; font-size:12px;'>Nincs elérhető időjárás adat.</p>";
-  }
-  html += "</div></div>";
-
-  html += getCalendarCardHtml();
   html += "</div>";
-  html += "<script>function updateClock() { var d = new Date(); var h = String(d.getHours()).padStart(2, '0'); var m = String(d.getMinutes()).padStart(2, '0'); var el = document.getElementById('liveClock'); if(el) el.innerText = h + ':' + m; } setInterval(updateClock, 1000); updateClock(); setTimeout(function(){ location.reload(); }, 10000);</script>";
+  html += R"script(<script>
+  function checkSupaStatus() {
+      fetch('/api/test_supabase', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+          let dot = document.getElementById('supaDot');
+          let txt = document.getElementById('supaText');
+          if (d.ok) {
+              if(dot) dot.className = 'dot dot-g';
+              if(txt) txt.innerText = 'Kapcsolódva';
+          } else {
+              if(dot) dot.className = 'dot dot-r';
+              if(txt) txt.innerText = 'Hiba / Offline';
+          }
+      }).catch(() => {
+          let dot = document.getElementById('supaDot');
+          let txt = document.getElementById('supaText');
+          if(dot) dot.className = 'dot dot-r';
+          if(txt) txt.innerText = 'Nem elérhető';
+      });
+  }
+  checkSupaStatus();
+  setInterval(checkSupaStatus, 60000);
+
+  function updateClock() { 
+      var d = new Date(); 
+      var h = String(d.getHours()).padStart(2, '0'); 
+      var m = String(d.getMinutes()).padStart(2, '0'); 
+      var el = document.getElementById('liveClock'); 
+      if(el) el.innerText = h + ':' + m; 
+  } 
+  setInterval(updateClock, 1000); 
+  updateClock(); 
+  </script>)script";
+  
   html += htmlFoot();
   request->send(200, "text/html", html);
 }
@@ -261,8 +220,9 @@ void handleRoot(AsyncWebServerRequest *request) {
     if (gGnss.hdop < 2.5 && gGnss.satUsed >= 5) { fixDot = "dot-g"; fixText = "3D (" + String(gGnss.satUsed) + ")"; }
     else { fixDot = "dot-y"; fixText = "2D (" + String(gGnss.satUsed) + ")"; }
   }
+  String ntpDot = gTime.synced ? "dot-g" : "dot-y";
 
-  html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px;'>📶 Hálózat & GNSS</h2><div style='flex:1;'><div class='compact-row'><span><span class='dot " + modemDot + "'></span>Modem</span><b>" + String(gModem.ready ? "Kész" : "Init") + "</b></div><div class='compact-row'><span><span class='dot " + gsmDot + "'></span>GSM</span><b>" + String(gModem.registered ? "OK" : "Offline") + "</b></div><div class='compact-row'><span><span class='dot " + netDot + "'></span>Adat</span><b>" + String(gData.active ? "Aktív" : "Inaktív") + "</b></div><div class='compact-row'><span><span class='dot " + opDot + "'></span>Opr.</span><b>" + (gModem.registered ? gModem.operatorName : "-") + "</b></div><hr style='border:0; border-top:1px solid rgba(255,255,255,0.1); margin:6px 0;'><div class='compact-row'><span><span class='dot " + gnssPwrDot + "'></span>GNSS</span><b>" + String(gGnss.enabled ? "BE" : "KI") + "</b></div><div class='compact-row'><span><span class='dot " + fixDot + "'></span>Fix</span><b>" + fixText + "</b></div><div class='compact-row'><span>HDOP</span><b>" + String(gGnss.hdop, 1) + "</b></div></div>";
+  html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px;'>📶 Hálózat & 🛰️ GNSS</h2><div style='flex:1;'><div class='compact-row'><span><span class='dot " + modemDot + "'></span>Modem</span><b>" + String(gModem.ready ? "Kész" : "Init") + "</b></div><div class='compact-row'><span><span class='dot " + gsmDot + "'></span>GSM</span><b>" + String(gModem.registered ? "OK" : "Offline") + "</b></div><div class='compact-row'><span><span class='dot " + netDot + "'></span>Adat</span><b>" + String(gData.active ? "Aktív" : "Inaktív") + "</b></div><div class='compact-row'><span><span class='dot " + opDot + "'></span>Opr.</span><b>" + (gModem.registered ? gModem.operatorName : "-") + "</b></div><div class='compact-row'><span><span class='dot dot-r' id='supaDot'></span>Adatbázis (DB)</span><b id='supaText'>Ellenőrzés...</b></div><hr style='border:0; border-top:1px solid rgba(255,255,255,0.1); margin:6px 0;'><div class='compact-row'><span><span class='dot " + gnssPwrDot + "'></span>🛰️ Vevő</span><b>" + String(gGnss.enabled ? "BE" : "KI") + "</b></div><div class='compact-row'><span><span class='dot " + fixDot + "'></span>🛰️ Fix</span><b>" + fixText + "</b></div><div class='compact-row'><span>HDOP</span><b>" + String(gGnss.hdop, 1) + "</b></div><div class='compact-row'><span><span class='dot " + ntpDot + "'></span>NTP Idő</span><b>" + String(gTime.synced ? gTime.localTime : "Várakozás") + "</b></div></div>";
   if(!gFieldMode) { html += "<div style='display:flex; gap:6px; margin-top:8px;'><a href='/gsm' style='flex:1;'><button class='sec' style='padding:6px; font-size:11px; width:100%;'>GSM</button></a><a href='/gnss' style='flex:1;'><button class='sec' style='padding:6px; font-size:11px; width:100%;'>GNSS</button></a></div>"; }
   html += "</div>";
 
@@ -289,43 +249,42 @@ void handleRoot(AsyncWebServerRequest *request) {
   if(!gFieldMode) html += "<a href='/sensors' style='margin-top:8px;'><button class='sec' style='padding:6px; font-size:11px; width:100%;'>Összes szenzor</button></a>";
   html += "</div>";
 
-  html += "<div class='card'><h2 style='font-size:14px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;'><span>🌤 Időjárás & Előrejelzés</span>";
-  if (gData.active) html += "<button class='sec' style='padding:2px 8px; font-size:10px; margin:0;' onclick=\"this.innerText='Töltés...'; fetch('/api/weathersync').then(()=>setTimeout(()=>location.reload(), 3000));\">Frissítés</button>";
-  html += "</h2><div style='font-size:12px; margin-bottom:6px;'><b>NTP Szinkron:</b> " + String(gTime.synced ? "Aktív" : "Várakozás") + "</div><hr style='border:0; border-top:1px solid var(--border); margin:6px 0;'><div style='flex:1;'>";
-  if(gWeatherHasData) {
-    const char* dayNames[] = {"Ma", "Holnap", "Holnapután"};
-    const char* timeSlots[] = {"00-06", "06-12", "12-18", "18-24"};
-    html += "<div style='display:flex; flex-direction:column; gap:8px;'>";
-    for(int d = 0; d < 3; d++) {
-      html += "<div><div style='font-weight:bold; color:var(--accent); font-size:12px; margin-bottom:4px;'>" + String(dayNames[d]) + "</div><div style='display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; text-align:center; font-size:11px;'>";
-      for(int b = 0; b < 4; b++) {
-        float minT = gForecast[d].blocks[b].tempMin; 
-        float maxT = gForecast[d].blocks[b].tempMax; 
-        float p = gForecast[d].blocks[b].precip;
-        String icon = "☀️";
-        if (p > 15.0) icon = "🧊"; 
-        else if (p > 5.0) icon = "⚡"; 
-        else if (p > 0.5) icon = "🌧️"; 
-        else if ((minT + maxT) / 2.0 < 15) icon = "⛅";
-        html += "<div style='background:rgba(255,255,255,0.04); padding:4px 2px; border-radius:6px; border:1px solid var(--border);'>";
-        html += "<div style='font-size:9px; color:var(--txt2);'>" + String(timeSlots[b]) + "</div>";
-        html += "<div style='font-size:14px; margin:2px 0;'>" + icon + "</div>";
-        html += "<div style='font-size:10px; font-weight:bold;'>" + String(minT, 0) + " - " + String(maxT, 0) + "°C</div>";
-        if (p > 0.0) html += "<div style='font-size:9px; color:#60a5fa; margin-top:2px;'>💧 " + String(p, 1) + " mm</div>";
-        else html += "<div style='font-size:9px; color:transparent; margin-top:2px;'>-</div>";
-        html += "</div>";
-      }
-      html += "</div></div>";
-    }
-    html += "</div><p class='hint' style='margin-top:8px; margin-bottom:0; font-size:11px;'>Frissítve: " + ageText(gLastWeatherSync) + "</p>";
-  } else {
-    html += "<p class='hint' style='margin:0; font-size:12px;'>Nincs elérhető időjárás adat.</p>";
-  }
-  html += "</div></div>";
-
-  html += getCalendarCardHtml();
   html += "</div>";
-  html += "<script>function updateClock() { var d = new Date(); var h = String(d.getHours()).padStart(2, '0'); var m = String(d.getMinutes()).padStart(2, '0'); var el = document.getElementById('liveClock'); if(el) el.innerText = h + ':' + m; } setInterval(updateClock, 1000); updateClock(); setTimeout(function(){ location.reload(); }, 10000);</script>";
+  html += R"script(<script>
+  function checkSupaStatus() {
+      fetch('/api/test_supabase', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+          let dot = document.getElementById('supaDot');
+          let txt = document.getElementById('supaText');
+          if (d.ok) {
+              if(dot) dot.className = 'dot dot-g';
+              if(txt) txt.innerText = 'Kapcsolódva';
+          } else {
+              if(dot) dot.className = 'dot dot-r';
+              if(txt) txt.innerText = 'Hiba / Offline';
+          }
+      }).catch(() => {
+          let dot = document.getElementById('supaDot');
+          let txt = document.getElementById('supaText');
+          if(dot) dot.className = 'dot dot-r';
+          if(txt) txt.innerText = 'Nem elérhető';
+      });
+  }
+  checkSupaStatus();
+  setInterval(checkSupaStatus, 60000);
+
+  function updateClock() { 
+      var d = new Date(); 
+      var h = String(d.getHours()).padStart(2, '0'); 
+      var m = String(d.getMinutes()).padStart(2, '0'); 
+      var el = document.getElementById('liveClock'); 
+      if(el) el.innerText = h + ':' + m; 
+  } 
+  setInterval(updateClock, 1000); 
+  updateClock(); 
+  </script>)script";
+
   html += htmlFoot();
   request->send(200, "text/html", html);
 }
@@ -339,23 +298,8 @@ void webBegin() {
   server.on("/reinit", HTTP_POST, handleReinit);
   server.on("/esprestart", HTTP_POST, handleEspRestart);
   server.on("/hives", HTTP_GET, handleHives);
-  server.on("/hive", HTTP_GET, handleHiveView);
   
-  // Kezelések és Értékelések (GET és POST végpontok)
-  server.on("/treatment", HTTP_GET, handleTreatment);
-  server.on("/treatment/save", HTTP_POST, handleTreatmentPost);
-  server.on("/evaluation", HTTP_GET, handleEvaluation);
-  server.on("/evaluation/save", HTTP_POST, handleEvaluatePost);
-  server.on("/evaluate_post", HTTP_POST, handleEvaluatePost);
-  
-  server.on("/api/evaluations", HTTP_GET, handleGetEvaluationsJson);
-  server.on("/api/treatments", HTTP_GET, handleGetTreatmentsJson);
-  server.on("/register_part", HTTP_GET, handleRegisterPart);
-  server.on("/register_part_post", HTTP_POST, handleRegisterPartPost);
-  server.on("/api/colony_functions", HTTP_GET, handleGetColonyFunctionsJson);
-  server.on("/api/diseases", HTTP_GET, handleGetDiseasesJson);
   server.on("/supply", HTTP_GET, handleSupply);
-  server.on("/nfc", HTTP_GET, handleNfc);
   server.on("/gsm", HTTP_GET, handleGsm);
   server.on("/modemstatus", HTTP_GET, handleModemStatus);
   server.on("/dosms", HTTP_POST, handleDoSms);
@@ -376,47 +320,23 @@ void webBegin() {
   server.on("/eepromrestore", HTTP_POST, handleEepromRestore);
   server.on("/gnss", HTTP_GET, handleGnss);
   server.on("/gnssstatus", HTTP_GET, handleGnssStatus);
-  server.on("/gnssassist", HTTP_POST, handleGnssAssist);
-  server.on("/gnssctl", HTTP_POST, handleGnssCtl);
-  server.on("/api/map_status", HTTP_GET, handleMapStatusApi);
+  server.on("/gnssassist", HTTP_GET, handleGnssAssist);
+  server.on("/gnssctl", HTTP_GET, handleGnssCtl);
   server.on("/sensors", HTTP_GET, handleSensors);
   server.on("/sensconfig", HTTP_POST, handleSensConfig);
   server.on("/senstoggle", HTTP_POST, handleSensToggle);
   server.on("/sensstatus", HTTP_GET, handleSensStatus);
   server.on("/senstest", HTTP_POST, handleSensTest);
-  server.on("/saveweathercfg", HTTP_POST, handleSaveWeatherCfg);
-  server.on("/testweatheralert", HTTP_POST, handleTestWeatherAlert);
   server.on("/api/i2cscan", HTTP_GET, handleApiI2cScan);
-  server.on("/api/weathersync", HTTP_GET, handleApiWeatherSync);
   server.on("/savewifi", HTTP_POST, handleSaveWifi);
-  server.on("/wifiscan", HTTP_POST, handleWifiScan);
+  server.on("/wifiscan", HTTP_GET, handleWifiScan);
   server.on("/staconnect", HTTP_POST, handleStaConnect);
   server.on("/stadisconnect", HTTP_POST, handleStaDisconnect);
   server.on("/diag", HTTP_GET, handleDiag);
   server.on("/at_ajax", HTTP_GET, handleAtAjax);
-  server.on("/atstatus", HTTP_POST, handleAtStatus);
-  server.on("/api/hives/list", HTTP_GET, handleGetHivesJson);
-  server.on("/api/hives/delete", HTTP_POST, handleDeleteHive);
-  server.on("/api/hives/add_dummy", HTTP_POST, handleAddDummyHive);
-  server.on("/reg/start", HTTP_GET, handleRegStart);
-  server.on("/reg/barcode", HTTP_GET, handleRegBarcode);
-  server.on("/reg/queen", HTTP_POST, handleRegQueen);
-  server.on("/reg/survey", HTTP_GET, handleRegSurvey);
-  server.on("/api/survey_status", HTTP_GET, handleApiSurveyStatus);
-  server.on("/reg/summary", HTTP_GET, handleRegSummary);
-  server.on("/reg/save", HTTP_POST, handleRegSave);
-  server.on("/reg/cancel", HTTP_POST, handleRegCancel);
-  server.on("/api/check_pairing", HTTP_GET, handleCheckPairingAPI);
-  server.on("/supply", HTTP_GET, handleSupply);
-  server.on("/config", HTTP_GET, handleConfig);
-  server.on("/config_post", HTTP_POST, handleConfigPost);
+  server.on("/atstatus", HTTP_GET, handleAtStatus);
   server.on("/api/simknock", HTTP_POST, handleApiSimKnock);
   server.on("/api/resetknock", HTTP_POST, handleApiResetKnock);
-  server.on("/api/startlearn", HTTP_POST, handleApiStartLearn);
 
-  // --- ÚJ VÉGPONTOK REGISZTRÁLÁSA ---
-  server.on("/api/manual_add", HTTP_POST, handleManualAddPost);
-  server.on("/api/toggle_pollen", HTTP_GET, handleTogglePollen);
-
-  server.serveStatic("/", LittleFS, "/");
+  server.serveStatic("/", LittleFS, "/"); 
 }

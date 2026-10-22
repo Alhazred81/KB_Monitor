@@ -10,6 +10,7 @@
 #include "web_theme.h"
 #include "NtfyClient.h"
 #include "modem_mgr.h"
+#include "supabase_client.h"
 
 extern AsyncWebServer server;
 extern NtfyClient ntfy;
@@ -123,7 +124,51 @@ void handleIot(AsyncWebServerRequest *request) {
             }
         }).catch(function(){ setTimeout(ntfyPoll, 1500); });
     }
+
+    function testSupabase() {
+        var btn = document.getElementById('supaTestBtn');
+        var res = document.getElementById('supaTestRes');
+        btn.disabled = true;
+        res.style.display = 'block';
+        res.innerHTML = '<span style="color:var(--txt2)">⏳ Kapcsolódás a Supabase szerverhez...</span>';
+
+        fetch('/api/test_supabase', { method: 'POST' })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            btn.disabled = false;
+            if(d.ok) {
+                res.innerHTML = '<span style="color:var(--ok)">✓ Siker: A Supabase szerver elérhető és a kulcs érvényes!</span>';
+            } else {
+                res.innerHTML = '<span style="color:var(--err)">✕ Hiba: ' + (d.error || 'Sikertelen kapcsolódás (részletek a Diag naplóban).') + '</span>';
+            }
+        }).catch(function(){
+            btn.disabled = false;
+            res.innerHTML = '<span style="color:var(--err)">✕ Hálózati hiba a teszt során!</span>';
+        });
+    }
     </script>)script";
+
+    // --- SUPABASE FELHŐ SZINKRONIZÁCIÓ CSEMPE ---
+    bool hasKey = (gSupabaseKey.length() > 0);
+    String keyPlaceholder = hasKey ? "*** Mentett, XTEA-vel titkosított kulcs (hagyd üresen, ha nem változik) ***" : "sb_secret_... (Secret API key)";
+
+    html += "<div class='card wide'><h2>☁️ Supabase Adatbázis Kapcsolat</h2>";
+    html += "<p class='hint'>Add meg a projekt URL-t és a háttérrendszeri <b>Secret API key</b>-t (nem a nyilvános Publishable kulcsot). Az adatok XTEA-vel titkosítva tárolódnak.</p>";
+    html += "<form action='/api/save_supabase' method='POST'>";
+    
+    html += "<label>Supabase Projekt URL:</label>";
+    html += "<input type='text' name='supa_url' value='" + htmlEscape(gSupabaseUrl) + "' placeholder='https://xyzcompany.supabase.co' style='width:100%; margin-bottom:10px;'>";
+    
+    html += "<label>Secret API Key (Titkosítva tárolva):</label>";
+    html += "<input type='password' name='supa_key' value='' placeholder='" + keyPlaceholder + "' style='width:100%; margin-bottom:12px;'>";
+    
+    html += "<div style='display:flex; gap:10px; flex-wrap:wrap;'>";
+    html += "<button type='submit' class='pri' style='flex:1; min-width:160px; padding:10px;'>💾 Supabase Mentése</button>";
+    html += "<button type='button' id='supaTestBtn' class='sec' style='flex:1; min-width:160px; padding:10px;' onclick='testSupabase()'>🔌 Kapcsolat Tesztelése</button>";
+    html += "</div>";
+    html += "</form>";
+    html += "<div id='supaTestRes' style='margin-top:10px; font-weight:bold; display:none;'></div>";
+    html += "</div>";
 
     // --- IDŐJÁRÁS RIASZTÁSOK CSEMPE ---
     html += "<div class='card wide'><h2>🌩️ Időjárás Riasztások</h2>";
@@ -181,6 +226,45 @@ void handleIot(AsyncWebServerRequest *request) {
     
     html += htmlFoot();
     request->send(200, "text/html", html);
+}
+
+void handleSaveSupabase(AsyncWebServerRequest *request) {
+    if (!checkPinGuard(request)) return;
+
+    String url = gSupabaseUrl;
+    String key = gSupabaseKey;
+
+    if (request->hasParam("supa_url", true)) {
+        url = request->getParam("supa_url", true)->value();
+        url.trim();
+    }
+    if (request->hasParam("supa_key", true)) {
+        String newKey = request->getParam("supa_key", true)->value();
+        newKey.trim();
+        if (newKey.length() > 0) {
+            key = newKey;
+        }
+    }
+
+    saveSupabaseConfig(url, key);
+    diagAdd("Supabase konfiguráció frissítve (titkosítva).");
+    request->redirect("/iot");
+}
+
+void handleTestSupabase(AsyncWebServerRequest *request) {
+    if (!checkPinGuard(request)) return;
+
+    if (modemBusyReason().length() > 0) {
+        request->send(200, "application/json", "{\"ok\":false,\"error\":\"" + jsEscape(modemBusyReason()) + "\"}");
+        return;
+    }
+
+    bool ok = supabaseTestConnection();
+    if (ok) {
+        request->send(200, "application/json", "{\"ok\":true}");
+    } else {
+        request->send(200, "application/json", "{\"ok\":false,\"error\":\"Sikertelen csatlakozás vagy érvénytelen kulcs.\"}");
+    }
 }
 
 void handleSaveIot(AsyncWebServerRequest *request) {
@@ -266,7 +350,7 @@ void handleNtfyPoll(AsyncWebServerRequest *request) {
     json += "\"done\":" + String(gNtfySendDone ? "true" : "false") + ",";
     json += "\"ok\":" + String(gNtfySendDone && gNtfySendResult.length()==0 ? "true" : "false") + ",";
     json += "\"error\":\"" + gNtfySendResult + "\"";
-    json += "}";
+    json +="}";
     request->send(200, "application/json", json);
 }
 
@@ -283,6 +367,8 @@ void handleTestReport(AsyncWebServerRequest *request) {
 void initIotRoutes() {
     server.on("/iot", HTTP_GET, handleIot);
     server.on("/api/save_iot", HTTP_POST, handleSaveIot);
+    server.on("/api/save_supabase", HTTP_POST, handleSaveSupabase);
+    server.on("/api/test_supabase", HTTP_POST, handleTestSupabase);
     server.on("/ntfysend", HTTP_POST, handleNtfySend);
     server.on("/ntfypoll", HTTP_GET, handleNtfyPoll);
     server.on("/testreport", HTTP_GET, handleTestReport);
