@@ -9,6 +9,7 @@
 #include "web_common.h"
 #include <esp_wifi.h>
 #include <esp_now.h>
+#include "ota_mgr.h"
 
 unsigned long currentServerTimestamp = 1787680000; 
 extern uint8_t gApChannel;

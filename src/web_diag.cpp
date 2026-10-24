@@ -1,15 +1,14 @@
 #include "config.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
-#include <Preferences.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFi.h>
 #include <Wire.h>
-#include <Update.h>
 #include "server_comm.h"
 #include "web_diag.h"
 #include "web_theme.h"
 #include "web_common.h"
+#include "ota_mgr.h"
 
 #if CURRENT_DEVICE_ROLE == ROLE_SERVER
   #include "modem_mgr.h"
@@ -22,100 +21,86 @@
 
 extern AsyncWebServer server;
 
-// --- GLOBÁLIS VÁLTOZÓK A MONITOR OTA FRISSÍTÉSHEZ ---
-bool gMonitorOtaEnabled = false;
-String gMonitorOtaSsid = "";
-String gMonitorOtaPass = "";
-String gMonitorOtaUrl  = "http://192.168.43.1:8080/firmware.bin";
-static bool gOtaCfgLoaded = false;
-
-void loadMonitorOtaConfig() {
-    if (gOtaCfgLoaded) return;
-    Preferences prefs;
-    prefs.begin("ota_cfg", true);
-    gMonitorOtaEnabled = prefs.getBool("en", false);
-    gMonitorOtaSsid = prefs.getString("ssid", "");
-    gMonitorOtaPass = prefs.getString("pass", "");
-    gMonitorOtaUrl  = prefs.getString("url", "http://192.168.43.1:8080/firmware.bin");
-    prefs.end();
-    gOtaCfgLoaded = true;
-}
-
 void handleSaveOtaConfig(AsyncWebServerRequest *request) {
-    gMonitorOtaEnabled = request->hasParam("ota_en", true);
+    bool enabled = request->hasParam("ota_en", true);
+    String ssid = gMonitorOtaSsid;
+    String pass = gMonitorOtaPass;
+    String url  = gMonitorOtaUrl;
+
     if (request->hasParam("ota_ssid", true)) {
-        gMonitorOtaSsid = request->getParam("ota_ssid", true)->value();
-        gMonitorOtaSsid.trim();
+        ssid = request->getParam("ota_ssid", true)->value();
+        ssid.trim();
     }
     if (request->hasParam("ota_pass", true)) {
-        gMonitorOtaPass = request->getParam("ota_pass", true)->value();
-        gMonitorOtaPass.trim();
+        pass = request->getParam("ota_pass", true)->value();
+        pass.trim();
     }
     if (request->hasParam("ota_url", true)) {
-        gMonitorOtaUrl = request->getParam("ota_url", true)->value();
-        gMonitorOtaUrl.trim();
+        url = request->getParam("ota_url", true)->value();
+        url.trim();
     }
 
-    Preferences prefs;
-    prefs.begin("ota_cfg", false);
-    prefs.putBool("en", gMonitorOtaEnabled);
-    prefs.putString("ssid", gMonitorOtaSsid);
-    prefs.putString("pass", gMonitorOtaPass);
-    prefs.putString("url", gMonitorOtaUrl);
-    prefs.end();
+    saveMonitorOtaConfig(enabled, ssid, pass, url);
 
     diagAdd(String("[OTA] Kaptármonitor frissítési mód: ") + (gMonitorOtaEnabled ? ("AKTÍV (AP: " + gMonitorOtaSsid + ")") : "KIKAPCSOLVA"));
     request->redirect("/diag");
-}
-
-// --- SZERVER DIREKT FIRMWARE FELTÖLTÉS KEZELŐJE ---
-void handleServerOtaResult(AsyncWebServerRequest *request) {
-    bool ok = !Update.hasError();
-    AsyncWebServerResponse *response = request->beginResponse(ok ? 200 : 500, "text/plain", ok ? "OK" : "HIBA a flashelés során!");
-    response->addHeader("Connection", "close");
-    request->send(response);
-    if (ok) {
-        diagAdd("[OTA] Szerver frissítés sikeres, újraindítás...");
-        delay(600);
-        ESP.restart();
-    }
-}
-
-void handleServerOtaUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-    if (!index) {
-        Serial.printf("[OTA] Szerver frissítés indítása: %s\n", filename.c_str());
-        diagAdd("[OTA] Szerver FW feltöltés indul: " + filename);
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
-            Update.printError(Serial);
-        }
-    }
-    if (len) {
-        if (Update.write(data, len) != len) {
-            Update.printError(Serial);
-        }
-    }
-    if (final) {
-        if (Update.end(true)) {
-            Serial.printf("[OTA] Szerver frissítés kész (%u bájt).\n", index + len);
-        } else {
-            Update.printError(Serial);
-            diagAdd("[OTA] Hiba a szerver FW lezárásakor!");
-        }
-    }
 }
 
 void handleDiag(AsyncWebServerRequest *request) {
     loadMonitorOtaConfig();
     String html = htmlHead("Diagnosztika", "5");
     
-    // --- 1. SZERVER SAJÁT FIRMWARE FRISSÍTÉSE (DIREKT FELTÖLTÉS) ---
-    html += "<div class='card wide'><h2>📦 Szerver Firmware Frissítés (Direkt feltöltés)</h2>";
+    // --- 1. KAPTÁRMONITOR ÉS FLUTTER HOTSPOT OTA BEÁLLÍTÁSOK ---
+    #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+    html += "<div class='card wide'><h2>🚀 Kaptármonitor & Hotspot Firmware Frissítés (OTA)</h2>";
+    html += "<p class='hint'>Ha be van jelölve, a fizikai mozgatásra/kopogtatásra (riasztással) ébredő kaptármonitorok megkapják az AP adatokat, és letöltik az új firmware-t a Flutter appból. Az időzítéssel ébredők nem frissülnek.</p>";
+    html += "<form action='/api/save_ota_cfg' method='POST'>";
+    
+    html += "<div class='cb-row' style='margin-bottom:12px;'>";
+    html += "<input type='checkbox' id='otaEnCb' name='ota_en' value='1' onchange='toggleOtaFields()'" + String(gMonitorOtaEnabled ? " checked" : "") + ">";
+    html += "<label for='otaEnCb' style='font-weight:bold; color:var(--accent); cursor:pointer;'>Firmware frissítés engedélyezése (kopogtatásra ébredő monitoroknak)</label>";
+    html += "</div>";
+
+    html += "<div id='otaFields' style='display:" + String(gMonitorOtaEnabled ? "block" : "none") + "; border-top:1px solid var(--border); padding-top:12px; margin-top:8px;'>";
+    html += "<label>Telefon Hotspot SSID (Access Point):</label>";
+    html += "<input type='text' name='ota_ssid' value='" + htmlEscape(gMonitorOtaSsid) + "' placeholder='pl. Balazs_Phone_AP'>";
+    
+    html += "<label>Hotspot Jelszó:</label>";
+    html += "<input type='text' name='ota_pass' value='" + htmlEscape(gMonitorOtaPass) + "' placeholder='Jelszó (min. 8 karakter)'>";
+
+    html += "<label>Kaptármonitor Firmware URL (Flutter App HTTP szerver címe):</label>";
+    html += "<input type='text' name='ota_url' value='" + htmlEscape(gMonitorOtaUrl) + "' placeholder='http://192.168.43.1:8080/firmware.bin'>";
+    html += "</div>";
+
+    html += "<div style='display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;'>";
+    html += "<button type='submit' class='pri' style='flex:1;'>💾 OTA Beállítások Mentése</button>";
+    html += "<button type='button' class='warn' style='flex:1;' onclick='pullServerFwFromApp()'>📲 Szerver Frissítése a Flutter Appból (/server.bin)</button>";
+    html += "</div>";
+    html += "</form>";
+    html += R"script(<script>
+    function toggleOtaFields(){
+        var cb = document.getElementById('otaEnCb');
+        var f = document.getElementById('otaFields');
+        if(cb && f) f.style.display = cb.checked ? 'block' : 'none';
+    }
+    function pullServerFwFromApp(){
+        if(!confirm('A szerver most felcsatlakozik a megadott telefonos Hotspotra, letölti a Flutter appból a /server.bin fájlt és újraindul. Folytatod?')) return;
+        fetch('/api/server_ota_pull', {method:'POST'}).then(r=>r.text()).then(t=>{
+            alert(t);
+        });
+    }
+    </script>)script";
+    html += "</div>";
+    #endif
+
+    // --- 2. SZERVER SAJÁT FIRMWARE FRISSÍTÉSE (BÖNGÉSZŐS DIREKT FELTÖLTÉS) ---
+    html += "<div class='card wide'><h2>📦 Szerver Firmware Frissítés (Kézi fájlfeltöltés)</h2>";
     html += "<p class='hint'>Válaszd ki a szerverhez lefordított <b>.bin</b> fájlt. A feltöltés végén az eszköz automatikusan újraindul.</p>";
     html += "<input type='file' id='srvFwFile' accept='.bin' style='margin-bottom:10px;'>";
     html += "<div id='srvOtaProgWrap' style='display:none; background:#0a0a18; border:1px solid var(--border); border-radius:6px; height:18px; margin-bottom:10px; overflow:hidden;'>";
     html += "<div id='srvOtaBar' style='background:var(--ok); width:0%; height:100%; transition:width 0.2s;'></div></div>";
     html += "<div id='srvOtaStatus' class='hint' style='display:none; font-weight:bold;'></div>";
-    html += "<button type='button' class='warn' id='srvOtaBtn' onclick='uploadServerFw()'>⬆️ Szerver Frissítése</button>";
+    html += "<button type='button' class='sec' id='srvOtaBtn' onclick='uploadServerFw()'>⬆️ Fájl Feltöltése és Telepítése</button>";
     html += R"script(<script>
     function uploadServerFw() {
         let fileInput = document.getElementById('srvFwFile');
@@ -165,34 +150,6 @@ void handleDiag(AsyncWebServerRequest *request) {
     }
     </script>)script";
     html += "</div>";
-
-    // --- 2. KAPTÁRMONITOR OTA FRISSÍTÉS CSEMPE (CSAK SZERVEREN) ---
-    #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-    html += "<div class='card wide'><h2>🚀 Kaptármonitor Firmware Frissítés (OTA)</h2>";
-    html += "<p class='hint'>Ha be van jelölve, a fizikai mozgatásra/kopogtatásra (riasztással) ébredő kaptármonitorok megkapják az AP adatokat, és letöltik az új firmware-t a Flutter appból. Az időzítéssel ébredők nem frissülnek.</p>";
-    html += "<form action='/api/save_ota_cfg' method='POST'>";
-    
-    html += "<div class='cb-row' style='margin-bottom:12px;'>";
-    html += "<input type='checkbox' id='otaEnCb' name='ota_en' value='1' onchange='toggleOtaFields()'" + String(gMonitorOtaEnabled ? " checked" : "") + ">";
-    html += "<label for='otaEnCb' style='font-weight:bold; color:var(--accent); cursor:pointer;'>Firmware frissítés engedélyezése (kopogtatásra ébredő monitoroknak)</label>";
-    html += "</div>";
-
-    html += "<div id='otaFields' style='display:" + String(gMonitorOtaEnabled ? "block" : "none") + "; border-top:1px solid var(--border); padding-top:12px; margin-top:8px;'>";
-    html += "<label>Telefon Hotspot SSID (Access Point):</label>";
-    html += "<input type='text' name='ota_ssid' value='" + htmlEscape(gMonitorOtaSsid) + "' placeholder='pl. Balazs_Phone_AP'>";
-    
-    html += "<label>Hotspot Jelszó:</label>";
-    html += "<input type='text' name='ota_pass' value='" + htmlEscape(gMonitorOtaPass) + "' placeholder='Jelszó (min. 8 karakter)'>";
-
-    html += "<label>Firmware URL (Flutter App HTTP szerver címe):</label>";
-    html += "<input type='text' name='ota_url' value='" + htmlEscape(gMonitorOtaUrl) + "' placeholder='http://192.168.43.1:8080/firmware.bin'>";
-    html += "</div>";
-
-    html += "<button type='submit' class='pri' style='margin-top:8px;'>💾 OTA Beállítások Mentése</button>";
-    html += "</form>";
-    html += "<script>function toggleOtaFields(){ var cb = document.getElementById('otaEnCb'); var f = document.getElementById('otaFields'); if(cb && f) f.style.display = cb.checked ? 'block' : 'none'; }</script>";
-    html += "</div>";
-    #endif
 
     // --- ÉLŐ TERMINÁL BLOKK ---
     html += "<div class='card wide'><h2>Élő Rendszer Napló (Terminál)</h2>";
@@ -381,6 +338,12 @@ void initDiagRoutes() {
     
     // Szerver direkt OTA végpont regisztrálása (Multipart file upload)
     server.on("/api/server_ota", HTTP_POST, handleServerOtaResult, handleServerOtaUpload);
+
+    // Szerver Pull-OTA végpont (letöltés a Flutter app :8080/server.bin címéről)
+    server.on("/api/server_ota_pull", HTTP_POST, [](AsyncWebServerRequest *request){
+        triggerServerPullOta();
+        request->send(200, "text/plain", "Szerver OTA letöltés elindítva! Figyeld az Élő Terminált.");
+    });
 
     server.on("/api/diag_log", HTTP_GET, [](AsyncWebServerRequest *request){
         request->send(200, "text/plain", diagDump());

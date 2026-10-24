@@ -1,8 +1,8 @@
 /*
  * KB SIM7000G vezérlő
  * ===================
- * Board    : ESP32 Dev Module (Arduino IDE)
- *            vagy platform=espressif32 / board=esp32dev (PlatformIO)
+ * Board   : ESP32 Dev Module (Arduino IDE)
+ *           vagy platform=espressif32 / board=esp32dev (PlatformIO)
  * Könyvtár : TinyGSM (vshymanskyy/TinyGSM) >= 0.11.7
  */
 
@@ -25,6 +25,7 @@
 #include "wifi_sta.h"
 #include "web_diag.h"
 #include "web_config.h"
+#include "ota_mgr.h"
 
 // ─── Globálisok ─────────────────────────────────────────────
 
@@ -314,6 +315,7 @@ void setup() {
   sensorsApplyEnabled();
   loadNtfyConfig();
   loadSupabaseConfig();
+  loadMonitorOtaConfig(); // OTA konfiguráció betöltése
   initDiagRoutes();
   initConfigRoutes();
   initIotRoutes();
@@ -358,6 +360,14 @@ void loop() {
     dnsServer.processNextRequest();
   }
   loopWeb();
+
+#if CURRENT_DEVICE_ROLE == ROLE_SERVER
+  // Szerver oldali automata OTA frissítés futtatása, ha kérték
+  processServerPullOtaLoop();
+#elif CURRENT_DEVICE_ROLE == ROLE_MONITOR
+  // Kaptármonitor (kliens) oldali OTA frissítés futtatása ESP-NOW parancsra
+  handleMonitorOtaInLoop();
+#endif
 
   if (!gDelayedWifiStarted && gModem.ready) {
     static unsigned long modemStableTime = 0;

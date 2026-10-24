@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 class FirmwareScreen extends StatefulWidget {
@@ -27,6 +29,7 @@ class _FirmwareScreenState extends State<FirmwareScreen> {
   late bool _apEnabled;
   String? _serverFwPath;
   String? _monitorFwPath;
+  HttpServer? _localOtaServer;
 
   @override
   void initState() {
@@ -34,6 +37,49 @@ class _FirmwareScreenState extends State<FirmwareScreen> {
     _apEnabled = widget.initialApEnabled;
     _serverFwPath = widget.initialServerFwPath;
     _monitorFwPath = widget.initialMonitorFwPath;
+  }
+
+  @override
+  void dispose() {
+    _localOtaServer?.close(force: true);
+    super.dispose();
+  }
+
+  Future<void> _manageLocalOtaServer(bool enable) async {
+    await _localOtaServer?.close(force: true);
+    _localOtaServer = null;
+
+    if (!enable) return;
+
+    try {
+      // Helyi HTTP szerver indítása a 8080-as porton
+      _localOtaServer = await HttpServer.bind(InternetAddress.anyIPv4, 8080);
+      _localOtaServer!.listen((HttpRequest request) async {
+        final String path = request.uri.path;
+        String? targetFile;
+
+        if (path == '/server.bin') {
+          targetFile = _serverFwPath;
+        } else {
+          // Alapértelmezett végpont a kaptármonitoroknak
+          targetFile = _monitorFwPath ?? _serverFwPath;
+        }
+
+        if (targetFile != null && await File(targetFile).exists()) {
+          final file = File(targetFile);
+          request.response.headers.contentType = ContentType.binary;
+          request.response.contentLength = await file.length();
+          await request.response.addStream(file.openRead());
+          await request.response.close();
+        } else {
+          request.response.statusCode = HttpStatus.notFound;
+          request.response.write('Firmware binaris nem talalhato.');
+          await request.response.close();
+        }
+      });
+    } catch (e) {
+      debugPrint('OTA HTTP szerver hiba: $e');
+    }
   }
 
   Future<void> _selectFirmwareFile({required bool isServer}) async {
@@ -298,7 +344,7 @@ class _FirmwareScreenState extends State<FirmwareScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Helyi Hotspot & Automata Fájlszerver',
+                          'Helyi Hotspot & OTA Fájlszerver',
                           style: TextStyle(
                             color: Colors.amberAccent,
                             fontWeight: FontWeight.bold,
@@ -308,7 +354,7 @@ class _FirmwareScreenState extends State<FirmwareScreen> {
                         const SizedBox(height: 6),
                         SwitchListTile(
                           title: const Text(
-                            'Hotspot Fájlszerver indítása',
+                            'OTA Fájlszerver indítása (:8080)',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 14,
@@ -317,8 +363,8 @@ class _FirmwareScreenState extends State<FirmwareScreen> {
                           ),
                           subtitle: Text(
                             _apEnabled
-                                ? 'Bekapcsolva: A háttérben elindul a helyi HTTP szerver (:8080), amely a csatlakozó klienseknek automatikusan kiszolgálja a .bin fájlt. (Ne felejtsd el kézzel bekapcsolni a telefonodon a hotspotot!)'
-                                : 'Kikapcsolva: A helyi szerver leállítva.',
+                                ? 'Aktív: a háttérben futó HTTP szerver azonnal kiszolgálja a .bin fájlokat, amint a kliens rácsatlakozik.'
+                                : 'Kikapcsolva: a szerver inaktív.',
                             style: TextStyle(
                               color: _apEnabled
                                   ? Colors.tealAccent
@@ -394,6 +440,8 @@ class _FirmwareScreenState extends State<FirmwareScreen> {
                           ),
                         ),
                         onPressed: () async {
+                          // HTTP szerver vezérlése a mentéskor
+                          await _manageLocalOtaServer(_apEnabled);
                           await widget.onSave(
                             _apEnabled,
                             _serverFwPath,
@@ -405,12 +453,12 @@ class _FirmwareScreenState extends State<FirmwareScreen> {
                               SnackBar(
                                 content: Text(
                                   _apEnabled
-                                      ? 'Helyi OTA szerver elindítva (:8080) és beállítások mentve.'
-                                      : 'Firmware beállítások elmentve (szerver leállítva).',
+                                      ? 'Helyi OTA fájlszerver elindult a :8080 porton!'
+                                      : 'Firmware beállítások elmentve.',
                                 ),
                                 backgroundColor: _apEnabled
                                     ? Colors.teal.shade700
-                                    : Colors.blueGrey,
+                                    : Colors.green,
                               ),
                             );
                           }

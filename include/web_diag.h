@@ -7,6 +7,7 @@ void handleExpertPost(AsyncWebServerRequest *request);
 void handleExpertReset(AsyncWebServerRequest *request);
 void handleExpertFullReset(AsyncWebServerRequest *request);
 void handleDiag(AsyncWebServerRequest *request);
+void handleSaveOtaConfig(AsyncWebServerRequest *request);
 void handleAtAjax(AsyncWebServerRequest *request);
 void handleAtStatus(AsyncWebServerRequest *request);
 void handleModemStatus(AsyncWebServerRequest *request);
