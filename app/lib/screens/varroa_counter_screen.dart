@@ -241,8 +241,9 @@ class _VarroaCounterScreenState extends State<VarroaCounterScreen> {
                           backgroundColor: const Color(0xFF2C2C2C),
                         ),
                         onPressed: () {
-                          if (_detectedMites > 0)
+                          if (_detectedMites > 0) {
                             setState(() => _detectedMites--);
+                          }
                         },
                         icon: const Icon(Icons.remove, color: Colors.white),
                       ),
@@ -329,7 +330,7 @@ class _VarroaCounterScreenState extends State<VarroaCounterScreen> {
             const SizedBox(height: 12),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              activeColor: Colors.amber,
+              activeThumbColor: Colors.amber,
               title: const Text(
                 'Aljdeszka kihúzva az ellenőrzés után',
                 style: TextStyle(color: Colors.white, fontSize: 13),

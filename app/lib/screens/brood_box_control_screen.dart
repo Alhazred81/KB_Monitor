@@ -604,7 +604,7 @@ class _InvestigationsScreen extends StatefulWidget {
 
 class _InvestigationsScreenState extends State<_InvestigationsScreen> {
   bool _isCameraActive = false;
-  bool _pullOutBoard = true;
+  final bool _pullOutBoard = true;
 
   void _saveVarroaResult(int mites, int days) {
     widget.repository.addVarroaAnalysis(

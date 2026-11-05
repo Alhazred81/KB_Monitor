@@ -7,6 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   geolocator_windows
   local_auth_windows
+  printing
   url_launcher_windows
 )
 

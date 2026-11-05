@@ -413,29 +413,40 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                 if (val != null) {
                                   setState(() {
                                     _selectedFunction = val;
-                                    if (val == 'méz')
+                                    if (val == 'méz') {
                                       _selectedPlanType = 'petes_mesterterv';
-                                    if (val == 'pollen')
+                                    }
+                                    if (val == 'pollen') {
                                       _selectedPlanType = 'alcas_mesterterv';
-                                    if (val == 'propolisz')
+                                    }
+                                    if (val == 'propolisz') {
                                       _selectedPlanType = 'hereskeret';
-                                    if (val == 'méhméreg')
+                                    }
+                                    if (val == 'méhméreg') {
                                       _selectedPlanType = 'grumpy_cat';
-                                    if (val == 'dajka')
+                                    }
+                                    if (val == 'dajka') {
                                       _selectedPlanType =
                                           'anyanevelesi_mesterterv';
-                                    if (val == 'donor')
+                                    }
+                                    if (val == 'donor') {
                                       _selectedPlanType = 'petes_mesterterv';
-                                    if (val == 'starter')
+                                    }
+                                    if (val == 'starter') {
                                       _selectedPlanType = 'alcas_mesterterv';
-                                    if (val == 'anya')
+                                    }
+                                    if (val == 'anya') {
                                       _selectedPlanType = 'oxalsav_sorozat';
-                                    if (val == 'apa')
+                                    }
+                                    if (val == 'apa') {
                                       _selectedPlanType = 'hereskeret';
-                                    if (val == 'szezon végén')
+                                    }
+                                    if (val == 'szezon végén') {
                                       _selectedPlanType = 'oxalsav_egyszeri';
-                                    if (val == 'Hans')
+                                    }
+                                    if (val == 'Hans') {
                                       _selectedPlanType = 'grumpy_cat';
+                                    }
                                   });
                                 }
                               },
@@ -670,8 +681,9 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                 ),
                               ],
                               onChanged: (val) {
-                                if (val != null)
+                                if (val != null) {
                                   setState(() => _newBoxType = val);
+                                }
                               },
                             ),
                           ),
@@ -713,8 +725,9 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                   ),
                                 ],
                                 onChanged: (val) {
-                                  if (val != null)
+                                  if (val != null) {
                                     setState(() => _newBoxSize = val);
+                                  }
                                 },
                               ),
                             ),

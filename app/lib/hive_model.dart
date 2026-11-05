@@ -205,8 +205,9 @@ class HiveData {
 
   String get tempStatus {
     if (temp >= 32.0 && temp <= 36.0) return 'green';
-    if ((temp >= 28.0 && temp < 32.0) || (temp > 36.0 && temp <= 37.5))
+    if ((temp >= 28.0 && temp < 32.0) || (temp > 36.0 && temp <= 37.5)) {
       return 'yellow';
+    }
     if (temp > 39.0 || temp < 15.0) return 'flashing_red';
     return 'red';
   }
@@ -214,8 +215,9 @@ class HiveData {
   String get extTempStatus {
     if (extTemp >= 12.0 && extTemp <= 30.0) return 'green';
     if ((extTemp >= 5.0 && extTemp < 12.0) ||
-        (extTemp > 30.0 && extTemp <= 35.0))
+        (extTemp > 30.0 && extTemp <= 35.0)) {
       return 'yellow';
+    }
     if (extTemp < -5.0 || extTemp > 38.0) return 'flashing_red';
     return 'red';
   }
@@ -238,11 +240,13 @@ class HiveData {
     final lower = serverConnection.toLowerCase();
     if (lower.contains('ok') ||
         lower.contains('párosítva') ||
-        lower.contains('supabase'))
+        lower.contains('supabase')) {
       return 'green';
+    }
     if (lower.contains('gyenge')) return 'yellow';
-    if (lower.contains('kritikus') || lower.contains('hiba'))
+    if (lower.contains('kritikus') || lower.contains('hiba')) {
       return 'flashing_red';
+    }
     return 'red';
   }
 
@@ -280,8 +284,9 @@ class HiveData {
   String get worstStatus {
     if (status == 'flashing_red' || protocol == 'hans') return 'flashing_red';
     if (status == 'purple' || swarmIndex >= 70.0) return 'purple';
-    if (boxes.any((b) => b.type == 'pollen_trap' && b.isActive))
+    if (boxes.any((b) => b.type == 'pollen_trap' && b.isActive)) {
       return 'orange';
+    }
 
     final statuses = [
       nestCalculatedStatus,

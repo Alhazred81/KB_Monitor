@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,9 @@ import '../widgets/scanner_controls.dart';
 import '../widgets/scanner_overlay.dart';
 import '../widgets/top_gps_bar.dart';
 import 'new_hive_wizard_screen.dart';
+import 'office_dashboard_screen.dart';
+import 'processing_room_screen.dart';
+import 'settings_screen.dart';
 
 const String kSecretProtocolPassword = "Multioptipupiloptómia";
 
@@ -38,6 +42,15 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   bool _isAdvancedMode = false;
   bool _isMapFreeRotate = true;
+
+  // --- IKON ÁTRENDEZŐ (SZERKESZTŐ) MÓD ---
+  bool _isEditMode = false;
+
+  // --- OTA ÁLLAPOTOK ---
+  bool _isApAndOtaServerActive = false;
+  String? _serverFwPath;
+  String? _monitorFwPath;
+  HttpServer? _localOtaServer;
 
   late AnimationController _nfcAnimController;
   late Animation<Color?> _nfcColorAnim;
@@ -103,7 +116,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     _locationService.initCompass((heading, accuracy) {
       if (mounted) {
         setState(() {
-          if (_isMapFreeRotate && heading != null) {
+          if (_isMapFreeRotate && !_isEditMode && heading != null) {
             _mapController.rotate(-heading);
           }
         });
@@ -113,12 +126,75 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   @override
   void dispose() {
+    _localOtaServer?.close(force: true);
     _repository.removeListener(_onRepositoryChanged);
     _nfcAnimController.dispose();
     _redFlashingAnimController.dispose();
     _compassRedAnimController.dispose();
     _idController.dispose();
     super.dispose();
+  }
+
+  // --- KÉPERNYŐ ELMOZDULÁS ÁTSZÁMÍTÁSA LATLNG-RE (Hibatűrő, zoom-kompatibilis) ---
+  LatLng _applyDragDelta(LatLng currentLatLng, Offset pixelDelta) {
+    final double zoom = _mapController.camera.zoom;
+    final double scale = 0.000009 * math.pow(2, 17 - zoom);
+    return LatLng(
+      currentLatLng.latitude - (pixelDelta.dy * scale),
+      currentLatLng.longitude + (pixelDelta.dx * scale),
+    );
+  }
+
+  void _toggleEditMode() {
+    HapticFeedback.heavyImpact();
+    setState(() {
+      _isEditMode = !_isEditMode;
+    });
+    if (!_isEditMode) {
+      _repository.syncWithSupabase();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Ikonok új elrendezése rögzítve.'),
+          backgroundColor: Colors.green.shade700,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _manageLocalOtaServer(bool enable) async {
+    await _localOtaServer?.close(force: true);
+    _localOtaServer = null;
+
+    if (!enable) return;
+
+    try {
+      _localOtaServer = await HttpServer.bind(InternetAddress.anyIPv4, 8080);
+      _localOtaServer!.listen((HttpRequest request) async {
+        final String path = request.uri.path;
+        String? targetFile;
+
+        if (path == '/server.bin') {
+          targetFile = _serverFwPath;
+        } else {
+          targetFile = _monitorFwPath ?? _serverFwPath;
+        }
+
+        if (targetFile != null && await File(targetFile).exists()) {
+          final file = File(targetFile);
+          request.response.headers.contentType = ContentType.binary;
+          request.response.contentLength = await file.length();
+          await request.response.addStream(file.openRead());
+          await request.response.close();
+        } else {
+          request.response.statusCode = HttpStatus.notFound;
+          request.response.write('Firmware binaris nem talalhato.');
+          await request.response.close();
+        }
+      });
+    } catch (e) {
+      debugPrint('OTA HTTP szerver hiba: $e');
+    }
   }
 
   Future<void> _refreshPosition() async {
@@ -424,216 +500,64 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     );
   }
 
-  void _openDatabaseConfigDialog() {
-    final TextEditingController urlController = TextEditingController(
-      text: _serverUrl,
-    );
-    final TextEditingController keyController = TextEditingController(
-      text: _anonKey,
-    );
-    bool isTesting = false;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF141428),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: Row(
-                children: [
-                  const Icon(Icons.storage, color: Colors.lightBlueAccent),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Adatbázis & GPS Beállítások',
-                      style: TextStyle(color: Colors.amberAccent, fontSize: 16),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _repository.isOnline
-                          ? Colors.green.withAlpha(50)
-                          : Colors.red.withAlpha(50),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _repository.isOnline
-                            ? Colors.greenAccent
-                            : Colors.redAccent,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _repository.isOnline
-                              ? Icons.cloud_done
-                              : Icons.cloud_off,
-                          color: _repository.isOnline
-                              ? Colors.greenAccent
-                              : Colors.redAccent,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _repository.isOnline
-                              ? 'Online'
-                              : 'Offline (${_repository.offlineQueueLength})',
-                          style: TextStyle(
-                            color: _repository.isOnline
-                                ? Colors.greenAccent
-                                : Colors.redAccent,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Részletes GPS sáv megjelenítése a főképernyőn:',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    const SizedBox(height: 6),
-                    SwitchListTile(
-                      title: const Text(
-                        'Részletes GPS adatok',
-                        style: TextStyle(color: Colors.white, fontSize: 13),
-                      ),
-                      value: _isAdvancedMode,
-                      activeColor: Colors.amber,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: (val) {
-                        setDialogState(() => _isAdvancedMode = val);
-                        setState(() {});
-                      },
-                    ),
-                    const Divider(color: Colors.white24, height: 24),
-                    const Text(
-                      'Add meg a Supabase projekt adatait és teszteld a kapcsolatot:',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: urlController,
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                      decoration: const InputDecoration(
-                        labelText: 'Supabase / Szerver URL',
-                        labelStyle: TextStyle(color: Colors.amber),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: keyController,
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                      decoration: const InputDecoration(
-                        labelText: 'Supabase Anon Key',
-                        labelStyle: TextStyle(color: Colors.amber),
-                      ),
-                      obscureText: true,
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.tealAccent,
-                          side: const BorderSide(color: Colors.tealAccent),
-                        ),
-                        onPressed: isTesting
-                            ? null
-                            : () async {
-                                setDialogState(() => isTesting = true);
-                                await _repository.setSupabaseConfig(
-                                  urlController.text,
-                                  keyController.text,
-                                );
-                                final result = await _repository
-                                    .testSupabaseConnection();
-                                setDialogState(() => isTesting = false);
-
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(result['message']),
-                                      backgroundColor: result['success']
-                                          ? Colors.green
-                                          : Colors.red,
-                                    ),
-                                  );
-                                }
-                              },
-                        icon: isTesting
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.tealAccent,
-                                ),
-                              )
-                            : const Icon(Icons.wifi_protected_setup, size: 16),
-                        label: Text(
-                          isTesting
-                              ? 'Kapcsolat tesztelése...'
-                              : 'Kapcsolat tesztelése',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Mégse',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.amber,
-                    foregroundColor: Colors.black,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _serverUrl = urlController.text.trim();
-                      _anonKey = keyController.text.trim();
-                    });
-                    _repository.setSupabaseConfig(_serverUrl, _anonKey);
-                    _repository.syncWithSupabase();
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Beállítások elmentve és szinkronizálás indítva.',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  },
-                  child: const Text('Mentés'),
-                ),
-              ],
-            );
+  void _openSettingsScreen() {
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => SettingsScreen(
+          repository: _repository,
+          initialUrl: _serverUrl,
+          initialAnonKey: _anonKey,
+          initialAdvancedMode: _isAdvancedMode,
+          initialApEnabled: _isApAndOtaServerActive,
+          initialServerFwPath: _serverFwPath,
+          initialMonitorFwPath: _monitorFwPath,
+          onAdvancedModeChanged: (val) {
+            setState(() {
+              _isAdvancedMode = val;
+            });
           },
-        );
-      },
+          onConfigSaved: (newUrl, newKey, newAdv) {
+            setState(() {
+              _serverUrl = newUrl;
+              _anonKey = newKey;
+              _isAdvancedMode = newAdv;
+            });
+          },
+          onOtaSave: (apEnabled, serverFw, monitorFw) async {
+            setState(() {
+              _isApAndOtaServerActive = apEnabled;
+              _serverFwPath = serverFw;
+              _monitorFwPath = monitorFw;
+            });
+            await _manageLocalOtaServer(apEnabled);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _openOfficeDashboard() {
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => OfficeDashboardScreen(repository: _repository),
+      ),
+    );
+  }
+
+  void _openProcessingRoom() {
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => ProcessingRoomScreen(repository: _repository),
+      ),
     );
   }
 
@@ -1150,6 +1074,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             options: MapOptions(
               initialCenter: _locationService.currentPosition,
               initialZoom: 17.0,
+              interactionOptions: InteractionOptions(
+                flags: _isEditMode ? InteractiveFlag.none : InteractiveFlag.all,
+              ),
+              onLongPress: (tapPosition, point) {
+                _toggleEditMode();
+              },
             ),
             children: [
               TileLayer(
@@ -1185,10 +1115,25 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   for (var hive in _repository.hives)
                     Marker(
                       point: hive.location,
-                      width: 42,
-                      height: 42,
+                      width: 48,
+                      height: 48,
                       child: GestureDetector(
-                        onTap: () => _showHiveDetails(hive),
+                        onTap: () {
+                          if (!_isEditMode) {
+                            _showHiveDetails(hive);
+                          }
+                        },
+                        onLongPress: _toggleEditMode,
+                        onPanUpdate: _isEditMode
+                            ? (details) {
+                                setState(() {
+                                  hive.location = _applyDragDelta(
+                                    hive.location,
+                                    details.delta,
+                                  );
+                                });
+                              }
+                            : null,
                         child: () {
                           final bool hasActiveBottomBoard = hive.boxes.any(
                             (b) => b.type == 'bottom' && b.isActive,
@@ -1233,8 +1178,10 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                       : Colors.deepOrange,
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
-                                    color: Colors.white,
-                                    width: 2,
+                                    color: _isEditMode
+                                        ? Colors.amberAccent
+                                        : Colors.white,
+                                    width: _isEditMode ? 3 : 2,
                                   ),
                                 ),
                                 child: Stack(
@@ -1271,12 +1218,16 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                               alignment: Alignment.center,
                               children: [
                                 Container(
+                                  width: 42,
+                                  height: 42,
                                   decoration: BoxDecoration(
                                     color: _getStatusColor(worstStatus),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color: Colors.white,
-                                      width: 2,
+                                      color: _isEditMode
+                                          ? Colors.amberAccent
+                                          : Colors.white,
+                                      width: _isEditMode ? 3 : 2,
                                     ),
                                   ),
                                   child: Stack(
@@ -1321,6 +1272,23 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                       ),
                                     ),
                                   ),
+                                if (_isEditMode)
+                                  Positioned(
+                                    bottom: 0,
+                                    right: 0,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.amberAccent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.open_with,
+                                        color: Colors.black,
+                                        size: 10,
+                                      ),
+                                    ),
+                                  ),
                               ],
                             );
                           }
@@ -1331,16 +1299,25 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   // 2. Időjárás-állomás marker
                   Marker(
                     point: _repository.weatherStation.location,
-                    width: 42,
-                    height: 42,
+                    width: 46,
+                    height: 46,
                     child: GestureDetector(
-                      onTap: () =>
-                          _showStationDetails(_repository.weatherStation),
+                      onTap: () {
+                        if (!_isEditMode) {
+                          _showStationDetails(_repository.weatherStation);
+                        }
+                      },
+                      onLongPress: _toggleEditMode,
                       child: Container(
                         decoration: BoxDecoration(
                           color: Colors.teal.shade700,
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
+                          border: Border.all(
+                            color: _isEditMode
+                                ? Colors.amberAccent
+                                : Colors.white,
+                            width: _isEditMode ? 3 : 2,
+                          ),
                           boxShadow: const [
                             BoxShadow(
                               color: Colors.black45,
@@ -1360,13 +1337,18 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     ),
                   ),
 
-                  // 3. Itató marker (folyadékszint kijelzéssel)
+                  // 3. Itató marker
                   Marker(
                     point: _repository.waterer.location,
                     width: 58,
                     height: 58,
                     child: GestureDetector(
-                      onTap: () => _showWatererDetails(_repository.waterer),
+                      onTap: () {
+                        if (!_isEditMode) {
+                          _showWatererDetails(_repository.waterer);
+                        }
+                      },
+                      onLongPress: _toggleEditMode,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
@@ -1376,7 +1358,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                             decoration: BoxDecoration(
                               color: Colors.lightBlue.shade700,
                               shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
+                              border: Border.all(
+                                color: _isEditMode
+                                    ? Colors.amberAccent
+                                    : Colors.white,
+                                width: _isEditMode ? 3 : 2,
+                              ),
                               boxShadow: const [
                                 BoxShadow(
                                   color: Colors.black45,
@@ -1423,13 +1410,18 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     ),
                   ),
 
-                  // 4. Szirupszivattyú marker (folyadékszint kijelzéssel)
+                  // 4. Szirupszivattyú marker
                   Marker(
                     point: _repository.syrupPump.location,
                     width: 58,
                     height: 58,
                     child: GestureDetector(
-                      onTap: () => _showSyrupPumpDetails(_repository.syrupPump),
+                      onTap: () {
+                        if (!_isEditMode) {
+                          _showSyrupPumpDetails(_repository.syrupPump);
+                        }
+                      },
+                      onLongPress: _toggleEditMode,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
@@ -1439,7 +1431,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                             decoration: BoxDecoration(
                               color: Colors.orange.shade800,
                               shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
+                              border: Border.all(
+                                color: _isEditMode
+                                    ? Colors.amberAccent
+                                    : Colors.white,
+                                width: _isEditMode ? 3 : 2,
+                              ),
                               boxShadow: const [
                                 BoxShadow(
                                   color: Colors.black45,
@@ -1502,6 +1499,54 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             onClose: () => setState(() => _isCameraActive = false),
           ),
 
+        // --- ÁTRENDEZŐ MÓD FIGYELMEZTETŐ ÉS MENTŐ SÁV ---
+        if (!_isCameraActive && _isEditMode)
+          Positioned(
+            top: 92,
+            left: 16,
+            right: 84,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xEB141428),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.amberAccent, width: 2),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black54, blurRadius: 8),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.open_with, color: Colors.amberAccent),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Átrendező mód: húzd az ikonokat a kívánt helyre!',
+                      style: TextStyle(
+                        color: Colors.amberAccent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.amberAccent,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    onPressed: _toggleEditMode,
+                    icon: const Icon(Icons.check, size: 16),
+                    label: const Text(
+                      'Kész',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
         // Bal felső NAGY + GOMB: Új kaptár létrehozása varázsló
         if (!_isCameraActive)
           AnimatedPositioned(
@@ -1528,7 +1573,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             ),
           ),
 
-        // Felső vezérlőgombok
+        // Felső vezérlőgombok (Iroda + Feldolgozóhelyiség + Pozíció + Forgatás)
         if (!_isCameraActive)
           AnimatedPositioned(
             duration: const Duration(milliseconds: 250),
@@ -1538,15 +1583,26 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // --- IRODA GOMB ---
                 FloatingActionButton.small(
-                  heroTag: 'settingsBtn',
+                  heroTag: 'officeBtn',
                   backgroundColor: const Color(0xB3000000),
                   foregroundColor: Colors.amberAccent,
-                  tooltip: 'Beállítások & GPS adatok',
-                  onPressed: _openDatabaseConfigDialog,
-                  child: const Icon(Icons.settings),
+                  tooltip: 'Iroda (Statisztika, Nyomtatás, Összerendelés)',
+                  onPressed: _openOfficeDashboard,
+                  child: const Icon(Icons.desktop_windows),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 14),
+                // --- FELDOLGOZÓHELYISÉG GOMB ---
+                FloatingActionButton.small(
+                  heroTag: 'processingRoomBtn',
+                  backgroundColor: const Color(0xB3000000),
+                  foregroundColor: Colors.tealAccent,
+                  tooltip: 'Feldolgozóhelyiség (Pergetés, Mérleg, Hordók, Műlépezés)',
+                  onPressed: _openProcessingRoom,
+                  child: const Icon(Icons.factory),
+                ),
+                const SizedBox(width: 14),
                 FloatingActionButton.small(
                   heroTag: 'centerPositionBtn',
                   backgroundColor: const Color(0xB3000000),
@@ -1555,7 +1611,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   onPressed: _refreshPosition,
                   child: const Icon(Icons.my_location),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 14),
                 FloatingActionButton.small(
                   heroTag: 'rotateBtn',
                   backgroundColor: const Color(0xB3000000),
@@ -1579,7 +1635,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             ),
           ),
 
-        // Boxkesztyű-kompatibilis Nagyítós Zoom gombok
+        // Boxkesztyű-kompatibilis Nagyítós Zoom gombok + ALATTA A BEÁLLÍTÁSOK GOMB
         if (!_isCameraActive)
           AnimatedPositioned(
             duration: const Duration(milliseconds: 250),
@@ -1613,6 +1669,16 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     _mapController.move(_mapController.camera.center, zoom - 1);
                   },
                   child: const Icon(Icons.zoom_out, size: 32),
+                ),
+                const SizedBox(height: 20),
+                // --- BEÁLLÍTÁSOK GOMB KÖZVETLENÜL A ZOOM ALATT ---
+                FloatingActionButton(
+                  heroTag: 'settingsBtn',
+                  backgroundColor: const Color(0xD90F172A),
+                  foregroundColor: Colors.amberAccent,
+                  tooltip: 'Beállítások & Firmware (OTA)',
+                  onPressed: _openSettingsScreen,
+                  child: const Icon(Icons.settings, size: 28),
                 ),
               ],
             ),

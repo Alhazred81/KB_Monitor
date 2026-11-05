@@ -762,7 +762,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
             children: [
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                activeColor: Colors.lightBlueAccent,
+                activeThumbColor: Colors.lightBlueAccent,
                 title: const Text(
                   '3. Etető felhelyezése (Opcionális)',
                   style: TextStyle(
