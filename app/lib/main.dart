@@ -1,21 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import 'screens/map_screen.dart';
+import 'screens/map_screen.dart'; // Ez most már helyes, mert benne van a MapAndScannerScreen
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Állapotsor és navigációs sáv sötét témához igazítása
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: Color(0xFF0F172A),
-      systemNavigationBarIconBrightness: Brightness.light,
-    ),
-  );
-
+void main() {
   runApp(const HiveMonitorApp());
 }
 
@@ -25,20 +12,18 @@ class HiveMonitorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Kaptármonitor',
       debugShowCheckedModeBanner: false,
+      title: 'Kaptármonitor & Szerver',
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0F172A),
-        primaryColor: Colors.amber,
-        colorScheme: const ColorScheme.dark(
-          primary: Colors.amber,
-          secondary: Colors.amberAccent,
-          surface: Color(0xFF141428),
-        ),
-        useMaterial3: true,
+        primarySwatch: Colors.blue,
+        scaffoldBackgroundColor: const Color(0xFF111827),
       ),
-      home: const Scaffold(body: SafeArea(child: MapAndScannerScreen())),
+      home: Scaffold(
+        body: SafeArea(
+          child: MapAndScannerScreen(), // <-- Itt volt a néveltérés (MapScreen helyett ez kell)
+        ),
+      ),
     );
   }
 }

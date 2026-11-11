@@ -19,6 +19,7 @@ import 'new_hive_wizard_screen.dart';
 import 'office_dashboard_screen.dart';
 import 'processing_room_screen.dart';
 import 'settings_screen.dart';
+import 'server_config_screen.dart'; // <-- Beimportálva az új fülös konfig képernyő
 
 const String kSecretProtocolPassword = "Multioptipupiloptómia";
 
@@ -135,7 +136,6 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     super.dispose();
   }
 
-  // --- KÉPERNYŐ ELMOZDULÁS ÁTSZÁMÍTÁSA LATLNG-RE (Hibatűrő, zoom-kompatibilis) ---
   LatLng _applyDragDelta(LatLng currentLatLng, Offset pixelDelta) {
     final double zoom = _mapController.camera.zoom;
     final double scale = 0.000009 * math.pow(2, 17 - zoom);
@@ -561,110 +561,171 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     );
   }
 
+  // ITT HELYEZTÜK BE A FÜLÖS KONFIG NAVIGÁCIÓT AZ IDŐJÁRÁS-ÁLLOMÁS RÁKATTINTÁSAKOR
   void _showStationDetails(StationData station) {
     HapticFeedback.lightImpact();
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1E1E1E),
-          title: Row(
+      backgroundColor: const Color(0xFF1f2937),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.wb_sunny, color: Colors.tealAccent),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  station.name,
-                  style: const TextStyle(
-                    color: Colors.amberAccent,
-                    fontSize: 18,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.wb_sunny,
+                        color: Colors.tealAccent,
+                        size: 28,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        station.name,
+                        style: const TextStyle(
+                          color: Colors.amberAccent,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70),
+                    onPressed: () => Navigator.pop(sheetContext),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.white24, height: 20),
+
+              // Szenzoradatok listája
+              _buildStationRow(
+                'Hőmérséklet',
+                '${station.temp} °C',
+                Icons.thermostat,
+                Colors.amber,
+              ),
+              const SizedBox(height: 6),
+              _buildStationRow(
+                'Páratartalom',
+                '${station.humidity} %',
+                Icons.water_drop,
+                Colors.lightBlueAccent,
+              ),
+              const SizedBox(height: 6),
+              _buildStationRow(
+                'Légnyomás',
+                '${station.pressure} hPa',
+                Icons.speed,
+                Colors.orangeAccent,
+              ),
+              const SizedBox(height: 6),
+              _buildStationRow(
+                'UV-index',
+                '${station.uvIndex}',
+                Icons.wb_sunny_outlined,
+                Colors.yellowAccent,
+              ),
+              const SizedBox(height: 6),
+              _buildStationRow(
+                'Fényerősség',
+                '${station.lightLux.toInt()} Lux',
+                Icons.light_mode,
+                Colors.amberAccent,
+              ),
+              const SizedBox(height: 6),
+              _buildStationRow(
+                'Szélsebesség',
+                '${station.windSpeed} m/s (${station.windDirection})',
+                Icons.air,
+                Colors.cyanAccent,
+              ),
+              const SizedBox(height: 6),
+              _buildStationRow(
+                'Esőmennyiség',
+                '${station.rainAmount} mm',
+                Icons.umbrella,
+                Colors.blueAccent,
+              ),
+              const SizedBox(height: 6),
+              _buildStationRow(
+                'Akkumulátor / Táp',
+                '${station.batteryVoltage} V',
+                Icons.battery_full,
+                Colors.greenAccent,
+              ),
+
+              const SizedBox(height: 20),
+
+              // Navigáció a szerver weboldal-szerű, fülös beállításaihoz
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFF3b82f6)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const ServerAndWeatherConfigScreen(
+                                  initialTabIndex: 0,
+                                ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.dashboard, color: Colors.white),
+                      label: const Text(
+                        'Áttekintés',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10b981),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const ServerAndWeatherConfigScreen(
+                                  initialTabIndex: 2,
+                                ), // Szenzorok fül
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.settings, color: Colors.white),
+                      label: const Text(
+                        'Konfig',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Azonosító: ${station.id}',
-                  style: const TextStyle(
-                    color: Colors.white54,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                const Divider(color: Colors.white24, height: 20),
-                _buildStationRow(
-                  'Hőmérséklet',
-                  '${station.temp} °C',
-                  Icons.thermostat,
-                  Colors.amber,
-                ),
-                const SizedBox(height: 8),
-                _buildStationRow(
-                  'Páratartalom',
-                  '${station.humidity} %',
-                  Icons.water_drop,
-                  Colors.lightBlueAccent,
-                ),
-                const SizedBox(height: 8),
-                _buildStationRow(
-                  'Légnyomás',
-                  '${station.pressure} hPa',
-                  Icons.speed,
-                  Colors.orangeAccent,
-                ),
-                const SizedBox(height: 8),
-                _buildStationRow(
-                  'UV-index',
-                  '${station.uvIndex}',
-                  Icons.wb_sunny_outlined,
-                  Colors.yellowAccent,
-                ),
-                const SizedBox(height: 8),
-                _buildStationRow(
-                  'Fényerősség',
-                  '${station.lightLux.toInt()} Lux',
-                  Icons.light_mode,
-                  Colors.amberAccent,
-                ),
-                const SizedBox(height: 8),
-                _buildStationRow(
-                  'Szélsebesség',
-                  '${station.windSpeed} m/s (${station.windDirection})',
-                  Icons.air,
-                  Colors.cyanAccent,
-                ),
-                const SizedBox(height: 8),
-                _buildStationRow(
-                  'Esőmennyiség',
-                  '${station.rainAmount} mm',
-                  Icons.umbrella,
-                  Colors.blueAccent,
-                ),
-                const SizedBox(height: 8),
-                _buildStationRow(
-                  'Akkumulátor / Táp',
-                  '${station.batteryVoltage} V',
-                  Icons.battery_full,
-                  Colors.greenAccent,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber,
-                foregroundColor: Colors.black,
-              ),
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Bezárás'),
-            ),
-          ],
         );
       },
     );

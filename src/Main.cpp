@@ -18,13 +18,18 @@
 #include "modem_mgr.h"
 #include "NtfyClient.h"
 #include "sensors.h"
-#include "supabase_sync.h" // <--- ÚJ: Supabase szinkronizáció bevonása
+#include "supabase_sync.h"
 #include "connections.h"
 #include "time_mgr.h"
 #include "web_ui.h"
 #include "wifi_sta.h"
 #include "web_diag.h"
 #include "web_config.h"
+
+// Ha be van kapcsolva a vezetékes CAN mód, beemeljük a CAN kommunikációs modult is
+#if IS_WIRED_CAN
+#include "can_comm.h"
+#endif
 
 // ─── Globálisok ─────────────────────────────────────────────
 
@@ -308,7 +313,6 @@ void setup() {
   initConfigRoutes();
   initIotRoutes();
 
-
   gReportTimes = loadReportConfig();
   gApPass    = loadApPass();
   gApChannel = EEPROM.read(ADDR_CHANNEL);
@@ -330,20 +334,31 @@ void setup() {
   dnsServer.start(DNS_PORT_NUM, "*", WiFi.softAPIP()); 
   Serial.println("[WEB] Aszinkron Webszerver és Captive Portal elindítva.");
 
-  initServerEspNow();
-  ntfy.setDebugStream(&Serial);
+  // Szerepkör és kommunikációs mód szerinti inicializálás
+  #if IS_WIRED_CAN
+    initCanBus();
+    Serial.println("[COMM] Vezetékes CAN busz (TJA1043) inicializálva.");
+  #else
+    initServerEspNow();
+  #endif
 
+  ntfy.setDebugStream(&Serial);
   ntpStart();
 
   gModem.bootTime = millis();
-  modemPowerOn(); 
   
-  // --- ÚJ: Supabase szinkronizáció inicializálása szerver szerepkörben ---
   #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-  initSupabaseSync();
+    modemPowerOn(); 
+    initSupabaseSync();
+  #elif CURRENT_DEVICE_ROLE == ROLE_WEATHER_STATION
+    // Ha különálló időjárás-állomás vezetékes módban
+    Serial.println("[ROLE] Különálló időjárás-állomás indítva.");
+  #elif CURRENT_DEVICE_ROLE == ROLE_SCALE
+    // Ha különálló mérleg
+    Serial.println("[ROLE] Mérleg szerepkör indítva.");
   #endif
 
-  diagAdd("Rendszer UI elindult. Modem ebresztese...");
+  diagAdd("Rendszer UI elindult.");
   Serial.println(F("=== Kész. Ird 'help' a serial parancsokhoz. ==="));
 }
 
@@ -355,95 +370,94 @@ void loop() {
   }
   loopWeb();
 
-  if (!gDelayedWifiStarted && gModem.ready) {
-    static unsigned long modemStableTime = 0;
-    if (modemStableTime == 0) modemStableTime = millis();
+  // Vezetékes CAN busz hurok futtatása minden vezetékes egységen
+  #if IS_WIRED_CAN
+    canBusLoop();
+  #endif
 
-    if (millis() - modemStableTime > 5000) {
-      gDelayedWifiStarted = true;
-      diagAdd("Hardver stabilizálódott. Otthoni Wi-Fi keresése a háttérben...");
-      WiFi.setSleep(false);
-      wifiStaTryAutoConnect();
+  #if CURRENT_DEVICE_ROLE == ROLE_SERVER
+    if (!gDelayedWifiStarted && gModem.ready) {
+      static unsigned long modemStableTime = 0;
+      if (modemStableTime == 0) modemStableTime = millis();
+
+      if (millis() - modemStableTime > 5000) {
+        gDelayedWifiStarted = true;
+        diagAdd("Hardver stabilizálódott. Otthoni Wi-Fi keresése a háttérben...");
+        WiFi.setSleep(false);
+        wifiStaTryAutoConnect();
+      }
     }
-  }
 
-  static bool startupPhaseDone = false;
-  if (!startupPhaseDone && millis() - gModem.bootTime > 2500) {
-    startupPhaseDone = true;
-    diagAdd("SIM7000G hálózatkeresés indítása a háttérben...");
-    gModemInitRequested = true; 
-  }
-
-  if(gModemInitRequested) {
-    gModemInitRequested = false;
-    bool ok = modemInit();
-    diagAdd(ok ? "Modem init OK" : "Modem init HIBA: " + gModem.lastError);
-    if(ok) {
-      gnssStart(); 
-      dataConnEnable();
+    static bool startupPhaseDone = false;
+    if (!startupPhaseDone && millis() - gModem.bootTime > 2500) {
+      startupPhaseDone = true;
+      diagAdd("SIM7000G hálózatkeresés indítása a háttérben...");
+      gModemInitRequested = true; 
     }
-  }
 
-  monitorCall();
-  updateModemStats();
-  
-  gnssLoop();
-  ntpLoop();
+    if(gModemInitRequested) {
+      gModemInitRequested = false;
+      bool ok = modemInit();
+      diagAdd(ok ? "Modem init OK" : "Modem init HIBA: " + gModem.lastError);
+      if(ok) {
+        gnssStart(); 
+        dataConnEnable();
+      }
+    }
+
+    monitorCall();
+    updateModemStats();
+    gnssLoop();
+    ntpLoop();
+    smsInboxLoop();
+
+    static unsigned long lastReportCheck = 0;
+    if (millis() - lastReportCheck > 15000) { 
+      lastReportCheck = millis();
+      checkAndSendScheduledReport();
+    }
+    
+    if (!gStartupNtfySent && gTime.synced && gData.active) {
+      gStartupNtfySent = true; 
+      if (gNtfyStartupMsg) {
+        diagAdd("NTP szinkronizálva. Ntfy boot teszt küldés indítása...");
+        bool sent = ntfy.send("A szerver elindult és az idő szinkronizálva van!", "Rendszer Start", NtfyPriority::Default);
+        diagAdd(sent ? "Ntfy boot üzenet sikeresen elküldve!" : "Ntfy küldési hiba!");
+      } else {
+        diagAdd("Indulási ntfy üzenet letiltva a beállításokban.");
+      }
+    }
+
+    if(gSmsSendRequested) {
+      gSmsSendRequested = false;
+      gSmsSendInProgress = true;
+      gSmsSendDone = false;
+      String err = sendSMS(gSmsPendingNum, gSmsPendingText);
+      gSmsSendResult = err;
+      gSmsSendDone = true;
+      gSmsSendInProgress = false;
+      if(err.length() == 0) {
+        gLastSms = millis();
+        diagAdd("SMS OK -> " + gSmsPendingNum + " (" + String(gSmsPendingText.length()) + " kar)");
+      } else {
+        diagAdd("SMS HIBA -> " + gSmsPendingNum + ": " + err);
+      }
+    }
+
+    supabaseSyncLoop();
+  #endif
+
   updateLED();
   handleSerial();
   wifiStaLoop();
   wifiStaWatchdog();
-  smsInboxLoop();
   sensorsLoop();
-    
-  // --- ÚJ: Supabase háttérszinkronizációs ciklus futtatása ---
-  #if CURRENT_DEVICE_ROLE == ROLE_SERVER
-  supabaseSyncLoop();
-  #endif
-
-  // Kopogás figyelő futtatása folyamatosan
   knockLoop();
 
-  // Eredmény kiértékelése
   if (isSecretKnockUnlocked()) {
     clearSecretKnock();
-    
     diagAdd("Titkos kód (3 kopp) megadva! AP elindítása...");
     Serial.println("KOPOGÁS ÉRZÉKELVE! AP indul.");
-    
     startAP();
-  }
-
-  static unsigned long lastReportCheck = 0;
-  if (millis() - lastReportCheck > 15000) { 
-    lastReportCheck = millis();
-    checkAndSendScheduledReport();
-  }
-  
-  if (!gStartupNtfySent && gTime.synced && gData.active) {
-    gStartupNtfySent = true; 
-    if (gNtfyStartupMsg) {
-      diagAdd("NTP szinkronizálva. Ntfy boot teszt küldés indítása...");
-      bool sent = ntfy.send("A szerver elindult és az idő szinkronizálva van!", "Rendszer Start", NtfyPriority::Default);
-      diagAdd(sent ? "Ntfy boot üzenet sikeresen elküldve!" : "Ntfy küldési hiba!");
-    } else {
-      diagAdd("Indulási ntfy üzenet letiltva a beállításokban.");
-    }
-  }
-
-  if(gSmsSendRequested) {
-    gSmsSendRequested = false;
-    gSmsSendInProgress = true;
-    gSmsSendDone = false;
-    String err = sendSMS(gSmsPendingNum, gSmsPendingText);
-    gSmsSendResult = err;
-    gSmsSendDone = true;
-    gSmsSendInProgress = false;
-    if(err.length() == 0) {
-      gLastSms = millis();
-      diagAdd("SMS OK -> " + gSmsPendingNum + " (" + String(gSmsPendingText.length()) + " kar)");
-    } else {
-      diagAdd("SMS HIBA -> " + gSmsPendingNum + ": " + err);
-    }
   }
 }

@@ -15,6 +15,10 @@ class HoneyContainer {
   String batchCode;
   String status;
 
+  // --- ÚJ: Mérleg és leemelés alapú állapotok ---
+  bool isPlacedOnScale; // Rajta van-e a mérlegen?
+  double currentLiveGrossKg; // Aktuális élő bruttó súly a mérlegről
+
   HoneyContainer({
     required this.id,
     required this.type,
@@ -25,6 +29,8 @@ class HoneyContainer {
     required this.avgMoisture,
     required this.batchCode,
     this.status = 'Töltés alatt',
+    this.isPlacedOnScale = false,
+    this.currentLiveGrossKg = 0.0,
   });
 }
 
@@ -150,6 +156,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
 
   final List<ExtractionRecord> _extractionHistory = [];
 
+  // --- HORDÓK LISTÁJA A MÉRLEG ADATOKKAL ---
   final List<HoneyContainer> _containers = [
     HoneyContainer(
       id: 'C_0000001',
@@ -161,6 +168,8 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
       avgMoisture: 17.1,
       batchCode: 'LOT-2026-AKAC-01',
       status: 'Töltés alatt',
+      isPlacedOnScale: false,
+      currentLiveGrossKg: 18.5,
     ),
     HoneyContainer(
       id: 'C_0000002',
@@ -172,6 +181,8 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
       avgMoisture: 17.6,
       batchCode: 'LOT-2026-REP-01',
       status: 'Krémesítés',
+      isPlacedOnScale: false,
+      currentLiveGrossKg: 1.1,
     ),
   ];
 
@@ -271,6 +282,48 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
       _grossWeightCtrl.text = '17.8';
       _tareWeightCtrl.text = '4.2';
     });
+  }
+
+  // --- ÚJ: Hordó mérleg szimuláció (Rátesz / Tölt / Levesz -> Ekkor rögzít) ---
+  void _toggleContainerScaleSimulation(HoneyContainer container) {
+    setState(() {
+      if (!container.isPlacedOnScale) {
+        // 1. Rátesszük a hordót a mérlegre -> QR olvasás megtörtént, zár bezárva (nincs spam)
+        container.isPlacedOnScale = true;
+        // Szimuláljuk, hogy folyik bele a méz, mondjuk felkúszik a bruttó súlya
+        container.currentLiveGrossKg =
+            container.tareWeightKg + container.currentNetWeightKg + 15.0;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Hordó (${container.id}) a mérlegen. Töltés folyamatban (csendes mód)...',
+            ),
+            backgroundColor: Colors.teal.shade700,
+          ),
+        );
+      } else {
+        // 2. Leemesszük a hordót a mérlegről -> EZ AZ ESEMÉNY: most rögzítjük a végleges súlyt!
+        final double finalNet =
+            (container.currentLiveGrossKg - container.tareWeightKg).clamp(
+              0.0,
+              container.maxCapacityKg,
+            );
+        final double addedNet =
+            (finalNet - container.currentNetWeightKg).clamp(0.0, 999.0);
+        container.currentNetWeightKg = finalNet;
+        container.isPlacedOnScale = false;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Hordó leveve! Véglegesítve: +${addedNet.toStringAsFixed(1)} kg betöltve (Összesen: ${finalNet.toStringAsFixed(1)} kg) a(z) ${container.id} hordóban.',
+            ),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+      }
+    });
+    widget.repository.syncWithSupabase();
   }
 
   void _saveExtraction() {
@@ -561,6 +614,8 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                       avgMoisture: 17.0,
                       batchCode: batchCtrl.text.trim(),
                       status: 'Töltés alatt',
+                      isPlacedOnScale: false,
+                      currentLiveGrossKg: double.tryParse(tareCtrl.text) ?? 1.1,
                     );
                     setState(() {
                       _containers.add(newContainer);
@@ -917,180 +972,37 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
             ],
           ),
         ),
-        const SizedBox(height: 16),
+      ],
+    );
+  }
 
+  // --- HORDÓK & VÖDRÖK FÜL: VALÓS IDEJŰ MÉRLEG INTEGRÁCIÓVAL ---
+  Widget _buildContainersTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: const Color(0xFF141428),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: Colors.amberAccent.withAlpha(80)),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: const Row(
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.fact_check, color: Colors.tealAccent, size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    '2. Minőségellenőrzés',
-                    style: TextStyle(
-                      color: Colors.tealAccent,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedHoneyType,
-                      dropdownColor: const Color(0xFF0F172A),
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                      decoration: InputDecoration(
-                        labelText: 'Méz fajtája',
-                        labelStyle: const TextStyle(color: Colors.amber),
-                        filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      items: _honeyTypes
-                          .map(
-                            (t) => DropdownMenuItem(value: t, child: Text(t)),
-                          )
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null)
-                          setState(() => _selectedHoneyType = val);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: _moistureCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      style: TextStyle(
-                        color: isMoistureHigh
-                            ? Colors.redAccent
-                            : Colors.tealAccent,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.bold,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: 'Víz (%)',
-                        helperText: isMoistureHigh ? '>18.0%!' : '≤18%',
-                        helperStyle: TextStyle(
-                          color: isMoistureHigh
-                              ? Colors.redAccent
-                              : Colors.white54,
-                          fontSize: 10,
-                        ),
-                        labelStyle: const TextStyle(color: Colors.amber),
-                        filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedCappingLook,
-                dropdownColor: const Color(0xFF0F172A),
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'Fedelezés kinézete',
-                  labelStyle: const TextStyle(color: Colors.amber),
-                  filled: true,
-                  fillColor: const Color(0xFF0F172A),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                items: _cappingOptions
-                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                    .toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedCappingLook = val);
-                },
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedTargetContainerId,
-                dropdownColor: const Color(0xFF0F172A),
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'Cél tároló (Hordó / Vödör)',
-                  labelStyle: const TextStyle(color: Colors.amberAccent),
-                  filled: true,
-                  fillColor: const Color(0xFF0F172A),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                items: _containers.map((c) {
-                  return DropdownMenuItem(
-                    value: c.id,
-                    child: Text(
-                      '${c.id} – ${c.honeyType} (${c.currentNetWeightKg}/${c.maxCapacityKg} kg)',
-                    ),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _selectedTargetContainerId = val);
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.tealAccent,
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  onPressed: _saveExtraction,
-                  icon: const Icon(Icons.save_alt),
-                  label: Text(
-                    'Pergetés Rögzítése (+${netWeight.toStringAsFixed(1)} kg)',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
+              Icon(Icons.scale, color: Colors.amberAccent, size: 22),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Hordó mérleg (ESP32-S3): A hordó rátételekor azonosít, töltés közben csendben van, és csak a leemeléskor véglegesíti a súlyt.',
+                  style: TextStyle(color: Colors.white70, fontSize: 11),
                 ),
               ),
             ],
           ),
         ),
-      ],
-    );
-  }
+        const SizedBox(height: 14),
 
-  Widget _buildContainersTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
         SizedBox(
           width: double.infinity,
           height: 48,
@@ -1120,7 +1032,10 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
             decoration: BoxDecoration(
               color: const Color(0xFF141428),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white12),
+              border: Border.all(
+                color: c.isPlacedOnScale ? Colors.tealAccent : Colors.white12,
+                width: c.isPlacedOnScale ? 2 : 1,
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1130,9 +1045,11 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                   children: [
                     Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.oil_barrel,
-                          color: Colors.amberAccent,
+                          color: c.isPlacedOnScale
+                              ? Colors.tealAccent
+                              : Colors.amberAccent,
                           size: 20,
                         ),
                         const SizedBox(width: 8),
@@ -1146,37 +1063,35 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                         ),
                       ],
                     ),
-                    DropdownButton<String>(
-                      value: c.status,
-                      dropdownColor: const Color(0xFF0F172A),
-                      underline: const SizedBox(),
-                      style: const TextStyle(
-                        color: Colors.tealAccent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                    // --- MÉRLEG SIMULÁCIÓS GOMB ---
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: c.isPlacedOnScale
+                            ? Colors.tealAccent
+                            : Colors.amberAccent,
+                        side: BorderSide(
+                          color: c.isPlacedOnScale
+                              ? Colors.tealAccent
+                              : Colors.amberAccent,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'Töltés alatt',
-                          child: Text('Töltés alatt'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Ülepítés',
-                          child: Text('Ülepítés'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Krémesítés',
-                          child: Text('Krémesítés'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Raktáron',
-                          child: Text('Raktáron'),
-                        ),
-                        DropdownMenuItem(value: 'Üres', child: Text('Üres')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setState(() => c.status = val);
-                      },
+                      onPressed: () => _toggleContainerScaleSimulation(c),
+                      icon: Icon(
+                        c.isPlacedOnScale ? Icons.sensors : Icons.scale,
+                        size: 14,
+                      ),
+                      label: Text(
+                        c.isPlacedOnScale
+                            ? 'Mérlegen (Töltés)'
+                            : 'Hordó rátétele',
+                        style: const TextStyle(fontSize: 11),
+                      ),
                     ),
                   ],
                 ),
@@ -1197,15 +1112,30 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                     ),
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'Nettó méz: ${c.currentNetWeightKg.toStringAsFixed(1)} / ${c.maxCapacityKg.toStringAsFixed(0)} kg',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace',
-                  ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Tárolt nettó: ${c.currentNetWeightKg.toStringAsFixed(1)} / ${c.maxCapacityKg.toStringAsFixed(0)} kg',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    if (c.isPlacedOnScale)
+                      Text(
+                        'Élő bruttó: ${c.currentLiveGrossKg.toStringAsFixed(1)} kg',
+                        style: const TextStyle(
+                          color: Colors.tealAccent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),

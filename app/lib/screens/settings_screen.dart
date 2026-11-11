@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../services/hive_repository.dart';
+import 'server_config_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final HiveRepository repository;
@@ -328,6 +329,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // --- 0. SZERVER & RENDSZER KONFIGURÁCIÓ KÁRTYA ---
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141428),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFF10b981).withAlpha(120),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.developer_board,
+                        color: Color(0xFF10b981),
+                        size: 22,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'ESP32 Szerver & Időjárás Konfig',
+                        style: TextStyle(
+                          color: Color(0xFF10b981),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Wi-Fi, AP, Időjárás-állomás, CAN busz, GSM/SIM, ntfy és felhő beállítások közvetlen szerkesztése.',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10b981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const ServerAndWeatherConfigScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.tune),
+                      label: const Text(
+                        'Szerver Konfigurációs Panel Megnyitása',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // --- 1. MEGJELENÍTÉSI BEÁLLÍTÁSOK ---
             Container(
               padding: const EdgeInsets.all(16),

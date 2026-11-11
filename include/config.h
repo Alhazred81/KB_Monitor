@@ -1,78 +1,137 @@
 #pragma once
 
-#define ROLE_SERVER 1
-#define ROLE_MONITOR 2
-#define ROLE_GATEWAY 3
+// ─── 1. ESZKÖZ SZEREPKÖRÖK ──────────────────────────────────
+#define ROLE_SERVER          1
+#define ROLE_MONITOR         2
+#define ROLE_GATEWAY         3
+#define ROLE_WEATHER_STATION 4  // Különálló időjárás-állomás (vezetékes CAN módhoz)
+#define ROLE_SCALE           5  // Fiók- vagy hordómérleg
+#define ROLE_PUMP            6  // Szirupszivattyú / folyadékszint-mérő
 
 #ifndef CURRENT_DEVICE_ROLE
 #define CURRENT_DEVICE_ROLE ROLE_SERVER
 #endif
 
-// Periféria engedélyezések szerepkör alapján
+// ─── 2. KOMMUNIKÁCIÓS MÓD (VEZETÉKES VS. RÁDIÓS) ────────────
+#define COMM_WIRELESS        0  // ESP-NOW vagy LoRa (SX1262 / SX1272)
+#define COMM_WIRED_CAN       1  // Konténeres CAN busz (TJA1043T/1)
+
+#ifndef CURRENT_COMM_MODE
+#define CURRENT_COMM_MODE COMM_WIRELESS
+#endif
+
+#define IS_WIRED_CAN   (CURRENT_COMM_MODE == COMM_WIRED_CAN)
+#define IS_WIRELESS    (CURRENT_COMM_MODE == COMM_WIRELESS)
+
+// ─── 3. PERIFÉRIA ENGEDÉLYEZÉSEK SZEREPKÖR ALAPJÁN ──────────
+// Vezeték nélküli módban a szerveren vannak az időjárás-szenzorok,
+// vezetékes (CAN) módban a különálló ROLE_WEATHER_STATION egységen.
+#define HAS_WEATHER_SENSORS ( \
+    (CURRENT_DEVICE_ROLE == ROLE_SERVER && IS_WIRELESS) || \
+    (CURRENT_DEVICE_ROLE == ROLE_WEATHER_STATION && IS_WIRED_CAN) \
+)
+
+#define HAS_MODEM      (CURRENT_DEVICE_ROLE == ROLE_SERVER)
+#define HAS_GNSS       (CURRENT_DEVICE_ROLE == ROLE_SERVER)
 #define HAS_SHT40      (CURRENT_DEVICE_ROLE == ROLE_MONITOR)
 #define HAS_SGP41      (CURRENT_DEVICE_ROLE == ROLE_MONITOR)
-#define HAS_HX711      (CURRENT_DEVICE_ROLE == ROLE_MONITOR)
-#define HAS_ULTRASONIC (CURRENT_DEVICE_ROLE == ROLE_MONITOR)
+#define HAS_HX711      (CURRENT_DEVICE_ROLE == ROLE_MONITOR || CURRENT_DEVICE_ROLE == ROLE_SCALE)
+#define HAS_ULTRASONIC (CURRENT_DEVICE_ROLE == ROLE_MONITOR || CURRENT_DEVICE_ROLE == ROLE_PUMP)
 #define HAS_MICROPHONE (CURRENT_DEVICE_ROLE == ROLE_MONITOR)
 #define ENABLE_BRIDGE  (CURRENT_DEVICE_ROLE == ROLE_GATEWAY)
 
-// ─── LED / Panelverzió opciók ───────────────────────────────
-#define LED_MODE_V10        0
-#define LED_MODE_V11        1
-#define LED_MODE_CUSTOM     2
+// ─── 4. CAN BUSZ (TJA1043T/1) LÁBKIOSZTÁS ÉS ID-K ───────────
+#if CURRENT_DEVICE_ROLE == ROLE_SERVER
+    // SZERVER (TTGO T-SIM7000G):
+    // Biztonságos GPIO-k (nem ütköznek a MODEM_PWRKEY 4, MODEM_RST 5, MODEM RX/TX 26/27 lábakkal)
+    #ifndef PIN_CAN_TX
+    #define PIN_CAN_TX         18
+    #endif
+    #ifndef PIN_CAN_RX
+    #define PIN_CAN_RX         19
+    #endif
+    #ifndef PIN_CAN_EN
+    #define PIN_CAN_EN         23   // TJA1043 EN láb (Pin 6)
+    #endif
+    #ifndef PIN_CAN_STB
+    #define PIN_CAN_STB        32   // TJA1043 STB_N láb (Pin 14)
+    #endif
+#else
+    // KLIENSEK (Kaptármonitor, Időjárás-állomás, Mérlegek - ESP32-S3):
+    #ifndef PIN_CAN_TX
+    #define PIN_CAN_TX          4
+    #endif
+    #ifndef PIN_CAN_RX
+    #define PIN_CAN_RX          5
+    #endif
+    #ifndef PIN_CAN_EN
+    #define PIN_CAN_EN         17   // TJA1043 EN láb
+    #endif
+    #ifndef PIN_CAN_STB
+    #define PIN_CAN_STB        18   // TJA1043 STB_N láb
+    #endif
+#endif
+
+#define CAN_ID_WAKEUP      0x001  // Globális ébresztő keret (WUP)
+#define CAN_ID_SLEEP_CMD   0x0FF  // Globális altató parancs (Go-to-Sleep)
+#define CAN_ID_CMD_POLL    0x100  // Szerver adatbekérő parancs
+#define CAN_ID_TELEMETRY   0x200  // Kliens telemetria alapcím (+ node ID)
+#define CAN_ID_WEATHER     0x300  // Különálló időjárás-állomás telemetria cím
+
+// ─── 5. LED / PANELVERZIÓ OPCIÓK ────────────────────────────
+#define LED_MODE_V10         0
+#define LED_MODE_V11         1
+#define LED_MODE_CUSTOM      2
 #define LED_MODE_AT_NETLIGHT 3
 
-#define LED_PIN_V10        12
-#define LED_PIN_V11        13
-#define DEFAULT_LED_MODE   LED_MODE_V10
-#define DEFAULT_CUSTOM_PIN 2
+#define LED_PIN_V10         12
+#define LED_PIN_V11         13
+#define DEFAULT_LED_MODE    LED_MODE_V10
+#define DEFAULT_CUSTOM_PIN   2
 
-// ─── WiFi AP ────────────────────────────────────────────────
-#define AP_PREFIX          "Server-"
-#define DEFAULT_AP_PASS  "12345678"
-#define DEFAULT_CHANNEL  11
+// ─── 6. WIFI AP & STA ───────────────────────────────────────
+#define AP_PREFIX               "Server-"
+#define DEFAULT_AP_PASS         "12345678"
+#define DEFAULT_CHANNEL         11
 
-// ─── SMS ────────────────────────────────────────────────    
-#define SMS_COOLDOWN_MS  30000UL
-#define SMS_MAX_LEN      160
-#define SMS_INBOX_HARD_MAX 50
+#define STA_CONNECT_TIMEOUT_MS  15000UL
+#define STA_RETRY_INTERVAL_MS   30000UL
+
+// ─── 7. SMS & GNSS & ESP-NOW KORLÁTOK ───────────────────────
+#define SMS_COOLDOWN_MS         30000UL
+#define SMS_MAX_LEN             160
+#define SMS_INBOX_HARD_MAX      50
 #define SMS_INBOX_DEFAULT_LIMIT 10
 
-// ─── GNSS ───────────────────────────────────────────────────
-#define GNSS_POLL_INTERVAL_MS  5000UL
+#define GNSS_POLL_INTERVAL_MS   5000UL
 #define GNSS_DEFAULT_ASSIST_LAT 47.514600f
 #define GNSS_DEFAULT_ASSIST_LON 19.043500f
 
-// ─── STA (kliens) WiFi mód ────────────────────────────────────
-#define STA_CONNECT_TIMEOUT_MS   15000UL
-#define STA_RETRY_INTERVAL_MS    30000UL
+#define MAX_ESP_NOW_HIVES       10
 
-// ─── ESP-NOW Korlátok ───────────────────────────────────────
-#define MAX_ESP_NOW_HIVES 10
+// ─── 8. EEPROM LAYOUT (512 BYTE) ────────────────────────────
+#define EEPROM_SIZE             512
+#define ADDR_AP_PASS              0   // 32 byte
+#define ADDR_CHANNEL             32   //  1 byte
+#define ADDR_PIN_FLAG            33   //  1 byte
+#define ADDR_PIN                 34   //  8 byte
+#define ADDR_CCID                42   // 20 byte
+#define ADDR_CCID_FLAG           62   //  1 byte
+#define ADDR_LED_MODE            63   //  1 byte
+#define ADDR_LED_CUSTOM          64   //  1 byte
+#define ADDR_STA_FLAG            65   //  1 byte
+#define ADDR_STA_SSID            66   // 96 byte
+#define ADDR_STA_PASS           162   // 64 byte
+#define ADDR_GNSS_ASSIST_FLAG   226   //  1 byte
+#define ADDR_GNSS_ASSIST_LAT    227   //  4 byte float
+#define ADDR_GNSS_ASSIST_LON    231   //  4 byte float
+#define ADDR_SMS_INBOX_LIMIT    235   //  1 byte
+#define ADDR_NTFY_STARTUP       236   //  1 byte
+#define ADDR_REPORT_TIMES       237   // 16 byte
+#define ADDR_POS_DAYS           253   //  1 byte
+#define ADDR_AP_HIDE            254   //  1 byte (AP rejtett SSID opció)
 
-// ─── EEPROM layout (512 byte) ───────────────────────────────
-#define EEPROM_SIZE          512
-#define ADDR_AP_PASS         0   // 32 byte
-#define ADDR_CHANNEL        32   //  1 byte
-#define ADDR_PIN_FLAG       33   //  1 byte
-#define ADDR_PIN            34   //  8 byte
-#define ADDR_CCID           42   // 20 byte
-#define ADDR_CCID_FLAG      62   //  1 byte
-#define ADDR_LED_MODE       63   //  1 byte
-#define ADDR_LED_CUSTOM     64   //  1 byte
-#define ADDR_STA_FLAG       65   //  1 byte
-#define ADDR_STA_SSID       66   // 96 byte
-#define ADDR_STA_PASS      162   // 64 byte
-#define ADDR_GNSS_ASSIST_FLAG 226 //  1 byte
-#define ADDR_GNSS_ASSIST_LAT  227 //  4 byte float
-#define ADDR_GNSS_ASSIST_LON  231 //  4 byte float
-#define ADDR_SMS_INBOX_LIMIT  235 //  1 byte
-#define ADDR_NTFY_STARTUP 236 // 1 byte
-#define ADDR_REPORT_TIMES 237   // 16 byte
-#define ADDR_POS_DAYS 253 // 1 byte
-#define ADDR_AP_HIDE  254 // 1 byte (AP rejtett SSID opció)
-
-// ─── Szenzor beallitasok EEPROM cimei (256-tol) ─────────────
+// ─── 9. SZENZOR BEÁLLÍTÁSOK EEPROM CÍMEI (256-TÓL) ──────────
 #define ADDR_SENS_FLAG           256
 #define ADDR_SENS_ENABLE_MASK    257
 #define ADDR_SENS_RS485_BAUD     258
@@ -81,14 +140,15 @@
 #define ADDR_SENS_ADDR_SHT       264
 #define ADDR_SENS_ADDR_RAIN      265
 #define ADDR_SENS_RAIN_MODE      266
-#define ADDR_AP_SSID             270 // 32 byte
+#define ADDR_AP_SSID             270  // 32 byte
+#define ADDR_COMM_MODE           302  //  1 byte (0: Wireless, 1: Wired CAN)
 
-#define MAGIC_BYTE          0xA5
-#define DNS_PORT_NUM        53
+#define MAGIC_BYTE              0xA5
+#define DNS_PORT_NUM              53
 
-// ─── Pinout & Perifériák Szerepkör Alapján ──────────────────
-#if CURRENT_DEVICE_ROLE == ROLE_SERVER
-    // --- SZERVER (TTGO T-SIM7000G) PINOUT ---
+// ─── 10. PINOUT & PERIFÉRIÁK SZEREPKÖR ALAPJÁN ──────────────
+#if CURRENT_DEVICE_ROLE == ROLE_SERVER || CURRENT_DEVICE_ROLE == ROLE_WEATHER_STATION
+    // --- SZERVER (TTGO T-SIM7000G) & KÜLÖNÁLLÓ IDŐJÁRÁS-ÁLLOMÁS PINOUT ---
     #define MODEM_TX      27
     #define MODEM_RX      26
     #define MODEM_PWRKEY   4
@@ -98,7 +158,7 @@
     #define MODEM_SLP     36
     #define MODEM_KEY     37
 
-    // LoRa SX1262 (Szerver)
+    // LoRa SX1262 / SX1272 (Szerver)
     #define LORA_NSS      17
     #define LORA_SCK       6
     #define LORA_MISO      4
@@ -138,7 +198,7 @@
     #define PIN_USB_D_MINUS 19
     #define PIN_USB_D_PLUS  20
 
-    // LoRa SX1262 (Gateway / Monitor alap)
+    // LoRa SX1262 / SX1272 (Gateway)
     #define LORA_NSS      41
     #define LORA_SCK       0   // TX0 pin
     #define LORA_MISO      2
@@ -150,7 +210,7 @@
     #define LORA_TXEN     RADIOLIB_NC
 
 #else
-    // --- KAPTÁRMONITOR PINOUT ---
+    // --- KAPTÁRMONITOR / MÉRLEG / SZIVATTYÚ PINOUT ---
     #define PIN_HALL       1
     #define PIN_BAT_ADC    3
     #define WAKE_PIN      21   // Ajtó / ébresztő pin
@@ -168,14 +228,14 @@
     #define SENS_I2C2_SCL_DEFAULT 17
     #define SENS_I2C2_SDA_DEFAULT 18
 
-    // Szenzor táp engedélyezés
+    // Szenzor táp engedélyezés (5V power switch)
     #define PIN_SENSOR_EN  8
 
     // USB
     #define PIN_USB_D_MINUS 19
     #define PIN_USB_D_PLUS  20
 
-    // HX711 Mérleg
+    // HX711 Mérleg (Kaptármonitor, Fiókmérleg, Hordómérleg)
     #define PIN_HX711_SCK  9
     #define PIN_HX711_DO   10
 
@@ -184,7 +244,7 @@
     #define PIN_INMP_WS    13
     #define PIN_INMP_SD    14
 
-    // LoRa SX1262
+    // LoRa SX1262 / SX1272
     #define LORA_NSS      41
     #define LORA_SCK       0   // TX0 pin
     #define LORA_MISO      2
@@ -196,17 +256,17 @@
     #define LORA_TXEN     RADIOLIB_NC
 #endif
 
-// ─── Szenzorok & Spektrum alapértelmezések ──────────────────
+// ─── 11. SZENZOROK & SPEKTRUM ALAPÉRTELMEZÉSEK ──────────────
 #define SENS_RS485_RX_DEFAULT    16
 #define SENS_RS485_TX_DEFAULT    17
 #define SENS_RS485_DE_DEFAULT    15
 #define SENS_SHT_PIN_DEFAULT     18
 #define SENS_RAIN_PIN_DEFAULT    34
 
-#define SENS_RS485_BAUD_DEFAULT 9600UL
+#define SENS_RS485_BAUD_DEFAULT  9600UL
 #define SENS_POLL_INTERVAL_MS    3000UL
 
-// Szenzor bitmask pozicii
+// Szenzor bitmask pozíciók
 #define SENS_BIT_WINDSPEED   0
 #define SENS_BIT_WINDDIR     1
 #define SENS_BIT_SHT         2
@@ -216,7 +276,7 @@
 #define SENS_BIT_BMP280      6
 #define SENS_BIT_LTR390      7
 
-// ─── Spektrum / FFT & I2S Paraméterek ──────────────────────
+// ─── 12. SPEKTRUM / FFT & I2S PARAMÉTEREK ───────────────────
 #define FFT_SAMPLES          512
 #define FFT_SAMPLING_FREQ    8000.0
 #define I2S_PORT             ((i2s_port_t)0)
