@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/hive_repository.dart';
 import 'server_config_screen.dart';
+import 'ble_pairing_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final HiveRepository repository;
@@ -389,6 +390,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: const Icon(Icons.tune),
                       label: const Text(
                         'Szerver Konfigurációs Panel Megnyitása',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.tealAccent,
+                        side: const BorderSide(color: Colors.tealAccent),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const BlePairingScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.qr_code_scanner, size: 20),
+                      label: const Text(
+                        'Szerver Párosítása (Mágnes + QR Kód)',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),

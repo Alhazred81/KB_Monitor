@@ -170,7 +170,7 @@
     #define LORA_TXEN     RADIOLIB_NC
 
     #define PIN_BAT_ADC    9
-    #define PIN_HALL       1
+    #define PIN_HALL       34   // Rejtett mágnes / Hall-szenzor láb (lopásbiztos, LED nélküli BLE ébresztéshez)
     #define WAKE_PIN      39
 
     // USB

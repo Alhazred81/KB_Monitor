@@ -31,6 +31,8 @@
 #include "can_comm.h"
 #endif
 
+#include "ble_comm.h"
+
 // ─── Globálisok ─────────────────────────────────────────────
 
 extern String gReportTimes;
@@ -350,6 +352,7 @@ void setup() {
   #if CURRENT_DEVICE_ROLE == ROLE_SERVER
     modemPowerOn(); 
     initSupabaseSync();
+    initBleServer();
   #elif CURRENT_DEVICE_ROLE == ROLE_WEATHER_STATION
     // Ha különálló időjárás-állomás vezetékes módban
     Serial.println("[ROLE] Különálló időjárás-állomás indítva.");
@@ -453,6 +456,7 @@ void loop() {
   wifiStaWatchdog();
   sensorsLoop();
   knockLoop();
+  bleLoop();
 
   if (isSecretKnockUnlocked()) {
     clearSecretKnock();

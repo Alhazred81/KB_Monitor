@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../widgets/serverconfigform.dart';
+import 'ble_pairing_screen.dart';
 
 class ServerAndWeatherConfigScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -42,6 +43,20 @@ class _ServerAndWeatherConfigScreenState
         title: const Text('Szerver & Rendszer Konfig'),
         backgroundColor: const Color(0xFF1a1a2e),
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            tooltip: 'Bluetooth Párosítás (Mágnes + QR)',
+            icon: const Icon(Icons.qr_code_scanner, color: Colors.tealAccent),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BlePairingScreen(),
+                ),
+              );
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           isScrollable:
