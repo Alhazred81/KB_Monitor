@@ -51,6 +51,7 @@ class EvaluationData {
 }
 
 class BoxElement {
+  int? dbId;
   String name;
   String code; // QR-kód
   String? secondaryCode; // NFC azonosító
@@ -61,6 +62,7 @@ class BoxElement {
   DateTime? statusUpdatedAt;
 
   BoxElement({
+    this.dbId,
     required this.name,
     required this.code,
     this.secondaryCode,
@@ -71,12 +73,44 @@ class BoxElement {
     this.statusUpdatedAt,
   });
 
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! BoxElement) return false;
+    if (dbId != null && other.dbId != null) return dbId == other.dbId;
+    return code == other.code && type == other.type;
+  }
+
+  @override
+  int get hashCode =>
+      dbId != null ? dbId.hashCode : (code.hashCode ^ type.hashCode);
+
   bool get isVarroaCheckDue {
     if (type != 'bottom' || !isActive || statusUpdatedAt == null) {
       return false;
     }
     return DateTime.now().difference(statusUpdatedAt!).inDays >= 3;
   }
+}
+
+int getBoxRank(BoxElement b) {
+  final t = b.type.toLowerCase();
+  final n = b.name.toLowerCase();
+
+  // Sorrend a kaptártoronyban alulról felfelé (0 = aljdeszka, 70 = tető)
+  if (t == 'bottom' || n.contains('alj')) return 0;
+  if (t == 'pollen_trap' || n.contains('pollen') || n.contains('virágpor')) return 10;
+  if (t == 'brood_box' || t == 'nest' || n.contains('fészek') || n.contains('feszek')) return 20;
+  if (t == 'honey' || n.contains('méz') || n.contains('mez')) return 30;
+  if (t == 'escapement' || n.contains('szöktet') || n.contains('szoktet')) return 40;
+  if (t == 'vent' || n.contains('szellőz') || n.contains('szelloz')) return 50;
+  if (t == 'feeder' || t == 'roof_feeder' || n.contains('etető') || n.contains('eteto')) return 60; // Közvetlenül a tető alatt
+  if (t == 'roof' || n.contains('tető') || n.contains('teto') || n.contains('fedő') || n.contains('dekli')) return 70; // Legfelül
+  return 35;
+}
+
+void sortHiveBoxes(List<BoxElement> boxes) {
+  boxes.sort((a, b) => getBoxRank(a).compareTo(getBoxRank(b)));
 }
 
 class FrameAnalysisRecord {
@@ -172,6 +206,77 @@ class HiveData {
   String serverConnection;
   String? protocol;
 
+  // --- ETETŐ & SZIRUPADAGOLÁS BEÁLLÍTÁSOK (Csak ha van felhelyezett etető) ---
+  String feedingMode; // 'off', 'manual', 'auto_stim', 'smart_sensor'
+  double feedingMaxLiters; // Egyszerre kiadható maximum mennyiség vagy napi max keret
+  int feedingIntervalHours; // Időzített serkentés időköz órában (1, 2, 3, 4, max 6 óra)
+  int feedingIntervalDays; // Visszafelé kompatibilitáshoz
+  int feedingStopBeforeSunsetMinutes; // Napnyugta előtt hány perccel álljon le (60, 90, 120 perc)
+  double feedingPortionLiters; // Mikro-adag mérete smart módban (pl. 0.15 - 0.3 L)
+  double feederLevelPercent; // Ultrahangos/nyomás alapú szintmérés (0 - 100%)
+  int feederCalibEmptyMm; // Üres tartály távolsága a szenzortól mm-ben (0%)
+  int feederCalibFullMm; // Tele tartály távolsága a szenzortól mm-ben (100%)
+  int feederRawDistanceMm; // Aktuális mért ultrahang távolság mm-ben
+
+  double calculateLevelFromDistance(int distanceMm) {
+    if (feederCalibEmptyMm <= feederCalibFullMm) return 0.0;
+    double pct = ((feederCalibEmptyMm - distanceMm) /
+            (feederCalibEmptyMm - feederCalibFullMm)) *
+        100.0;
+    return pct.clamp(0.0, 100.0);
+  }
+
+  // Szenzoralapú intelligens serkentési ablak ellenőrzése
+  bool isSmartFeedingAllowedNow({
+    double currentLux = 15000.0,
+    double ambientTemp = 20.0,
+    DateTime? now,
+  }) {
+    if (feedingMode != 'smart_sensor') return false;
+    final currentTime = now ?? DateTime.now();
+
+    // 1. Hidegben a méhek nem hordanak szirupot (dermedés veszélye)
+    if (ambientTemp < 14.0) return false;
+
+    // 2. Szürkület / fényszint védelem: ha a fény 2500 Lux alá esik, leállás
+    if (currentLux < 2500.0) return false;
+
+    final int totalMinutes = currentTime.hour * 60 + currentTime.minute;
+
+    // 3. Reggeli aktiválódás: reggel 7:30 előtt még alszik a család
+    if (totalMinutes < 7 * 60 + 30) return false;
+
+    // 4. Szigorú lezárás napnyugta előtt (1-2 órával előbb STOP, hogy ne maradjon szirup éjszakára)
+    // Átlagos tavaszi/nyári naplemente: ~19:45 (1185 perc)
+    final int estimatedSunsetMinutes = 19 * 60 + 45;
+    final int cutoffMinutes = estimatedSunsetMinutes - feedingStopBeforeSunsetMinutes;
+
+    if (totalMinutes >= cutoffMinutes) {
+      return false; // Napnyugta előtt 1-2 órával leállítva!
+    }
+
+    return true;
+  }
+
+  bool get hasFeeder => boxes.any((b) =>
+      b.type == 'feeder' ||
+      b.type == 'roof_feeder' ||
+      b.name.toLowerCase().contains('etető') ||
+      b.name.toLowerCase().contains('eteto'));
+
+  bool get hasHoneySuper => boxes.any((b) =>
+      b.type == 'honey' ||
+      b.name.toLowerCase().contains('méz') ||
+      b.name.toLowerCase().contains('mez'));
+  BoxElement? get feederBox => boxes.cast<BoxElement?>().firstWhere(
+    (b) =>
+        b != null &&
+        (b.type == 'feeder' ||
+            b.type == 'roof_feeder' ||
+            b.name.toLowerCase().contains('etető')),
+    orElse: () => null,
+  );
+
   HiveData({
     required this.id,
     required this.name,
@@ -193,6 +298,16 @@ class HiveData {
     required this.boxes,
     required this.serverConnection,
     this.protocol,
+    this.feedingMode = 'off',
+    this.feedingMaxLiters = 1.0,
+    this.feedingIntervalHours = 6,
+    this.feedingIntervalDays = 1,
+    this.feedingStopBeforeSunsetMinutes = 90,
+    this.feedingPortionLiters = 0.2,
+    this.feederLevelPercent = 45.0,
+    this.feederCalibEmptyMm = 200,
+    this.feederCalibFullMm = 30,
+    this.feederRawDistanceMm = 120,
   }) : evaluation = evaluation ?? EvaluationData();
 
   @override
@@ -284,19 +399,143 @@ class HiveData {
   String get worstStatus {
     if (status == 'flashing_red' || protocol == 'hans') return 'flashing_red';
     if (status == 'purple' || swarmIndex >= 70.0) return 'purple';
+    if (status == 'red') return 'red';
     if (boxes.any((b) => b.type == 'pollen_trap' && b.isActive)) {
       return 'orange';
     }
 
     final statuses = [
+      status,
       nestCalculatedStatus,
       extTempStatus,
       for (var box in boxes) box.status,
     ];
     if (statuses.contains('flashing_red')) return 'flashing_red';
     if (statuses.contains('red')) return 'red';
+    if (statuses.contains('orange')) return 'orange';
     if (statuses.contains('yellow')) return 'yellow';
     return 'green';
+  }
+
+  // --- GYENGE / BETEG CSALÁD DETEKTÁLÁSA (MEGCSAPOLÁS VÉDELEM) ---
+  bool get isWeakOrSick {
+    // 1. Státuszkódok (Piros, Villogó piros, Sárga gyenge állapot)
+    if (status == 'red' || status == 'flashing_red' || status == 'yellow') {
+      return true;
+    }
+    if (nestCalculatedStatus == 'red' ||
+        nestCalculatedStatus == 'flashing_red' ||
+        nestCalculatedStatus == 'yellow') {
+      return true;
+    }
+
+    // 2. Mentési protokoll
+    if (protocol == 'hans' ||
+        protocol?.toLowerCase().contains('hans') == true) {
+      return true;
+    }
+
+    // 3. Kaptár neve / száma (ha tartalmazza a "beteg", "gyenge", "felszámol" szavakat)
+    final nm = name.toLowerCase();
+    if (nm.contains('beteg') ||
+        nm.contains('gyenge') ||
+        nm.contains('felszamol') ||
+        nm.contains('karanten') ||
+        nm.contains('mentes')) {
+      return true;
+    }
+
+    // 4. Családfunkció
+    final fn = familyFunction.toLowerCase();
+    if (fn.contains('felszamol') ||
+        fn.contains('beteg') ||
+        fn.contains('gyenge') ||
+        fn.contains('mentes') ||
+        fn.contains('karanten') ||
+        fn.contains('szezon végén') ||
+        fn.contains('hans')) {
+      return true;
+    }
+
+    // 5. Értékelési megjegyzések
+    final evNotes = evaluation.notes.toLowerCase();
+    if (evNotes.contains('beteg') ||
+        evNotes.contains('gyenge') ||
+        evNotes.contains('felszamol') ||
+        evNotes.contains('karanten')) {
+      return true;
+    }
+
+    // 6. Szenzormérések és biológiai paraméterek
+    if (dailyVarroaDrop >= 3.0) return true;
+    if (temp > 0.0 && temp < 32.0) return true;
+    if (weight > 0.0 && weight < 20.0) return true;
+
+    // 7. Család toronyszerkezete: ha nincs valódi fészekfiókja
+    final broodBoxes =
+        boxes.where((b) => b.type == 'brood_box' || b.type == 'nest');
+    if (broodBoxes.isEmpty) return true;
+
+    return false;
+  }
+
+  String get weakOrSickReason {
+    final reasons = <String>[];
+    if (status == 'flashing_red' || nestCalculatedStatus == 'flashing_red') {
+      reasons.add('Kritikus riasztás / vészhelyzet');
+    } else if (status == 'red' || nestCalculatedStatus == 'red') {
+      reasons.add('Piros (veszélyeztetett / beteg) státusz');
+    } else if (status == 'yellow' || nestCalculatedStatus == 'yellow') {
+      reasons.add('Sárga (gyenge / beavatkozást igénylő) státusz');
+    }
+    if (protocol == 'hans' ||
+        protocol?.toLowerCase().contains('hans') == true) {
+      reasons.add('Hans-protokoll alatt áll (mentési beavatkozás)');
+    }
+    final nm = name.toLowerCase();
+    if (nm.contains('beteg')) {
+      reasons.add('Megnevezés: Beteg család');
+    } else if (nm.contains('gyenge')) {
+      reasons.add('Megnevezés: Gyenge család');
+    } else if (nm.contains('felszamol')) {
+      reasons.add('Megnevezés: Felszámolás alatt álló család');
+    }
+    final fn = familyFunction.toLowerCase();
+    if (fn.contains('beteg')) {
+      reasons.add('Megbetegedett család');
+    } else if (fn.contains('gyenge')) {
+      reasons.add('Gyenge termelőképességű család');
+    } else if (fn.contains('felszamol') || fn.contains('szezon végén')) {
+      reasons.add('Felszámolás alatt áll');
+    }
+    final evNotes = evaluation.notes.toLowerCase();
+    if (evNotes.contains('beteg') || evNotes.contains('gyenge')) {
+      reasons.add('Értékelési megjegyzés: Beteg/gyenge');
+    }
+    if (dailyVarroaDrop >= 3.0) {
+      reasons.add(
+        'Megnövekedett atkahullás (${dailyVarroaDrop.toStringAsFixed(1)} db/nap)',
+      );
+    }
+    if (temp > 0.0 && temp < 32.0) {
+      reasons.add(
+        'Alacsony fészakhőmérséklet (${temp.toStringAsFixed(1)} °C, fiasítás kihűlés veszélye)',
+      );
+    }
+    if (weight > 0.0 && weight < 20.0) {
+      reasons.add(
+        'Alacsony kaptársúly (${weight.toStringAsFixed(1)} kg, éhezés veszély)',
+      );
+    }
+    final broodBoxes =
+        boxes.where((b) => b.type == 'brood_box' || b.type == 'nest');
+    if (broodBoxes.isEmpty) {
+      reasons.add('Hiányzó fészekfiók (nem termelőképes család)');
+    }
+    if (reasons.isEmpty) {
+      return 'Gyenge vagy veszélyeztetett állapot.';
+    }
+    return reasons.join(', ');
   }
 }
 
@@ -313,7 +552,9 @@ class StationData {
   final String windDirection;
   final double rainAmount;
   final double batteryVoltage;
-  final String status;
+  String status; // 'green': Supabase kapcsolat OK, 'red': Nincs kapcsolat
+
+  bool get isOnline => status == 'green';
 
   StationData({
     required this.id,

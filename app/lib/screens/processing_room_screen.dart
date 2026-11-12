@@ -114,11 +114,11 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
   );
   final TextEditingController _tasteCtrl = TextEditingController();
 
-  String _selectedHoneyType = 'Akácméz';
-  String _selectedCappingLook = 'Száraz (fehér, légbuborékos)';
-  double _cappingPercent = 90.0;
-  String _selectedConsistency = 'Sűrűn folyó';
-  String _selectedTasteProfile = 'Tiszta, fajtajelleges';
+  final String _selectedHoneyType = 'Akácméz';
+  final String _selectedCappingLook = 'Száraz (fehér, légbuborékos)';
+  final double _cappingPercent = 90.0;
+  final String _selectedConsistency = 'Sűrűn folyó';
+  final String _selectedTasteProfile = 'Tiszta, fajtajelleges';
   String _selectedTargetContainerId = 'C_0000001';
 
   final List<String> _honeyTypes = [
@@ -202,12 +202,12 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
     '400 g (Lépesméz tálca)': 0.4,
   };
 
-  double _cleanWaxKg = 18.5;
+  final double _cleanWaxKg = 18.5;
   double _cappingWaxKg = 6.2;
-  int _foundationSheetsDadant = 140;
-  int _foundationSheetsHalf = 210;
-  int _readyFramesDadant = 35;
-  int _readyFramesHalf = 60;
+  final int _foundationSheetsDadant = 140;
+  final int _foundationSheetsHalf = 210;
+  final int _readyFramesDadant = 35;
+  final int _readyFramesHalf = 60;
 
   @override
   void initState() {
@@ -308,8 +308,10 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
               0.0,
               container.maxCapacityKg,
             );
-        final double addedNet =
-            (finalNet - container.currentNetWeightKg).clamp(0.0, 999.0);
+        final double addedNet = (finalNet - container.currentNetWeightKg).clamp(
+          0.0,
+          999.0,
+        );
         container.currentNetWeightKg = finalNet;
         container.isPlacedOnScale = false;
 
@@ -455,7 +457,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: containerType,
+                      initialValue: containerType,
                       dropdownColor: const Color(0xFF0F172A),
                       style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
@@ -501,7 +503,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: honeyType,
+                      initialValue: honeyType,
                       dropdownColor: const Color(0xFF0F172A),
                       style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
@@ -1179,7 +1181,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
-                value: _bottlingSourceId,
+                initialValue: _bottlingSourceId,
                 dropdownColor: const Color(0xFF0F172A),
                 style: const TextStyle(color: Colors.white, fontSize: 13),
                 decoration: InputDecoration(
@@ -1211,7 +1213,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _selectedJarLabel,
+                initialValue: _selectedJarLabel,
                 dropdownColor: const Color(0xFF0F172A),
                 style: const TextStyle(color: Colors.white, fontSize: 13),
                 decoration: InputDecoration(

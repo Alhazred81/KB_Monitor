@@ -4,6 +4,7 @@
 
 #include "server_comm.h"
 #include "hive_msg.h" // A közös struktúra beemelése
+#include "ultrasonic_feeder.h"
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -131,7 +132,11 @@ void sendTelemetry(WakeupReason reason, float temp, float hum, float pres, float
     
     // Az egyéb szenzorokat itt lehet majd kitölteni (mérleg, VOC, UH)
     msg.weight_kg = 0.0; 
+#if HAS_ULTRASONIC
+    msg.feed_distance_mm = ultrasonicReadDistanceMm();
+#else
     msg.feed_distance_mm = 0;
+#endif
     msg.voc_index = 0;
     msg.nox_index = 0;
     

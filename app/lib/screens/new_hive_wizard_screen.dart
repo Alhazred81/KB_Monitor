@@ -350,7 +350,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
       ),
       if (_includeFeeder)
         BoxElement(
-          name: 'Etető',
+          name: 'Tetőetető',
           code: _feederCodeCtrl.text.trim(),
           type: 'feeder',
           size: _broodSize,
@@ -509,7 +509,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: _selectedDeviceRole,
+          initialValue: _selectedDeviceRole,
           dropdownColor: const Color(0xFF1E293B),
           style: const TextStyle(
             color: Colors.white,
@@ -1206,7 +1206,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                 contentPadding: EdgeInsets.zero,
                 activeThumbColor: Colors.lightBlueAccent,
                 title: const Text(
-                  '3. Etető felhelyezése (Opcionális)',
+                  '3. Tetőetető felhelyezése (Szintméréssel)',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 16,

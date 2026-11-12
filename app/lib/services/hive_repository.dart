@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -16,8 +17,17 @@ class HiveRepository extends ChangeNotifier {
       _loadOfflineQueue().then((_) {
         if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
           syncWithSupabase();
+        } else {
+          _isOnline = false;
+          _weatherStation.status = 'red';
+          notifyListeners();
         }
       });
+      // Periodikus kapcsolat-ellenőrzés 20 másodpercenként
+      _healthCheckTimer = Timer.periodic(
+        const Duration(seconds: 20),
+        (_) => checkConnectionHealth(),
+      );
     });
   }
 
@@ -26,6 +36,7 @@ class HiveRepository extends ChangeNotifier {
   bool _isSyncing = false;
   bool _isOnline = true; // Hálózati státusz jelző
   String _syncStatusText = 'Még nincs beállítva a Supabase kapcsolat';
+  Timer? _healthCheckTimer;
 
   // Offline műveletek várólistája (queue)
   List<Map<String, dynamic>> _offlineQueue = [];
@@ -86,6 +97,9 @@ class HiveRepository extends ChangeNotifier {
 
   Future<Map<String, dynamic>> testSupabaseConnection() async {
     if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      _isOnline = false;
+      _weatherStation.status = 'red';
+      notifyListeners();
       return {'success': false, 'message': 'Az URL vagy a kulcs üres.'};
     }
 
@@ -99,6 +113,7 @@ class HiveRepository extends ChangeNotifier {
 
       if (readRes.statusCode != 200) {
         _isOnline = false;
+        _weatherStation.status = 'red';
         notifyListeners();
         return {
           'success': false,
@@ -108,6 +123,7 @@ class HiveRepository extends ChangeNotifier {
       }
 
       _isOnline = true;
+      _weatherStation.status = 'green';
       notifyListeners();
       return {
         'success': true,
@@ -115,11 +131,47 @@ class HiveRepository extends ChangeNotifier {
       };
     } catch (e) {
       _isOnline = false;
+      _weatherStation.status = 'red';
       notifyListeners();
       return {
         'success': false,
         'message': 'Hálózati kivétel történt (Offline mód): $e',
       };
+    }
+  }
+
+  // Időszakos háttér kapcsolat-ellenőrzés a szerver és Supabase állapotához
+  Future<void> checkConnectionHealth() async {
+    if (_isSyncing) return;
+    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      if (_isOnline || _weatherStation.status != 'red') {
+        _isOnline = false;
+        _weatherStation.status = 'red';
+        notifyListeners();
+      }
+      return;
+    }
+
+    try {
+      final res = await http
+          .get(
+            Uri.parse('$_supabaseUrl/rest/v1/monitors?select=mac_address&limit=1'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 4));
+
+      final bool reachable = res.statusCode == 200;
+      if (_isOnline != reachable || _weatherStation.status != (reachable ? 'green' : 'red')) {
+        _isOnline = reachable;
+        _weatherStation.status = reachable ? 'green' : 'red';
+        notifyListeners();
+      }
+    } catch (_) {
+      if (_isOnline || _weatherStation.status != 'red') {
+        _isOnline = false;
+        _weatherStation.status = 'red';
+        notifyListeners();
+      }
     }
   }
 
@@ -235,6 +287,7 @@ class HiveRepository extends ChangeNotifier {
       );
     }
 
+    sortHiveBoxes(hive.boxes);
     _hives.add(hive);
     _postToSupabase('monitors', {
       'mac_address': hive.id,
@@ -255,22 +308,33 @@ class HiveRepository extends ChangeNotifier {
 
   void addBoxToHive(HiveData hive, BoxElement box) {
     hive.boxes.add(box);
+    sortHiveBoxes(hive.boxes); // Biztosítja a helyes rétegrendet (tetőetető mindig közvetlenül a tető alatt)
+    final int calculatedPos = hive.boxes.indexOf(box) + 1;
+
     _postToSupabase('bodies', {
       'monitor_mac': hive.id,
       'body_type': box.size,
       'body_function': box.type,
-      'position_index': hive.boxes.length,
+      'position_index': calculatedPos,
       'is_active': box.isActive,
     });
     notifyListeners();
   }
 
   void removeBoxFromHive(HiveData hive, BoxElement box) {
-    hive.boxes.remove(box);
-    _deleteFromSupabase(
-      'bodies',
-      'monitor_mac=eq.${hive.id}&body_function=eq.${box.type}',
-    );
+    if (box.type == 'bottom') return; // Az aljdeszka a kaptár fix alapeleme, nem törölhető
+    hive.boxes.removeWhere((b) =>
+        identical(b, box) ||
+        (box.dbId != null && b.dbId == box.dbId) ||
+        (box.code.isNotEmpty && b.code == box.code && b.type == box.type));
+    if (box.dbId != null) {
+      _deleteFromSupabase('bodies', 'id=eq.${box.dbId}');
+    } else {
+      _deleteFromSupabase(
+        'bodies',
+        'monitor_mac=eq.${hive.id}&body_function=eq.${box.type}',
+      );
+    }
     notifyListeners();
   }
 
@@ -300,6 +364,32 @@ class HiveRepository extends ChangeNotifier {
   }
 
   void updateHive(HiveData hive) {
+    _patchToSupabase('monitors', 'mac_address=eq.${hive.id}', {
+      'hive_number': hive.name,
+      'status': hive.status,
+      'family_function': hive.familyFunction,
+      'protocol': hive.protocol,
+      'feeding_mode': hive.feedingMode,
+      'feeding_max_liters': hive.feedingMaxLiters,
+      'feeding_interval_days': hive.feedingIntervalDays,
+      'feeder_level_percent': hive.feederLevelPercent,
+    });
+    notifyListeners();
+  }
+
+  void updateHiveFeedingSettings(HiveData hive) {
+    _patchToSupabase('monitors', 'mac_address=eq.${hive.id}', {
+      'feeding_mode': hive.feedingMode,
+      'feeding_max_liters': hive.feedingMaxLiters,
+      'feeding_interval_hours': hive.feedingIntervalHours,
+      'feeding_interval_days': hive.feedingIntervalDays,
+      'feeding_stop_sunset_min': hive.feedingStopBeforeSunsetMinutes,
+      'feeding_portion_liters': hive.feedingPortionLiters,
+      'feeder_level_percent': hive.feederLevelPercent,
+      'feeder_calib_empty_mm': hive.feederCalibEmptyMm,
+      'feeder_calib_full_mm': hive.feederCalibFullMm,
+      'feeder_raw_distance_mm': hive.feederRawDistanceMm,
+    });
     notifyListeners();
   }
 
@@ -329,6 +419,13 @@ class HiveRepository extends ChangeNotifier {
         break;
       }
     }
+    notifyListeners();
+  }
+
+  void refillSyrupTank(SyrupPumpData pump, double liters) {
+    pump.totalPumpedLiters = 0.0;
+    pump.lastOperationStatus =
+        'Tartály újratöltve (${liters.toStringAsFixed(0)} L)';
     notifyListeners();
   }
 
@@ -369,6 +466,32 @@ class HiveRepository extends ChangeNotifier {
         'notes': t.description,
       });
     }
+    notifyListeners();
+  }
+
+  void completeTask(String taskId) {
+    for (var t in _scheduledTasks) {
+      if (t.id == taskId) {
+        t.isCompleted = true;
+        _postToSupabase('treatments', {
+          'id': taskId,
+          'is_completed': true,
+        });
+        break;
+      }
+    }
+    notifyListeners();
+  }
+
+  void addScheduledTask(ScheduledTask task) {
+    _scheduledTasks.add(task);
+    _postToSupabase('treatments', {
+      'monitor_mac': task.hiveId,
+      'treatment_type': task.title,
+      'scheduled_date': task.scheduledDate.toIso8601String().split('T').first,
+      'is_completed': task.isCompleted,
+      'notes': task.description,
+    });
     notifyListeners();
   }
 
@@ -672,6 +795,7 @@ class HiveRepository extends ChangeNotifier {
 
       if (monitorsRes.statusCode == 200) {
         _isOnline = true;
+        _weatherStation.status = 'green';
         final List<dynamic> data = jsonDecode(monitorsRes.body);
         _hives.clear();
 
@@ -681,6 +805,25 @@ class HiveRepository extends ChangeNotifier {
           final String name = row['hive_number'] ?? 'Család ($mac)';
           final double swarmIdx =
               (row['swarm_index'] as num?)?.toDouble() ?? 0.0;
+          final String feedingMode = row['feeding_mode'] ?? 'off';
+          final double feedingMaxLiters =
+              (row['feeding_max_liters'] as num?)?.toDouble() ?? 1.0;
+          final int feedingIntervalHours =
+              (row['feeding_interval_hours'] as num?)?.toInt() ?? 6;
+          final int feedingIntervalDays =
+              (row['feeding_interval_days'] as num?)?.toInt() ?? 1;
+          final int feedingStopSunsetMin =
+              (row['feeding_stop_sunset_min'] as num?)?.toInt() ?? 90;
+          final double feedingPortionLiters =
+              (row['feeding_portion_liters'] as num?)?.toDouble() ?? 0.2;
+          final double feederLevelPercent =
+              (row['feeder_level_percent'] as num?)?.toDouble() ?? 45.0;
+          final int feederCalibEmptyMm =
+              (row['feeder_calib_empty_mm'] as num?)?.toInt() ?? 200;
+          final int feederCalibFullMm =
+              (row['feeder_calib_full_mm'] as num?)?.toInt() ?? 30;
+          final int feederRawDistanceMm =
+              (row['feeder_raw_distance_mm'] as num?)?.toInt() ?? 120;
 
           final bodiesRes = await http
               .get(
@@ -713,25 +856,89 @@ class HiveRepository extends ChangeNotifier {
             if (bodiesData.isNotEmpty) {
               loadedBoxes.clear();
               for (var bRow in bodiesData) {
-                String rawFunc = bRow['body_function'] ?? 'honey';
-                final String bFunc = (rawFunc == 'nest')
-                    ? 'brood_box'
-                    : rawFunc;
+                String rawFunc = (bRow['body_function'] ?? bRow['function'] ?? 'honey').toString().trim();
+                final String f = rawFunc.toLowerCase();
+                String bFunc = rawFunc;
+                String bName = 'Kaptárelem';
+
+                if (f == 'brood_box' ||
+                    f == 'broodbox' ||
+                    f == 'nest' ||
+                    f == '8' ||
+                    f.contains('fészek') ||
+                    f.contains('feszek')) {
+                  bFunc = 'brood_box';
+                  bName = 'Fészekfiók';
+                } else if (f == 'honey' ||
+                    f == 'mez' ||
+                    f == 'mezter' ||
+                    f == 'méztér' ||
+                    f == '9') {
+                  bFunc = 'honey';
+                  bName = 'Méztér';
+                } else if (f == 'bottom' ||
+                    f == 'alj' ||
+                    f == 'aljdeszka' ||
+                    f == '15') {
+                  bFunc = 'bottom';
+                  bName = 'Aljdeszka';
+                } else if (f == 'pollen_trap' ||
+                    f == 'pollen' ||
+                    f == 'viragpor' ||
+                    f == 'virágpor' ||
+                    f == '11') {
+                  bFunc = 'pollen_trap';
+                  bName = 'Pollengyűjtő';
+                } else if (f == 'feeder' ||
+                    f == 'roof_feeder' ||
+                    f == 'tetoeteto' ||
+                    f.contains('etet') ||
+                    f == '10') {
+                  bFunc = 'feeder';
+                  bName = 'Tetőetető';
+                } else if (f == 'escapement' ||
+                    f == 'szokteto' ||
+                    f == 'szöktető' ||
+                    f == '13') {
+                  bFunc = 'escapement';
+                  bName = 'Szöktető';
+                } else if (f == 'vent' ||
+                    f == 'szellozo' ||
+                    f == 'szellőző' ||
+                    f == '12') {
+                  bFunc = 'vent';
+                  bName = 'Szellőző';
+                } else if (f == 'roof' ||
+                    f == 'teto' ||
+                    f == 'tető' ||
+                    f == 'dekli') {
+                  bFunc = 'roof';
+                  bName = 'Tető';
+                } else if (f == 'treatment_strip' || f.contains('kezel')) {
+                  bFunc = 'treatment_strip';
+                  bName = 'Kezelőlap hordozó';
+                } else if (f == 'queen_excluder' ||
+                    f.contains('anyaracs') ||
+                    f.contains('excluder')) {
+                  bFunc = 'queen_excluder';
+                  bName = 'Anyarács';
+                } else {
+                  bFunc = rawFunc;
+                  bName = (bRow['name'] != null &&
+                          bRow['name'].toString().trim().isNotEmpty &&
+                          bRow['name'].toString().toLowerCase() != 'elem')
+                      ? bRow['name'].toString()
+                      : (rawFunc.isNotEmpty && rawFunc != 'elem'
+                          ? rawFunc
+                          : 'Kiegészítő elem');
+                }
+
+                final int? bodyDbId = (bRow['id'] as num?)?.toInt();
                 final String bType = bRow['body_type'] ?? 'hunor';
                 final bool isActive = bRow['is_active'] ?? false;
-
-                String bName = 'Elem';
-                if (bFunc == 'brood_box') bName = 'Fészekfiók';
-                if (bFunc == 'honey') bName = 'Méztér';
-                if (bFunc == 'bottom') bName = 'Aljdeszka';
-                if (bFunc == 'pollen_trap') bName = 'Pollengyűjtő';
-                if (bFunc == 'feeder') bName = 'Etető';
-                if (bFunc == 'escapement') bName = 'Szöktető';
-                if (bFunc == 'vent') bName = 'Szellőző';
-                if (bFunc == 'roof') bName = 'Tető';
-
                 loadedBoxes.add(
                   BoxElement(
+                    dbId: bodyDbId,
                     name: bName,
                     code: '${mac}_${bFunc.toUpperCase()}',
                     type: bFunc,
@@ -744,13 +951,28 @@ class HiveRepository extends ChangeNotifier {
             }
           }
 
-          loadedBoxes.sort((a, b) {
-            if (a.type == 'bottom') return -1;
-            if (b.type == 'bottom') return 1;
-            if (a.type == 'pollen_trap') return -1;
-            if (b.type == 'pollen_trap') return 1;
-            return 0;
-          });
+          // A kaptár pontosan azokat a fiókokat tartalmazza, amelyek a valóságban / adatbázisban léteznek
+          final bool originallyMissingBrood =
+              !loadedBoxes.any((b) => b.type == 'brood_box' || b.type == 'nest');
+
+          sortHiveBoxes(loadedBoxes);
+
+          final String rawStatus = row['status'] ??
+              (swarmIdx >= 70.0
+                  ? 'purple'
+                  : (originallyMissingBrood ? 'yellow' : 'green'));
+          final String familyFunction = row['family_function'] ??
+              row['familyFunction'] ??
+              row['function'] ??
+              (originallyMissingBrood ? 'gyenge' : 'gyujto_mez');
+          final String? protocol = row['protocol'];
+          final double dailyVarroa =
+              (row['daily_varroa_drop'] as num?)?.toDouble() ?? 0.0;
+          final double temp = (row['temp'] as num?)?.toDouble() ??
+              (row['temperature'] as num?)?.toDouble() ??
+              34.5;
+          final double weight = (row['weight'] as num?)?.toDouble() ?? 35.0;
+          final String notes = row['notes'] ?? row['comment'] ?? '';
 
           double latOffset = (index % 3) * 0.00015;
           double lngOffset = (index ~/ 3) * 0.00015;
@@ -760,23 +982,38 @@ class HiveRepository extends ChangeNotifier {
               id: mac,
               name: name,
               location: LatLng(37.422500 + latOffset, -122.084500 + lngOffset),
-              status: swarmIdx >= 70.0 ? 'purple' : 'green',
-              temp: 34.5,
+              status: rawStatus,
+              familyFunction: familyFunction,
+              protocol: protocol,
+              dailyVarroaDrop: dailyVarroa,
+              temp: temp,
               humidity: 60.0,
               extTemp: _weatherStation.temp,
               extHumidity: _weatherStation.humidity,
-              weight: 35.0,
+              weight: weight,
               batteryVoltage: 4.1,
               zcr: 3800.0,
               swarmIndex: swarmIdx,
+              feedingMode: feedingMode,
+              feedingMaxLiters: feedingMaxLiters,
+              feedingIntervalHours: feedingIntervalHours,
+              feedingIntervalDays: feedingIntervalDays,
+              feedingStopBeforeSunsetMinutes: feedingStopSunsetMin,
+              feedingPortionLiters: feedingPortionLiters,
+              feederLevelPercent: feederLevelPercent,
+              feederCalibEmptyMm: feederCalibEmptyMm,
+              feederCalibFullMm: feederCalibFullMm,
+              feederRawDistanceMm: feederRawDistanceMm,
               boxes: loadedBoxes,
               serverConnection: 'Supabase OK',
+              evaluation: EvaluationData(notes: notes),
             ),
           );
           index++;
         }
       } else {
         _isOnline = false;
+        _weatherStation.status = 'red';
       }
 
       _syncStatusText = _isOnline
@@ -784,6 +1021,7 @@ class HiveRepository extends ChangeNotifier {
           : 'Offline mód: Helyi adatok használatban (${_offlineQueue.length} várakozó művelet)';
     } catch (e) {
       _isOnline = false;
+      _weatherStation.status = 'red';
       _syncStatusText =
           'Offline mód (Nincs net): ${_offlineQueue.length} elem vár szinkronra.';
     } finally {

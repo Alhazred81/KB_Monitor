@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/hive_repository.dart';
 import '../widgets/serverconfigform.dart';
 import 'ble_pairing_screen.dart';
 
@@ -91,8 +92,8 @@ class _ServerAndWeatherConfigScreenState
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
+                    children: [
+                      const Text(
                         'Szerver Státusz',
                         style: TextStyle(
                           color: Colors.white,
@@ -100,8 +101,8 @@ class _ServerAndWeatherConfigScreenState
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Divider(color: Colors.grey),
-                      ListTile(
+                      const Divider(color: Colors.grey),
+                      const ListTile(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(
@@ -114,29 +115,43 @@ class _ServerAndWeatherConfigScreenState
                           style: TextStyle(color: Colors.white70),
                         ),
                         trailing: Text(
-                          'Aktív (IP: 10.0.0.2)',
+                          'Aktív (SIM7000G)',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                      ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          Icons.circle,
-                          color: Colors.green,
-                          size: 12,
-                        ),
-                        title: Text(
-                          'Supabase Szinkronizáció',
-                          style: TextStyle(color: Colors.white70),
-                        ),
-                        trailing: Text(
-                          'Szinkronizálva',
-                          style: TextStyle(color: Colors.greenAccent),
-                        ),
+                      ListenableBuilder(
+                        listenable: HiveRepository.instance,
+                        builder: (context, _) {
+                          final bool isOnline =
+                              HiveRepository.instance.isOnline;
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.circle,
+                              color: isOnline ? Colors.green : Colors.red,
+                              size: 12,
+                            ),
+                            title: const Text(
+                              'Supabase Szinkronizáció',
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                            trailing: Text(
+                              isOnline
+                                  ? 'Kapcsolódva (Zöld)'
+                                  : 'Nincs kapcsolat (Piros)',
+                              style: TextStyle(
+                                color: isOnline
+                                    ? Colors.greenAccent
+                                    : Colors.redAccent,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),

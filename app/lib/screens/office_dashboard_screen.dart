@@ -223,9 +223,9 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
     CatalogItem(
       category: 'accessory_type',
       code: 'feeder',
-      label: 'Etető',
+      label: 'Tetőetető (szintmérős)',
       defaultSize: 'dadant',
-      iconName: 'extension',
+      iconName: 'water_drop',
       colorHex: '#40C4FF',
     ),
     CatalogItem(
@@ -583,7 +583,7 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DropdownButtonFormField<String>(
-                    value: printPrefix,
+                    initialValue: printPrefix,
                     dropdownColor: const Color(0xFF0F172A),
                     style: const TextStyle(color: Colors.white, fontSize: 13),
                     decoration: InputDecoration(
@@ -1014,7 +1014,7 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<String>(
-                      value: selectedCategory,
+                      initialValue: selectedCategory,
                       dropdownColor: const Color(0xFF0F172A),
                       style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
@@ -1238,8 +1238,9 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                           )
                           .toList(),
                       onChanged: (val) {
-                        if (val != null)
+                        if (val != null) {
                           setState(() => _selectedSiteCode = val);
+                        }
                       },
                     ),
                   ),

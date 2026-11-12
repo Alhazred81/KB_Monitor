@@ -12,6 +12,7 @@ import '../services/hive_repository.dart';
 import '../services/location_compass_service.dart';
 import '../widgets/hive_config_dialog.dart';
 import '../widgets/hive_detail_sheet.dart';
+import '../widgets/weak_colony_warning_dialog.dart';
 import '../widgets/scanner_controls.dart';
 import '../widgets/scanner_overlay.dart';
 import '../widgets/top_gps_bar.dart';
@@ -365,7 +366,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         ),
                         DropdownMenuItem(
                           value: 'feeder',
-                          child: Text('Etető (Tartozék)'),
+                          child: Text('Tetőetető (Tartozék)'),
                         ),
                         DropdownMenuItem(
                           value: 'escapement',
@@ -395,7 +396,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                               boxName = 'Méztér';
                               boxSize = '1/2 dadant';
                             } else if (val == 'feeder') {
-                              boxName = 'Etető';
+                              boxName = 'Tetőetető';
                               boxSize = 'dadant';
                             } else if (val == 'escapement') {
                               boxName = 'Szöktető';
@@ -445,25 +446,117 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   ),
                   onPressed: () {
                     if (selectedTargetHive != null) {
-                      _repository.addBoxToHive(
-                        selectedTargetHive!,
-                        BoxElement(
-                          name: boxName,
-                          code: primaryCode,
-                          secondaryCode: secondaryCode,
-                          type: selectedType,
-                          size: boxSize,
-                          status: 'green',
-                        ),
-                      );
+                      void executeAdd() {
+                        _repository.addBoxToHive(
+                          selectedTargetHive!,
+                          BoxElement(
+                            name: boxName,
+                            code: primaryCode,
+                            secondaryCode: secondaryCode,
+                            type: selectedType,
+                            size: boxSize,
+                            status: 'green',
+                          ),
+                        );
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Fiók rögzítve a kaptárhoz.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+
+                      // 0. Méret kompatibilitás ellenőrzése (Dadant vs NB/Hunor/1/2 NB)
+                      final bool isRealBox = (selectedType == 'brood_box' || selectedType == 'honey');
+                      if (isRealBox && boxSize.isNotEmpty) {
+                        String norm(String s) {
+                          final c = s.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('/', '');
+                          if (c.contains('dadant')) return 'dadant';
+                          if (c.contains('hunor') || c.contains('nb') || c.contains('nagyboczonadi')) return 'nb_hunor';
+                          if (c.contains('langstroth')) return 'langstroth';
+                          return c;
+                        }
+
+                        final incompatibleBox = selectedTargetHive!.boxes.firstWhere(
+                          (b) => b.size.isNotEmpty && (b.type == 'brood_box' || b.type == 'honey') && norm(b.size) != norm(boxSize),
+                          orElse: () => BoxElement(name: '', code: '', type: '', size: ''),
+                        );
+
+                        if (incompatibleBox.size.isNotEmpty) {
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              backgroundColor: const Color(0xFF1E293B),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              title: const Row(
+                                children: [
+                                  Icon(Icons.warning_amber, color: Colors.redAccent, size: 22),
+                                  SizedBox(width: 8),
+                                  Text('Méret összeférhetetlenség', style: TextStyle(color: Colors.redAccent, fontSize: 16)),
+                                ],
+                              ),
+                              content: const Text(
+                                'A kiválasztott méret nem kombinálható a kaptárban lévő mérettel!\n\n'
+                                '• A Dadant kizárólag 1/2 Dadanttal használható együtt.\n'
+                                '• Az NB, Hunor és 1/2 NB egymással kompatibilis, de a Dadanttal keresztbe nem keverhető.',
+                                style: TextStyle(color: Colors.white70, fontSize: 13),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: const Text('Megértettem', style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                          );
+                          return;
+                        }
+                      }
+
+                      // 1. Etető és Méztér összeférhetetlenség ellenőrzése
+                      if (selectedType == 'feeder' &&
+                          selectedTargetHive!.hasHoneySuper) {
+                        showFeederHoneyConflictDialog(
+                          context: context,
+                          hive: selectedTargetHive!,
+                          conflictType: 'adding_feeder_with_honey',
+                          onConfirm: executeAdd,
+                        );
+                        return;
+                      }
+                      if (selectedType == 'honey' &&
+                          (selectedTargetHive!.hasFeeder ||
+                              selectedTargetHive!.feedingMode != 'off')) {
+                        showFeederHoneyConflictDialog(
+                          context: context,
+                          hive: selectedTargetHive!,
+                          conflictType: 'adding_honey_with_feeder',
+                          onConfirm: executeAdd,
+                        );
+                        return;
+                      }
+
+                      // 2. Gyenge vagy beteg család védelme
+                      final bool isHoneyOrPollen = (selectedType == 'honey' ||
+                          selectedType == 'pollen_trap');
+                      if (isHoneyOrPollen && selectedTargetHive!.isWeakOrSick) {
+                        final String actionTitle = selectedType == 'honey'
+                            ? 'Méztér hozzáadása'
+                            : 'Pollengyűjtő hozzáadása';
+                        showWeakColonyWarningDialog(
+                          context: context,
+                          hive: selectedTargetHive!,
+                          actionTitle: actionTitle,
+                          onConfirm: executeAdd,
+                        );
+                        return;
+                      }
+
+                      executeAdd();
+                      return;
                     }
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Fiók rögzítve a kaptárhoz.'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
                   },
                   child: const Text('Mentés'),
                 ),
@@ -481,6 +574,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
       isScrollControlled: true,
       enableDrag: true,
       isDismissible: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (context) => HiveDetailSheet(
         hive: hive,
@@ -605,6 +699,67 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                 ],
               ),
               const Divider(color: Colors.white24, height: 20),
+
+              // Szerver / Supabase kapcsolat státusz kártya (Zöld / Piros)
+              Builder(
+                builder: (context) {
+                  final bool isConnected =
+                      station.isOnline && _repository.isOnline;
+                  final Color statusColor =
+                      isConnected ? Colors.greenAccent : Colors.redAccent;
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isConnected
+                          ? Colors.green.withAlpha(35)
+                          : Colors.red.withAlpha(35),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: statusColor.withAlpha(120)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isConnected ? Icons.cloud_done : Icons.cloud_off,
+                          color: statusColor,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isConnected
+                                    ? 'Supabase Kapcsolat: AKTÍV (Zöld)'
+                                    : 'Supabase Kapcsolat: MEGSZAKADT (Piros)',
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              Text(
+                                isConnected
+                                    ? 'A szerver adatai szinkronizálva vannak a felhővel.'
+                                    : 'A szerver nem érhető el vagy hiányzik az internetkapcsolat.',
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
 
               // Szenzoradatok listája
               _buildStationRow(
@@ -814,15 +969,14 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
   }
 
   void _showSyrupPumpDetails(SyrupPumpData pump) {
-    double selectedLiters = 1.0;
-    String targetHive = _repository.hives.isNotEmpty
-        ? _repository.hives.first.name
-        : '1. Család';
-
     const double maxTankCapacity = 100.0;
     final double remainingLiters = (maxTankCapacity - pump.totalPumpedLiters)
         .clamp(0.0, maxTankCapacity);
     final double levelPct = (remainingLiters / maxTankCapacity) * 100.0;
+
+    final hivesWithFeeder = _repository.hives
+        .where((h) => h.hasFeeder)
+        .toList();
 
     showDialog(
       context: context,
@@ -831,11 +985,15 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
           builder: (context, setDialogState) {
             return AlertDialog(
               backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               title: Row(
                 children: [
                   const Icon(
                     Icons.settings_input_component,
                     color: Colors.orangeAccent,
+                    size: 26,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -844,94 +1002,166 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                       style: const TextStyle(
                         color: Colors.amberAccent,
                         fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                 ],
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildStationRow(
-                    'Tartály folyadékszint',
-                    '${remainingLiters.toStringAsFixed(1)} L (${levelPct.toStringAsFixed(0)}%)',
-                    Icons.opacity,
-                    Colors.orangeAccent,
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: LinearProgressIndicator(
-                      value: (levelPct / 100.0).clamp(0.0, 1.0),
-                      minHeight: 10,
-                      backgroundColor: Colors.white12,
-                      color: Colors.orangeAccent,
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildStationRow(
+                      'Központi Tartály Szint',
+                      '${remainingLiters.toStringAsFixed(1)} L (${levelPct.toStringAsFixed(0)}%)',
+                      Icons.opacity,
+                      Colors.orangeAccent,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Összes kiszivattyúzott: ${pump.totalPumpedLiters.toStringAsFixed(1)} liter',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                  Text(
-                    'Állapot: ${pump.lastOperationStatus}',
-                    style: const TextStyle(
-                      color: Colors.greenAccent,
-                      fontSize: 12,
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: (levelPct / 100.0).clamp(0.0, 1.0),
+                        minHeight: 10,
+                        backgroundColor: Colors.white12,
+                        color: Colors.orangeAccent,
+                      ),
                     ),
-                  ),
-                  const Divider(color: Colors.white24, height: 20),
-                  const Text(
-                    'Szirup adagolása családnak:',
-                    style: TextStyle(
-                      color: Colors.amberAccent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
+                    const SizedBox(height: 12),
+                    Text(
+                      'Szezonban kiadagolva: ${pump.totalPumpedLiters.toStringAsFixed(1)} liter',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButton<String>(
-                    value: targetHive,
-                    dropdownColor: const Color(0xFF2C2C2C),
-                    style: const TextStyle(color: Colors.white),
-                    isExpanded: true,
-                    items: _repository.hives
-                        .map(
-                          (h) => DropdownMenuItem(
-                            value: h.name,
-                            child: Text(h.name),
+                    Text(
+                      'Rendszerállapot: ${pump.lastOperationStatus}',
+                      style: const TextStyle(
+                        color: Colors.greenAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const Divider(color: Colors.white24, height: 24),
+                    const Text(
+                      'Szirupvonalra kötött kaptárak:',
+                      style: TextStyle(
+                        color: Colors.amberAccent,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (hivesWithFeeder.isEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withAlpha(10),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: const Text(
+                          'Egyetlen kaptárra sincs felhelyezve etető szintméréssel.\n\n'
+                          'Az automatikus serkentést vagy feletetést az adott kaptár adatlapján tudod beállítani, miután felhelyeztél rá egy szintmérős etető fiókot!',
+                          style: TextStyle(
+                            color: Colors.white60,
+                            fontSize: 11,
+                            height: 1.4,
                           ),
-                        )
-                        .toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setDialogState(() => targetHive = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Mennyiség: ${selectedLiters.toStringAsFixed(1)} liter',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                  Slider(
-                    value: selectedLiters,
-                    min: 0.5,
-                    max: 5.0,
-                    divisions: 9,
-                    activeColor: Colors.amber,
-                    onChanged: (val) =>
-                        setDialogState(() => selectedLiters = val),
-                  ),
-                ],
+                        ),
+                      ),
+                    ] else ...[
+                      ...hivesWithFeeder.map((h) {
+                        Color badgeColor;
+                        String badgeText;
+                        if (h.feedingMode == 'auto_stim') {
+                          badgeColor = Colors.tealAccent;
+                          badgeText =
+                              'Auto serkentés (max ${h.feedingMaxLiters.toStringAsFixed(1)}L / ${h.feedingIntervalDays} nap)';
+                        } else if (h.feedingMode == 'manual') {
+                          badgeColor = Colors.lightBlueAccent;
+                          badgeText =
+                              'Kézi feletetés (max ${h.feedingMaxLiters.toStringAsFixed(1)}L)';
+                        } else {
+                          badgeColor = Colors.white54;
+                          badgeText = 'Kikapcsolva';
+                        }
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2C2C2C),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: badgeColor.withAlpha(100),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.hive, color: badgeColor, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      h.name,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    Text(
+                                      badgeText,
+                                      style: TextStyle(
+                                        color: badgeColor,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                '${h.feederLevelPercent.toInt()}% szint',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ],
+                ),
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
+                OutlinedButton(
+                  onPressed: () {
+                    _repository.refillSyrupTank(pump, maxTankCapacity);
+                    setDialogState(() {});
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Központi sziruptartály szintje visszaállítva (100 L).',
+                        ),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  },
                   child: const Text(
-                    'Mégse',
-                    style: TextStyle(color: Colors.grey),
+                    'Tartály Utántöltve',
+                    style: TextStyle(color: Colors.orangeAccent),
                   ),
                 ),
                 ElevatedButton(
@@ -939,19 +1169,8 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     backgroundColor: Colors.amber,
                     foregroundColor: Colors.black,
                   ),
-                  onPressed: () {
-                    _repository.pumpSyrup(pump, selectedLiters, targetHive);
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Szirupadagolás rögzítve ($targetHive: ${selectedLiters.toStringAsFixed(1)} L).',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  },
-                  child: const Text('Szivattyúzás indítása'),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Bezárás'),
                 ),
               ],
             );
@@ -1218,7 +1437,9 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                               });
 
                           final worstStatus = hasUpcomingTaskSoon
-                              ? 'yellow'
+                              ? (hive.worstStatus == 'green'
+                                  ? 'yellow'
+                                  : hive.worstStatus)
                               : hive.worstStatus;
 
                           final bool hasTartorHordozo =
@@ -1357,11 +1578,11 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                       ),
                     ),
 
-                  // 2. Időjárás-állomás marker
+                  // 2. Időjárás-állomás marker (Zöld = Supabase OK, Piros = Nincs kapcsolat)
                   Marker(
                     point: _repository.weatherStation.location,
-                    width: 46,
-                    height: 46,
+                    width: 54,
+                    height: 54,
                     child: GestureDetector(
                       onTap: () {
                         if (!_isEditMode) {
@@ -1369,31 +1590,74 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         }
                       },
                       onLongPress: _toggleEditMode,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.teal.shade700,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: _isEditMode
-                                ? Colors.amberAccent
-                                : Colors.white,
-                            width: _isEditMode ? 3 : 2,
-                          ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Colors.black45,
-                              blurRadius: 4,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.wb_sunny,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                        ),
+                      child: Builder(
+                        builder: (context) {
+                          final bool isConnected =
+                              _repository.weatherStation.status == 'green' &&
+                              _repository.isOnline;
+                          final Color stationColor = isConnected
+                              ? const Color(0xFF10b981) // Zöld: kapcsolat rendben
+                              : const Color(0xFFef4444); // Piros: nincs kapcsolat
+
+                          return Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: stationColor,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: _isEditMode
+                                        ? Colors.amberAccent
+                                        : Colors.white,
+                                    width: _isEditMode ? 3 : 2,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: stationColor.withAlpha(150),
+                                      blurRadius: 8,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: Icon(
+                                    isConnected
+                                        ? Icons.wb_sunny
+                                        : Icons.cloud_off,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 0,
+                                right: 2,
+                                child: Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: BoxDecoration(
+                                    color: isConnected
+                                        ? Colors.greenAccent
+                                        : Colors.redAccent,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.black87,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    isConnected ? Icons.check : Icons.close,
+                                    size: 10,
+                                    color: Colors.black,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ),
