@@ -60,6 +60,7 @@ class BoxElement {
   String status; // 'green', 'yellow', 'red', 'flashing_red'
   bool isActive; // Aljdeszka bent/kint, vagy pollengyűjtő be/ki
   DateTime? statusUpdatedAt;
+  int? positionIndex;
 
   BoxElement({
     this.dbId,
@@ -67,10 +68,11 @@ class BoxElement {
     required this.code,
     this.secondaryCode,
     required this.type,
-    this.size = 'hunor',
+    this.size = 'dadant',
     this.status = 'green',
     this.isActive = false,
     this.statusUpdatedAt,
+    this.positionIndex,
   });
 
   @override
@@ -110,7 +112,50 @@ int getBoxRank(BoxElement b) {
 }
 
 void sortHiveBoxes(List<BoxElement> boxes) {
-  boxes.sort((a, b) => getBoxRank(a).compareTo(getBoxRank(b)));
+  // Szigorú szabály: egy kaptárban kizárólag egyetlen tető és egyetlen aljdeszka lehet
+  bool seenRoof = false;
+  bool seenBottom = false;
+  boxes.removeWhere((b) {
+    final t = b.type.toLowerCase();
+    final n = b.name.toLowerCase();
+    final isRoof = t == 'roof' ||
+        n.contains('tető') ||
+        n.contains('teto') ||
+        n.contains('fedő') ||
+        n.contains('dekli');
+    final isBottom = t == 'bottom' || n.contains('alj');
+    if (isRoof) {
+      if (seenRoof) return true;
+      seenRoof = true;
+    }
+    if (isBottom) {
+      if (seenBottom) return true;
+      seenBottom = true;
+    }
+    return false;
+  });
+  // Ha a fiókoknak van manuálisan beállított sorrendje (positionIndex), azt tiszteletben tartjuk,
+  // de a tető (roof) mindig a legfelső (utolsó), az aljdeszka (bottom) mindig a legalsó (első) elem marad.
+  final hasExplicitPositions = boxes.any((b) => b.positionIndex != null);
+  if (hasExplicitPositions) {
+    boxes.sort((a, b) {
+      if (a.type == 'bottom') return -1;
+      if (b.type == 'bottom') return 1;
+      if (a.type == 'roof') return 1;
+      if (b.type == 'roof') return -1;
+
+      final posA = a.positionIndex ?? getBoxRank(a);
+      final posB = b.positionIndex ?? getBoxRank(b);
+      return posA.compareTo(posB);
+    });
+  } else {
+    boxes.sort((a, b) => getBoxRank(a).compareTo(getBoxRank(b)));
+  }
+
+  // Pozíciók frissítése a rendezett sorrend alapján
+  for (int i = 0; i < boxes.length; i++) {
+    boxes[i].positionIndex = i;
+  }
 }
 
 class FrameAnalysisRecord {
@@ -344,12 +389,20 @@ class HiveData {
     return 'red';
   }
 
-  String get micStatus {
-    if (zcr >= 3000.0 && zcr <= 4200.0) return 'green';
-    if (zcr > 4200.0 && zcr <= 4700.0) return 'yellow';
-    if (zcr > 5000.0) return 'flashing_red';
-    return 'red';
+  bool get isMicHardwareOk => zcr > 0;
+
+  String get micHardwareStatus => isMicHardwareOk ? 'OK' : 'HIBA';
+
+  // A család akusztikai állapota a méhzúgás frekvenciája alapján:
+  String get acousticColonyStatus {
+    if (zcr <= 0) return 'red'; // Hardverhiba / nincs jel
+    if (zcr >= 3000.0 && zcr <= 4200.0) return 'green'; // Nyugodt, egészséges méhzúgás
+    if (zcr > 4200.0 && zcr <= 4700.0) return 'yellow'; // Emelkedett zúgás: rajzáskészültség / anyaprobléma
+    if (zcr > 4700.0) return 'flashing_red'; // Heves méhzúgás: akut rajzás vagy pánik
+    return 'yellow'; // < 3000 Hz: kórosan halk / lelassult család
   }
+
+  String get micStatus => acousticColonyStatus;
 
   String get signalStatus {
     final lower = serverConnection.toLowerCase();
@@ -408,6 +461,7 @@ class HiveData {
       status,
       nestCalculatedStatus,
       extTempStatus,
+      if (isWeakOrSick) 'yellow',
       for (var box in boxes) box.status,
     ];
     if (statuses.contains('flashing_red')) return 'flashing_red';
@@ -484,17 +538,21 @@ class HiveData {
     if (status == 'flashing_red' || nestCalculatedStatus == 'flashing_red') {
       reasons.add('Kritikus riasztás / vészhelyzet');
     } else if (status == 'red' || nestCalculatedStatus == 'red') {
-      reasons.add('Piros (veszélyeztetett / beteg) státusz');
+      reasons.add('Veszélyeztetett állapot (piros riasztás)');
     } else if (status == 'yellow' || nestCalculatedStatus == 'yellow') {
       reasons.add('Sárga (gyenge / beavatkozást igénylő) státusz');
     }
     if (protocol == 'hans' ||
-        protocol?.toLowerCase().contains('hans') == true) {
-      reasons.add('Hans-protokoll alatt áll (mentési beavatkozás)');
+        protocol?.toLowerCase().contains('hans') == true ||
+        familyFunction.toLowerCase() == 'hans') {
+      reasons.add('Hans-protokoll: Azonnali teljes megsemmisítés / elpusztítás!');
+    }
+    if (familyFunction.toLowerCase().contains('selejt')) {
+      reasons.add('Selejt család (Szezon végén más családok felerősítésére használható)');
     }
     final nm = name.toLowerCase();
     if (nm.contains('beteg')) {
-      reasons.add('Megnevezés: Beteg család');
+      reasons.add('Megnevezés: Gyenge család');
     } else if (nm.contains('gyenge')) {
       reasons.add('Megnevezés: Gyenge család');
     } else if (nm.contains('felszamol')) {
@@ -502,7 +560,7 @@ class HiveData {
     }
     final fn = familyFunction.toLowerCase();
     if (fn.contains('beteg')) {
-      reasons.add('Megbetegedett család');
+      reasons.add('Gyenge kondíciójú család');
     } else if (fn.contains('gyenge')) {
       reasons.add('Gyenge termelőképességű család');
     } else if (fn.contains('felszamol') || fn.contains('szezon végén')) {
@@ -510,7 +568,7 @@ class HiveData {
     }
     final evNotes = evaluation.notes.toLowerCase();
     if (evNotes.contains('beteg') || evNotes.contains('gyenge')) {
-      reasons.add('Értékelési megjegyzés: Beteg/gyenge');
+      reasons.add('Értékelési megjegyzés: Gyenge család');
     }
     if (dailyVarroaDrop >= 3.0) {
       reasons.add(
@@ -536,6 +594,47 @@ class HiveData {
       return 'Gyenge vagy veszélyeztetett állapot.';
     }
     return reasons.join(', ');
+  }
+
+  /// Értelmezhető, konkrét egészségi / állapot leírás (kerüli az általános "beteg/gyenge" kifejezést)
+  String get specificHealthDescription {
+    if (protocol == 'hans' ||
+        protocol?.toLowerCase().contains('hans') == true ||
+        familyFunction.toLowerCase() == 'hans') {
+      return 'Hans-protokoll: Azonnali teljes megsemmisítés / elpusztítás!';
+    }
+    if (familyFunction.toLowerCase().contains('selejt')) {
+      return 'Selejt család (Szezon végén felerősítésre használható)';
+    }
+    if (dailyVarroaDrop >= 3.0) {
+      return 'Magas atkafertőzöttség: Varroatózis (${dailyVarroaDrop.toStringAsFixed(1)} db/nap)';
+    }
+    if (temp > 0.0 && temp < 32.0) {
+      return 'Fészek-kihűlés veszélye (${temp.toStringAsFixed(1)} °C)';
+    }
+    if (weight > 0.0 && weight < 20.0) {
+      return 'Éhezésveszély (${weight.toStringAsFixed(1)} kg élelem)';
+    }
+    if (queen?.needsReplacement == true) {
+      return 'Anyaprobléma: Anyacsere esedékes';
+    }
+    if (boxes.any((b) => b.isVarroaCheckDue)) {
+      return 'Atkaellenőrzés esedékes (aljdeszka leolvasás)';
+    }
+    final fn = familyFunction.toLowerCase();
+    if (fn.contains('karanten')) {
+      return 'Karantén alatt álló család';
+    }
+    if (fn.contains('felszamol')) {
+      return 'Felszámolás alatt álló család';
+    }
+    final evNotes = evaluation.notes.trim();
+    if (evNotes.isNotEmpty &&
+        !evNotes.toLowerCase().contains('beteg / gyenge') &&
+        !evNotes.toLowerCase().contains('beteg/gyenge')) {
+      return evNotes;
+    }
+    return 'Gyenge család (fejlődési lemaradás / kis népesség)';
   }
 }
 

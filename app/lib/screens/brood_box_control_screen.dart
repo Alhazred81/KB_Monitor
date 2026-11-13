@@ -128,36 +128,15 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
   }
 
   void _showInvestigationsScreen(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            _InvestigationsScreen(hive: widget.hive, repository: _repository),
-      ),
-    );
+    InvestigationsScreen.open(context, widget.hive, _repository);
   }
 
   void _showTreatmentsScreen(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => _TreatmentsScreen(
-          hive: widget.hive,
-          repository: _repository,
-          confirmAction: _confirmTreatmentAction,
-        ),
-      ),
-    );
+    TreatmentsScreen.open(context, widget.hive, _repository, confirmAction: _confirmTreatmentAction);
   }
 
   void _showMasterPlansScreen(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            _FamilyFunctionScreen(hive: widget.hive, repository: _repository),
-      ),
-    );
+    FamilyFunctionScreen.open(context, widget.hive, _repository);
   }
 
   @override
@@ -397,10 +376,20 @@ class _SensorsScreen extends StatelessWidget {
         'color': Colors.lightBlueAccent,
       },
       {
-        'label': 'Akusztika (ZCR)',
-        'value': '${hive.zcr.toStringAsFixed(0)} Hz',
+        'label': 'Mikrofon',
+        'value': hive.micHardwareStatus,
         'icon': Icons.mic,
-        'color': Colors.purpleAccent,
+        'color': hive.isMicHardwareOk ? Colors.tealAccent : Colors.redAccent,
+      },
+      {
+        'label': 'Méhzúgás (Akusztika)',
+        'value': '${hive.zcr.toStringAsFixed(0)} Hz',
+        'icon': Icons.graphic_eq,
+        'color': hive.acousticColonyStatus == 'green'
+            ? Colors.greenAccent
+            : (hive.acousticColonyStatus == 'yellow'
+                ? Colors.amberAccent
+                : Colors.redAccent),
       },
       {
         'label': 'Kaptármérleg',
@@ -592,17 +581,33 @@ class _ConfigOptionsScreen extends StatelessWidget {
   }
 }
 
-class _InvestigationsScreen extends StatefulWidget {
+class InvestigationsScreen extends StatefulWidget {
   final HiveData hive;
   final HiveRepository repository;
 
-  const _InvestigationsScreen({required this.hive, required this.repository});
+  const InvestigationsScreen({
+    super.key,
+    required this.hive,
+    required this.repository,
+  });
+
+  static void open(BuildContext context, HiveData hive, HiveRepository repository) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => InvestigationsScreen(
+          hive: hive,
+          repository: repository,
+        ),
+      ),
+    );
+  }
 
   @override
-  State<_InvestigationsScreen> createState() => _InvestigationsScreenState();
+  State<InvestigationsScreen> createState() => _InvestigationsScreenState();
 }
 
-class _InvestigationsScreenState extends State<_InvestigationsScreen> {
+class _InvestigationsScreenState extends State<InvestigationsScreen> {
   bool _isCameraActive = false;
   final bool _pullOutBoard = true;
 
@@ -758,16 +763,93 @@ class _InvestigationsScreenState extends State<_InvestigationsScreen> {
   }
 }
 
-class _TreatmentsScreen extends StatelessWidget {
+class TreatmentsScreen extends StatelessWidget {
   final HiveData hive;
   final HiveRepository repository;
-  final Function(BuildContext, String, VoidCallback) confirmAction;
+  final Function(BuildContext, String, VoidCallback)? confirmAction;
 
-  const _TreatmentsScreen({
+  const TreatmentsScreen({
+    super.key,
     required this.hive,
     required this.repository,
-    required this.confirmAction,
+    this.confirmAction,
   });
+
+  static void open(
+    BuildContext context,
+    HiveData hive,
+    HiveRepository repository, {
+    Function(BuildContext, String, VoidCallback)? confirmAction,
+  }) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TreatmentsScreen(
+          hive: hive,
+          repository: repository,
+          confirmAction: confirmAction,
+        ),
+      ),
+    );
+  }
+
+  void _executeConfirm(
+    BuildContext context,
+    String actionTitle,
+    VoidCallback onConfirmed,
+  ) {
+    if (confirmAction != null) {
+      confirmAction!(context, actionTitle, onConfirmed);
+      return;
+    }
+    if (hive.hasHoneySuper) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.redAccent,
+                size: 28,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Figyelem: Méztér található!',
+                  style: TextStyle(color: Colors.redAccent, fontSize: 16),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'A(z) "${hive.name}" tornyán méztér (is) fel van helyezve.\n\nBiztosan el akarod végezni a(z) "$actionTitle" gyógykezelést? Fennáll a méz szennyeződésének veszélye!',
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Mégse', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                onConfirmed();
+              },
+              child: const Text('Mégis elvégzem'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      onConfirmed();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -798,7 +880,7 @@ class _TreatmentsScreen extends StatelessWidget {
                     color: Colors.brown.shade300,
                     label: 'Tartós hordozó',
                     onPressed: () {
-                      confirmAction(context, 'Tartós hordozó', () {
+                      _executeConfirm(context, 'Tartós hordozó', () {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Tartós hordozós kezelés naplózva.'),
@@ -814,7 +896,7 @@ class _TreatmentsScreen extends StatelessWidget {
                     color: Colors.redAccent,
                     label: 'Hangyasavazás',
                     onPressed: () {
-                      confirmAction(context, 'Hangyasavazás', () {
+                      _executeConfirm(context, 'Hangyasavazás', () {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Hangyasavas kezelés naplózva.'),
@@ -836,7 +918,7 @@ class _TreatmentsScreen extends StatelessWidget {
                           builder: (context) => _OxalicScreen(
                             hive: hive,
                             repository: repository,
-                            confirmAction: confirmAction,
+                            confirmAction: _executeConfirm,
                           ),
                         ),
                       );
@@ -1195,17 +1277,33 @@ class _FeedingScreen extends StatelessWidget {
 // ============================================================================
 // TELJES KÉPERNYŐS CSALÁD FUNKCIÓ & MESTERTERV NÉZET (Kesztyűbarát rácsok)
 // ============================================================================
-class _FamilyFunctionScreen extends StatefulWidget {
+class FamilyFunctionScreen extends StatefulWidget {
   final HiveData hive;
   final HiveRepository repository;
 
-  const _FamilyFunctionScreen({required this.hive, required this.repository});
+  const FamilyFunctionScreen({
+    super.key,
+    required this.hive,
+    required this.repository,
+  });
+
+  static void open(BuildContext context, HiveData hive, HiveRepository repository) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => FamilyFunctionScreen(
+          hive: hive,
+          repository: repository,
+        ),
+      ),
+    );
+  }
 
   @override
-  State<_FamilyFunctionScreen> createState() => _FamilyFunctionScreenState();
+  State<FamilyFunctionScreen> createState() => _FamilyFunctionScreenState();
 }
 
-class _FamilyFunctionScreenState extends State<_FamilyFunctionScreen> {
+class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
   String _selectedCategory = 'Gyűjtő';
   String _selectedSubFunction = 'méz';
   String _selectedPlanType = 'petes_mesterterv';
@@ -1271,6 +1369,12 @@ class _FamilyFunctionScreenState extends State<_FamilyFunctionScreen> {
     } else {
       return [
         {
+          'id': 'selejt',
+          'label': 'Selejt család',
+          'icon': Icons.call_merge,
+          'plan': 'felerosites_mesterterv',
+        },
+        {
           'id': 'szezon végén',
           'label': 'Szezon végén',
           'icon': Icons.timer_off,
@@ -1278,8 +1382,8 @@ class _FamilyFunctionScreenState extends State<_FamilyFunctionScreen> {
         },
         {
           'id': 'Hans',
-          'label': 'Hans',
-          'icon': Icons.front_hand,
+          'label': 'Hans (Elpusztítás)',
+          'icon': Icons.local_fire_department,
           'plan': 'grumpy_cat',
         },
       ];
@@ -1313,10 +1417,14 @@ class _FamilyFunctionScreenState extends State<_FamilyFunctionScreen> {
         context: context,
         builder: (ctx) => AlertDialog(
           backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Colors.redAccent, width: 2),
+          ),
           title: const Row(
             children: [
               Icon(
-                Icons.warning_amber_rounded,
+                Icons.local_fire_department,
                 color: Colors.redAccent,
                 size: 28,
               ),
@@ -1324,13 +1432,13 @@ class _FamilyFunctionScreenState extends State<_FamilyFunctionScreen> {
               Expanded(
                 child: Text(
                   'Figyelem: Hans-protokoll!',
-                  style: TextStyle(color: Colors.redAccent, fontSize: 16),
+                  style: TextStyle(color: Colors.redAccent, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
             ],
           ),
           content: const Text(
-            'A Hans-protokoll egy rendkívül radikális beavatkozás. Biztosan végre akarod hajtani ezen a családon?',
+            'A Hans nem egy selejt család, hanem AZONNALI ÉS TELJES ELPUSZTÍTÁST jelent!\n\nAlkalmazása: Súlyos fertőzés (pl. nyúlós költésrothadás), agresszivitás vagy kénlapos megsemmisítés esetén.\n\nEbből a kaptárból szigorúan TILOS fiasítást, keretet vagy népet átadni más családoknak (egy selejt családdal ellentétben, amivel szezon végén felerősíthetsz másokat)!\n\nBiztosan elpusztításra ítéled ezt a családot?',
             style: TextStyle(color: Colors.white70, fontSize: 13),
           ),
           actions: [

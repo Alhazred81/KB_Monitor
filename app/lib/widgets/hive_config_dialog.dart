@@ -20,7 +20,7 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
   HiveData? _activeHive;
 
   String _newBoxType = 'honey';
-  String _newBoxSize = 'hunor';
+  String _newBoxSize = 'dadant';
 
   String _selectedCategory = 'Gyűjtő';
   String _selectedFunction = 'méz';
@@ -33,6 +33,13 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
         widget.selectedHive ??
         (_repository.hives.isNotEmpty ? _repository.hives.first : null);
   }
+
+  bool get _activeHiveHasRoof =>
+      _activeHive != null &&
+      _activeHive!.boxes.any((b) =>
+          b.type == 'roof' ||
+          b.name.toLowerCase().contains('tető') ||
+          b.name.toLowerCase().contains('teto'));
 
   bool _isRealBox(String type) {
     return type == 'brood_box' || type == 'nest' || type == 'honey';
@@ -60,6 +67,9 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
 
   bool _checkCompatibility(String existingSize, String newSize) {
     if (existingSize.trim().isEmpty || newSize.trim().isEmpty) return true;
+    final s1 = existingSize.toLowerCase().trim();
+    final s2 = newSize.toLowerCase().trim();
+    if (s1 == 'bottom' || s2 == 'bottom' || s1 == 'none' || s2 == 'none') return true;
     final sys1 = _normalizeSystem(existingSize);
     final sys2 = _normalizeSystem(newSize);
     return sys1 == sys2;
@@ -261,9 +271,28 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
   void _addNewElementToActiveHive() {
     if (_activeHive == null) return;
 
+    // Tető duplikáció elleni védelem (egy kaptárban szigorúan legfeljebb 1 tető lehet)
+    if (_newBoxType == 'roof' && _activeHiveHasRoof) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'A kaptárnak már van teteje! Egy kaptárban csak 1 tető lehet.',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     if (_isRealBox(_newBoxType)) {
       final incompatibleBox = _activeHive!.boxes.firstWhere(
-        (b) => b.size.isNotEmpty && !_checkCompatibility(b.size, _newBoxSize),
+        (b) =>
+            _isRealBox(b.type) &&
+            b.type != 'bottom' &&
+            b.size.isNotEmpty &&
+            b.size.toLowerCase() != 'bottom' &&
+            !_checkCompatibility(b.size, _newBoxSize),
         orElse: () => BoxElement(name: '', code: '', type: '', size: ''),
       );
 
@@ -289,7 +318,7 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
             ),
             content: Text(
               'A kiválasztott méret ($newSizeName) nem kombinálható a kaptárban lévő $existingSizeName mérettel!\n\n'
-              '• A Dadant kizárólag 1/2 Dadanttal használható együtt.\n'
+              '• A Dadant rendszerben teljes Dadant és 1/2 Dadant fiókok használhatók.\n'
               '• Az NB, Hunor és 1/2 NB egymással kompatibilisek, de a Dadanttal keresztbe nem keverhetők.',
               style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
@@ -561,6 +590,9 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
 
                 if (_activeHive != null) {
                   sortHiveBoxes(_activeHive!.boxes);
+                  if (_activeHiveHasRoof && _newBoxType == 'roof') {
+                    _newBoxType = 'honey';
+                  }
                 }
                 final displayedBoxes =
                     _activeHive?.boxes.reversed.toList() ?? [];
@@ -768,6 +800,9 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                     if (val == 'apa') {
                                       _selectedPlanType = 'hereskeret';
                                     }
+                                    if (val == 'selejt') {
+                                      _selectedPlanType = 'felerosites_mesterterv';
+                                    }
                                     if (val == 'szezon végén') {
                                       _selectedPlanType = 'oxalsav_egyszeri';
                                     }
@@ -850,79 +885,158 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                               )
                             else
                               for (var box in displayedBoxes)
-                                Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 3.0),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF1E293B),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: _getBoxColor(box).withAlpha(100),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          _getBoxIcon(box),
-                                          size: 18,
-                                          color: _getBoxColor(box),
+                                Builder(
+                                  builder: (context) {
+                                    final bool isBottom = box.type == 'bottom' ||
+                                        box.name.toLowerCase() == 'aljdeszka';
+                                    final bool isRoof = box.type == 'roof' ||
+                                        box.name.toLowerCase().contains('tető') ||
+                                        box.name.toLowerCase().contains('teto');
+                                    final int rawIdx = _activeHive != null
+                                        ? _activeHive!.boxes.indexOf(box)
+                                        : -1;
+                                    final bool canMoveUp = _activeHive != null &&
+                                        !isBottom &&
+                                        !isRoof &&
+                                        rawIdx != -1 &&
+                                        rawIdx + 1 < _activeHive!.boxes.length &&
+                                        _activeHive!.boxes[rawIdx + 1].type != 'roof';
+                                    final bool canMoveDown = _activeHive != null &&
+                                        !isBottom &&
+                                        !isRoof &&
+                                        rawIdx != -1 &&
+                                        rawIdx - 1 >= 0 &&
+                                        _activeHive!.boxes[rawIdx - 1].type != 'bottom';
+
+                                    return Padding(
+                                      padding:
+                                          const EdgeInsets.symmetric(vertical: 3.0),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 8,
                                         ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text(
-                                            _formatBoxTitle(box),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF1E293B),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: _getBoxColor(box).withAlpha(100),
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
-                                        if (box.type != 'bottom' &&
-                                            box.name.toLowerCase() !=
-                                                'aljdeszka')
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                              color: Colors.redAccent,
-                                              size: 20,
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              _getBoxIcon(box),
+                                              size: 18,
+                                              color: _getBoxColor(box),
                                             ),
-                                            tooltip:
-                                                '${_getBoxDisplayName(box)} eltávolítása',
-                                            onPressed: () =>
-                                                _removeElementFromActiveHive(
-                                                    box),
-                                          )
-                                        else
-                                          const Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.lock_outline,
-                                                size: 14,
-                                                color: Colors.white38,
-                                              ),
-                                              SizedBox(width: 4),
-                                              Text(
-                                                'Fix alap',
-                                                style: TextStyle(
-                                                  color: Colors.white38,
-                                                  fontSize: 11,
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                _formatBoxTitle(box),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w600,
                                                 ),
                                               ),
+                                            ),
+                                            if (!isBottom && !isRoof) ...[
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.arrow_upward,
+                                                  size: 18,
+                                                ),
+                                                color: canMoveUp
+                                                    ? Colors.amberAccent
+                                                    : Colors.white24,
+                                                tooltip: 'Fiók mozgatása feljebb',
+                                                onPressed: canMoveUp
+                                                    ? () {
+                                                        _repository.reorderBox(
+                                                          _activeHive!,
+                                                          box,
+                                                          moveUp: true,
+                                                        );
+                                                        setState(() {});
+                                                      }
+                                                    : null,
+                                                constraints: const BoxConstraints(),
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 4,
+                                                ),
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.arrow_downward,
+                                                  size: 18,
+                                                ),
+                                                color: canMoveDown
+                                                    ? Colors.amberAccent
+                                                    : Colors.white24,
+                                                tooltip: 'Fiók mozgatása lejjebb',
+                                                onPressed: canMoveDown
+                                                    ? () {
+                                                        _repository.reorderBox(
+                                                          _activeHive!,
+                                                          box,
+                                                          moveUp: false,
+                                                        );
+                                                        setState(() {});
+                                                      }
+                                                    : null,
+                                                constraints: const BoxConstraints(),
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 4,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
                                             ],
-                                          ),
-                                      ],
-                                    ),
-                                  ),
+                                            if (box.type != 'bottom' &&
+                                                box.name.toLowerCase() !=
+                                                    'aljdeszka')
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  color: Colors.redAccent,
+                                                  size: 20,
+                                                ),
+                                                tooltip:
+                                                    '${_getBoxDisplayName(box)} eltávolítása',
+                                                onPressed: () =>
+                                                    _removeElementFromActiveHive(
+                                                        box),
+                                                constraints: const BoxConstraints(),
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 4,
+                                                ),
+                                              )
+                                            else
+                                              const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.lock_outline,
+                                                    size: 14,
+                                                    color: Colors.white38,
+                                                  ),
+                                                  SizedBox(width: 4),
+                                                  Text(
+                                                    'Fix alap',
+                                                    style: TextStyle(
+                                                      color: Colors.white38,
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                           ],
                         ),
@@ -949,35 +1063,36 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                 fontSize: 12,
                               ),
                               isExpanded: true,
-                              items: const [
-                                DropdownMenuItem(
+                              items: [
+                                const DropdownMenuItem(
                                   value: 'brood_box',
                                   child: Text('Fészekfiók'),
                                 ),
-                                DropdownMenuItem(
+                                const DropdownMenuItem(
                                   value: 'honey',
                                   child: Text('Méztér'),
                                 ),
-                                DropdownMenuItem(
+                                const DropdownMenuItem(
                                   value: 'feeder',
                                   child: Text('Tetőetető'),
                                 ),
-                                DropdownMenuItem(
+                                const DropdownMenuItem(
                                   value: 'escapement',
                                   child: Text('Szöktető'),
                                 ),
-                                DropdownMenuItem(
+                                const DropdownMenuItem(
                                   value: 'vent',
                                   child: Text('Szellőző'),
                                 ),
-                                DropdownMenuItem(
+                                const DropdownMenuItem(
                                   value: 'pollen_trap',
                                   child: Text('Virágporgyűjtő'),
                                 ),
-                                DropdownMenuItem(
-                                  value: 'roof',
-                                  child: Text('Tető'),
-                                ),
+                                if (!_activeHiveHasRoof)
+                                  const DropdownMenuItem(
+                                    value: 'roof',
+                                    child: Text('Tető'),
+                                  ),
                               ],
                               onChanged: (val) {
                                 if (val != null) {
@@ -1102,8 +1217,9 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
       ];
     } else {
       return const [
+        DropdownMenuItem(value: 'selejt', child: Text('Selejt (Felerősítéshez)')),
         DropdownMenuItem(value: 'szezon végén', child: Text('Szezon végén')),
-        DropdownMenuItem(value: 'Hans', child: Text('Hans')),
+        DropdownMenuItem(value: 'Hans', child: Text('Hans (Azonnali elpusztítás)')),
       ];
     }
   }

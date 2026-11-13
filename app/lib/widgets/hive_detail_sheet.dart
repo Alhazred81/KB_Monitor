@@ -396,7 +396,6 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
 
             ...displayedBoxes.map((box) {
               final displayName = _getBoxDisplayName(box);
-              final displaySize = _getBoxDisplaySize(box, displayName);
 
               if (box.type == 'bottom' || displayName == 'Aljdeszka') {
                 return Padding(
@@ -488,36 +487,89 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        Row(
                           children: [
-                            const Text(
-                              'Pollengyűjtő',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            Icon(
+                              Icons.filter_vintage,
+                              color: box.isActive ? Colors.amberAccent : Colors.white38,
+                              size: 24,
                             ),
-                            Text(
-                              _getBoxCodesText(box),
-                              style: const TextStyle(
-                                color: Colors.white54,
-                                fontSize: 10,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                            const Text(
-                              'Virágporgyűjtés aktív / inaktív',
-                              style: TextStyle(
-                                color: Colors.white60,
-                                fontSize: 11,
-                              ),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Pollengyűjtő',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: box.isActive
+                                            ? Colors.orange.withAlpha(50)
+                                            : Colors.white10,
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: box.isActive
+                                              ? Colors.orange
+                                              : Colors.white24,
+                                          width: 0.8,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        box.isActive
+                                            ? 'AKTÍV (Gyűjtés)'
+                                            : 'INAKTÍV (Kész)',
+                                        style: TextStyle(
+                                          color: box.isActive
+                                              ? Colors.orangeAccent
+                                              : Colors.white54,
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _getBoxCodesText(box),
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 10,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  box.isActive
+                                      ? 'Gyűjtés folyamatban • Kapcsold le a készre jelentéshez'
+                                      : 'Gyűjtés kikapcsolva • Készre jelentve',
+                                  style: TextStyle(
+                                    color: box.isActive
+                                        ? Colors.orangeAccent.withAlpha(200)
+                                        : Colors.white60,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
                         Switch(
                           value: box.isActive,
                           activeThumbColor: Colors.orange,
+                          activeTrackColor: Colors.orange.withAlpha(120),
                           onChanged: (val) {
                             if (val && widget.hive.isWeakOrSick) {
                               showWeakColonyWarningDialog(
@@ -532,6 +584,12 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                       true,
                                     );
                                   });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Virágporgyűjtés bekapcsolva!'),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
                                 },
                               );
                             } else {
@@ -542,6 +600,17 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                   val,
                                 );
                               });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    val
+                                        ? 'Virágporgyűjtés bekapcsolva!'
+                                        : 'Virágporgyűjtés kikapcsolva (készre jelentve)!',
+                                  ),
+                                  backgroundColor:
+                                      val ? Colors.orange : Colors.teal,
+                                ),
+                              );
                             }
                           },
                         ),
@@ -556,6 +625,12 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                     displayName == 'Etető' ||
                     box.type == 'feeder' ||
                     box.type == 'roof_feeder');
+                final bool isHoney = (displayName == 'Méztér' ||
+                    box.type == 'honey' ||
+                    box.type == '9');
+                final bool isEscapement = (displayName == 'Szöktető' ||
+                    box.type == 'escapement' ||
+                    box.type == '13');
                 final IconData boxIcon = _getBoxIcon(box);
                 final String boxTitle = _getBoxFormattedTitle(box);
 
@@ -628,6 +703,125 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                   ],
                                 ),
                               ),
+                              if (isHoney) ...[
+                                Tooltip(
+                                  message: 'Méhszöktető behelyezése a méztér alá',
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(8),
+                                      onTap: () {
+                                        repository.insertEscapeBoardUnderHoney(
+                                          widget.hive,
+                                          box,
+                                        );
+                                        setState(() {});
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Méhszöktető behelyezve a méztér alá! A kaptár villog a térképen (holnap elvétel).',
+                                            ),
+                                            backgroundColor: Colors.teal,
+                                          ),
+                                        );
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 6,
+                                        ),
+                                        margin: const EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orange.withAlpha(50),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: Colors.orangeAccent,
+                                            width: 1.2,
+                                          ),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.filter_alt_outlined,
+                                              color: Colors.orangeAccent,
+                                              size: 18,
+                                            ),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'Szöktető',
+                                              style: TextStyle(
+                                                color: Colors.orangeAccent,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ] else if (isEscapement) ...[
+                                Tooltip(
+                                  message: 'Szöktető kivétele a toronyból',
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(8),
+                                      onTap: () {
+                                        repository.removeBoxFromHive(
+                                          widget.hive,
+                                          box,
+                                        );
+                                        setState(() {});
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Szöktető eltávolítva a kaptárból.',
+                                            ),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 6,
+                                        ),
+                                        margin: const EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withAlpha(40),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: Colors.redAccent,
+                                            width: 1.2,
+                                          ),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.delete_outline,
+                                              color: Colors.redAccent,
+                                              size: 18,
+                                            ),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'Kivétel',
+                                              style: TextStyle(
+                                                color: Colors.redAccent,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                               const Icon(
                                 Icons.open_in_full,
                                 color: Colors.amberAccent,
@@ -797,23 +991,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
       }
     }
 
-    // 3. Pollengyűjtő rács napi ürítés
-    for (var box in hive.boxes) {
-      if (box.type == 'pollen_trap' && box.isActive) {
-        final dueDate = (box.statusUpdatedAt ?? now).add(const Duration(days: 1));
-        allTasks.add({
-          'id': 'TRAP_${box.code}',
-          'title': 'Pollengyűjtő fiók ürítése',
-          'description':
-              'A virágportálca napi ürítése, a friss virágpor fagyasztása és a rács tisztítása.',
-          'date': dueDate,
-          'type': 'pollen_trap',
-          'box': box,
-        });
-      }
-    }
-
-    // 4. Etető utántöltés
+    // 3. Etető utántöltés
     if (hive.hasFeeder &&
         hive.feederLevelPercent <= 20.0 &&
         hive.feedingMode != 'off') {
@@ -845,67 +1023,48 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
     // Ha nincs betervezett feladat
     if (allTasks.isEmpty) {
       return Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: const Color(0xFF1E293B),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white24, width: 1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white24, width: 1.5),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.greenAccent.withAlpha(25),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.event_available,
-                color: Colors.greenAccent,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Következő teendő: Nincs ütemezve',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'A családnál minden feladat naprakész.',
-                    style: TextStyle(color: Colors.white54, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-            ElevatedButton.icon(
-              onPressed: () => _showAddTaskDialog(context, hive, repository),
-              icon: const Icon(Icons.add, size: 14, color: Colors.black),
-              label: const Text(
-                'Új feladat',
-                style: TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
+            const Row(
+              children: [
+                Icon(
+                  Icons.event_available,
+                  color: Colors.greenAccent,
+                  size: 24,
                 ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amberAccent,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Következő teendő: Nincs ütemezve',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'A családnál minden feladat naprakész.',
+                        style: TextStyle(color: Colors.white60, fontSize: 11),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ),
+            const SizedBox(height: 12),
+            _buildGloveFriendlyActionButtons(context, hive, repository),
           ],
         ),
       );
@@ -1023,77 +1182,130 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    final type = next['type'] as String;
-                    if (type == 'scheduled') {
-                      final task = next['task'] as ScheduledTask;
-                      setState(() {
-                        task.isCompleted = true;
-                      });
-                      repository.completeTask(task.id);
-                    } else if (type == 'bottom_board') {
-                      final box = next['box'] as BoxElement;
-                      setState(() {
-                        repository.toggleBoxActiveState(hive, box, false);
-                      });
-                    } else if (type == 'pollen_trap') {
-                      final box = next['box'] as BoxElement;
-                      setState(() {
-                        repository.toggleBoxActiveState(hive, box, false);
-                      });
-                    }
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Feladat készre jelentve: ${next['title']}'),
-                        backgroundColor: Colors.teal,
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.check_circle_outline, size: 15, color: Colors.black),
-                  label: const Text(
-                    'Készre jelentés',
-                    style: TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11.5,
-                    ),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                final type = next['type'] as String;
+                if (type == 'scheduled') {
+                  final task = next['task'] as ScheduledTask;
+                  setState(() {
+                    task.isCompleted = true;
+                  });
+                  repository.completeTask(task.id);
+                } else if (type == 'bottom_board') {
+                  final box = next['box'] as BoxElement;
+                  setState(() {
+                    repository.toggleBoxActiveState(hive, box, false);
+                  });
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Feladat készre jelentve: ${next['title']}'),
+                    backgroundColor: Colors.teal,
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.greenAccent,
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
+                );
+              },
+              icon: const Icon(Icons.check_circle_outline, size: 20, color: Colors.black),
+              label: const Text(
+                'Feladat készre jelentése',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
                 ),
               ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: () => _showAddTaskDialog(context, hive, repository),
-                icon: const Icon(Icons.add, size: 15, color: Colors.amberAccent),
-                label: const Text(
-                  'Új feladat',
-                  style: TextStyle(
-                    color: Colors.amberAccent,
-                    fontSize: 11.5,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.amberAccent),
-                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(6),
-                  ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.greenAccent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
-            ],
+            ),
           ),
+          const SizedBox(height: 12),
+          _buildGloveFriendlyActionButtons(context, hive, repository),
         ],
       ),
+    );
+  }
+
+  Widget _buildGloveFriendlyActionButtons(
+    BuildContext context,
+    HiveData hive,
+    HiveRepository repository,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 56,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                foregroundColor: Colors.lightBlueAccent,
+                side: const BorderSide(color: Colors.lightBlueAccent, width: 2),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 3,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              onPressed: () => InvestigationsScreen.open(context, hive, repository),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.camera_alt, size: 24, color: Colors.lightBlueAccent),
+                  SizedBox(width: 8),
+                  Text(
+                    'Vizsgálatok',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SizedBox(
+            height: 56,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                foregroundColor: Colors.orangeAccent,
+                side: const BorderSide(color: Colors.orangeAccent, width: 2),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 3,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              onPressed: () => TreatmentsScreen.open(context, hive, repository),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.medical_services, size: 24, color: Colors.orangeAccent),
+                  SizedBox(width: 8),
+                  Text(
+                    'Kezelések',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1488,43 +1700,85 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
 
     // Ha teljesen zöld és nincs semmilyen probléma
     if (isAllGreen) {
-      return Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF064E3B).withAlpha(120),
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.greenAccent.withAlpha(160)),
-        ),
-        child: const Row(
-          children: [
-            Icon(
-              Icons.check_circle_rounded,
-              color: Colors.greenAccent,
-              size: 26,
+          onTap: () => _openColonyClassificationDialog(context, hive, repository),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF064E3B).withAlpha(120),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.greenAccent.withAlpha(160)),
             ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Család állapota: Egészséges & Optimális (Zöld)',
-                    style: TextStyle(
-                      color: Colors.greenAccent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: Colors.greenAccent,
+                  size: 26,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Család állapota: Egészséges & Optimális (Zöld)',
+                              style: TextStyle(
+                                color: Colors.greenAccent,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.greenAccent.withAlpha(40),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.tune,
+                                  size: 11,
+                                  color: Colors.greenAccent,
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Osztályozás',
+                                  style: TextStyle(
+                                    color: Colors.greenAccent,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Minden mért szenzor, kaptárelem és feladat optimális rendben van (Nyugodt méhzúgás: ${hive.zcr.toStringAsFixed(0)} Hz).',
+                        style: const TextStyle(color: Colors.white70, fontSize: 11),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Minden mért szenzor, kaptárelem és feladat optimális rendben van.',
-                    style: TextStyle(color: Colors.white70, fontSize: 11),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       );
     }
@@ -1556,102 +1810,748 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
     final bool hasManualStatusIssue =
         diagnosticIssues.any((i) => i['isManualStatus'] == true);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bgColor,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: themeColor.withAlpha(190), width: 1.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        onTap: () => _openColonyClassificationDialog(context, hive, repository),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: themeColor.withAlpha(190), width: 1.5),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(mainIcon, color: themeColor, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Család állapota: $statusLabel',
-                  style: TextStyle(
-                    color: themeColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'A kaptár az alábbi diagnosztikai ok(ok) miatt nem zöld:',
-            style: TextStyle(
-              color: Colors.white.withAlpha(220),
-              fontSize: 11,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-          const SizedBox(height: 6),
-          ...diagnosticIssues.map((issue) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2.5),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
                 children: [
-                  Icon(issue['icon'] as IconData, color: themeColor, size: 15),
+                  Icon(mainIcon, color: themeColor, size: 22),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      issue['title'] as String,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11.5,
+                      'Család állapota: $statusLabel',
+                      style: TextStyle(
+                        color: themeColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
                       ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: themeColor.withAlpha(40),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.tune, size: 11, color: themeColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Osztályozás',
+                          style: TextStyle(
+                            color: themeColor,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'A kaptár az alábbi diagnosztikai ok(ok) miatt nem zöld:',
+                style: TextStyle(
+                  color: Colors.white.withAlpha(220),
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+              const SizedBox(height: 6),
+              ...diagnosticIssues.map((issue) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2.5),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(issue['icon'] as IconData, color: themeColor, size: 15),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          issue['title'] as String,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              if (hasManualStatusIssue) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        widget.hive.status = 'green';
+                      });
+                      repository.updateHive(widget.hive);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'A kaptár kézi státusza Zöldre állítva!',
+                          ),
+                          backgroundColor: Colors.teal,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.check, size: 16, color: Colors.black),
+                    label: const Text(
+                      'Kézi státusz azonnali zöldre állítása',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                        fontSize: 12,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.greenAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openColonyClassificationDialog(
+    BuildContext context,
+    HiveData hive,
+    HiveRepository repository,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (bottomSheetContext) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final statuses = [
+              {
+                'key': 'green',
+                'label': 'Zöld – Egészséges & Optimális',
+                'color': Colors.greenAccent,
+                'icon': Icons.check_circle_rounded,
+                'desc': 'Minden mért szenzor, fiók és feladat rendben van.',
+              },
+              {
+                'key': 'yellow',
+                'label': 'Sárga – Figyelmet igénylő',
+                'color': Colors.amber,
+                'icon': Icons.info_outline,
+                'desc': 'Megfigyelendő paraméterek (pl. zúgás, aljdeszka leolvasás).',
+              },
+              {
+                'key': 'orange',
+                'label': 'Narancs – Kezelés alatt / Korlátozás',
+                'color': Colors.orangeAccent,
+                'icon': Icons.notifications_active,
+                'desc': 'Aktív gyógykezelés, serkentés vagy méhszöktetés.',
+              },
+              {
+                'key': 'purple',
+                'label': 'Lila – Rajzáskészültség (>4700 Hz)',
+                'color': Colors.purpleAccent,
+                'icon': Icons.warning_amber_rounded,
+                'desc': 'Akusztikai rajzási figyelmeztetés vagy kísérleti család.',
+              },
+              {
+                'key': 'red',
+                'label': 'Piros – Kritikus vészhelyzet',
+                'color': Colors.redAccent,
+                'icon': Icons.warning_rounded,
+                'desc': 'Azonnali beavatkozást igénylő krízis (súlyvesztés, kihűlés).',
+              },
+            ];
+
+            final functionCategories = [
+              {
+                'id': 'méz',
+                'name': 'Termelő (Méz)',
+                'desc': 'Főhordás & mézgyűjtés',
+                'icon': Icons.breakfast_dining,
+                'color': Colors.amberAccent,
+              },
+              {
+                'id': 'pollen',
+                'name': 'Pollengyűjtő',
+                'desc': 'Virágpor behordás',
+                'icon': Icons.spa,
+                'color': Colors.orangeAccent,
+              },
+              {
+                'id': 'propolisz',
+                'name': 'Propoliszos',
+                'desc': 'Propolisz termelés',
+                'icon': Icons.texture,
+                'color': Colors.amber.shade700,
+              },
+              {
+                'id': 'dajka',
+                'name': 'Dajkacsalád',
+                'desc': 'Pempőzés & anyanevelés',
+                'icon': Icons.child_care,
+                'color': Colors.cyanAccent,
+              },
+              {
+                'id': 'anya',
+                'name': 'Tenyész (Anya/Apa)',
+                'desc': 'Törzsállomány & génbank',
+                'icon': Icons.workspace_premium,
+                'color': Colors.amber,
+              },
+              {
+                'id': 'tartalék',
+                'name': 'Tartalék / Raj',
+                'desc': 'Kölyökcsalád / tartalék',
+                'icon': Icons.inventory_2_outlined,
+                'color': Colors.lightGreenAccent,
+              },
+              {
+                'id': 'gyenge',
+                'name': 'Gyenge család',
+                'desc': 'Megfigyelendő fejlődés',
+                'icon': Icons.heart_broken_outlined,
+                'color': Colors.orange,
+              },
+              {
+                'id': 'selejt',
+                'name': 'Selejt család',
+                'desc': 'Szezon végén felerősítésre!',
+                'icon': Icons.call_merge,
+                'color': Colors.deepOrangeAccent,
+              },
+              {
+                'id': 'Hans',
+                'name': 'Hans-protokoll',
+                'desc': 'Azonnali elpusztítás!',
+                'icon': Icons.local_fire_department,
+                'color': Colors.redAccent,
+              },
+            ];
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.92,
+              decoration: const BoxDecoration(
+                color: Color(0xFF0F172A),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 10, bottom: 8),
+                      width: 48,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.white30,
+                        borderRadius: BorderRadius.circular(2.5),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.assessment_rounded, color: Colors.amberAccent, size: 28),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Család állapota & Funkciója',
+                                style: TextStyle(
+                                  color: Colors.amberAccent,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                '${hive.name} (${hive.id})',
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white70, size: 24),
+                          onPressed: () => Navigator.pop(bottomSheetContext),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(color: Colors.white24, height: 1),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        // --- 1. CSALÁDFUNKCIÓ MÓDOSÍTÁSA (BOXKESZTYŰ-BARÁT CSAMPÉK) ---
+                        const Row(
+                          children: [
+                            Icon(Icons.work_outline, color: Colors.amberAccent, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              '1. Család funkciójának módosítása:',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: functionCategories.map((cat) {
+                            final bool isSel = hive.familyFunction == cat['id'];
+                            final Color catColor = cat['color'] as Color;
+                            final double cardWidth =
+                                (MediaQuery.of(context).size.width - 42) / 2;
+
+                            return InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () {
+                                if (cat['id'] == 'Hans') {
+                                  showDialog(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      backgroundColor: const Color(0xFF1E293B),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(18),
+                                        side: const BorderSide(color: Colors.redAccent, width: 2),
+                                      ),
+                                      title: const Row(
+                                        children: [
+                                          Icon(
+                                            Icons.local_fire_department,
+                                            color: Colors.redAccent,
+                                            size: 30,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              'Figyelem: Hans-protokoll!',
+                                              style: TextStyle(
+                                                color: Colors.redAccent,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      content: const Text(
+                                        'A Hans nem egy selejt család, hanem AZONNALI ÉS TELJES ELPUSZTÍTÁST jelent!\n\nAlkalmazása: Súlyos, fertőző betegség (pl. nyúlós költésrothadás) vagy agresszivitás miatti kénlapos megsemmisítés.\n\nEbből a kaptárból szigorúan TILOS fiasítást, keretet vagy népet átadni más családoknak (ellentétben egy selejt családdal, amivel szezon végén felerősíthetsz másokat)!\n\nBiztosan elpusztításra jelölöd ezt a családot?',
+                                        style: TextStyle(color: Colors.white70, fontSize: 13),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx),
+                                          child: const Text('Mégse', style: TextStyle(color: Colors.grey)),
+                                        ),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.redAccent,
+                                            foregroundColor: Colors.white,
+                                          ),
+                                          onPressed: () {
+                                            Navigator.pop(ctx);
+                                            setModalState(() {
+                                              hive.familyFunction = 'Hans';
+                                              hive.status = 'red';
+                                              hive.protocol = 'hans';
+                                            });
+                                            setState(() {});
+                                            repository.updateHive(hive);
+                                          },
+                                          child: const Text('Igen, Hans (Elpusztítás)'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                } else {
+                                  setModalState(() {
+                                    hive.familyFunction = cat['id'] as String;
+                                    if (cat['id'] != 'Hans' && hive.protocol == 'hans') {
+                                      hive.protocol = 'standard';
+                                    }
+                                  });
+                                  setState(() {});
+                                  repository.updateHive(hive);
+                                }
+                              },
+                              child: Container(
+                                width: cardWidth,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: isSel
+                                      ? catColor.withAlpha(50)
+                                      : const Color(0xFF1E293B),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: isSel ? catColor : Colors.white12,
+                                    width: isSel ? 2.5 : 1.2,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(cat['icon'] as IconData, size: 28, color: catColor),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            cat['name'] as String,
+                                            style: TextStyle(
+                                              color: isSel ? Colors.white : Colors.white70,
+                                              fontWeight: isSel ? FontWeight.bold : FontWeight.w600,
+                                              fontSize: 12.5,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            cat['desc'] as String,
+                                            style: TextStyle(
+                                              color: Colors.white.withAlpha(160),
+                                              fontSize: 9.5,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (isSel)
+                                      Icon(Icons.check_circle, size: 16, color: catColor),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+
+                        const SizedBox(height: 22),
+
+                        // --- 2. KAPTÁR OSZTÁLYOZÁSA & ÁLLAPOTA (BOXKESZTYŰ-BARÁT GOMBOK) ---
+                        const Row(
+                          children: [
+                            Icon(Icons.palette_outlined, color: Colors.amberAccent, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              '2. Kaptár osztályozása & Állapota:',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        ...statuses.map((st) {
+                          final bool isSelected = hive.status == st['key'];
+                          final Color color = st['color'] as Color;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: isSelected ? color.withAlpha(50) : const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isSelected ? color : Colors.white12,
+                                width: isSelected ? 2.5 : 1,
+                              ),
+                            ),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                              leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: color.withAlpha(30),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(st['icon'] as IconData, color: color, size: 26),
+                              ),
+                              title: Text(
+                                st['label'] as String,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.white : Colors.white70,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              subtitle: Text(
+                                st['desc'] as String,
+                                style: TextStyle(
+                                  color: Colors.white.withAlpha(160),
+                                  fontSize: 11,
+                                ),
+                              ),
+                              trailing: isSelected
+                                  ? Icon(Icons.check_circle, color: color, size: 24)
+                                  : null,
+                              onTap: () {
+                                setModalState(() {
+                                  hive.status = st['key'] as String;
+                                });
+                                setState(() {});
+                                repository.updateHive(hive);
+                              },
+                            ),
+                          );
+                        }),
+
+                        const SizedBox(height: 16),
+
+                        // --- 3. TENYÉSZBÍRÁLATI GYORS MINŐSÍTÉS ---
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.workspace_premium, color: Colors.amberAccent, size: 20),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Tenyészbírálati jegyek (Gyors minősítés):',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              _buildTraitRow('Szelídség', hive.evaluation.temperament, (val) {
+                                setModalState(() => hive.evaluation.temperament = val);
+                                setState(() {});
+                                repository.updateHive(hive);
+                              }),
+                              _buildTraitRow('Tisztogató hajlam (VSH)', hive.evaluation.hygiene, (val) {
+                                setModalState(() => hive.evaluation.hygiene = val);
+                                setState(() {});
+                                repository.updateHive(hive);
+                              }),
+                              _buildTraitRow('Gyűjtési hajlam', hive.evaluation.gathering, (val) {
+                                setModalState(() => hive.evaluation.gathering = val);
+                                setState(() {});
+                                repository.updateHive(hive);
+                              }),
+                              _buildTraitRow('Rajzási hajlam', hive.evaluation.swarming, (val) {
+                                setModalState(() => hive.evaluation.swarming = val);
+                                setState(() {});
+                                repository.updateHive(hive);
+                              }),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // --- GOMBOK A MESTERTERVEKHEZ ÉS KEZELÉSEKHEZ ---
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF1E3A8A), Color(0xFF1E293B)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.blueAccent.withAlpha(140)),
+                          ),
+                          child: ListTile(
+                            leading: const CircleAvatar(
+                              backgroundColor: Colors.blueAccent,
+                              child: Icon(Icons.work_outline, color: Colors.white, size: 22),
+                            ),
+                            title: const Text(
+                              'Családfunkció & Mestertervek megnyitása',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                            subtitle: const Text(
+                              'Petés, álcás mestertervek, dajkacsalád indítás, hereskeret és Hans-protokoll.',
+                              style: TextStyle(color: Colors.white70, fontSize: 11),
+                            ),
+                            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 16),
+                            onTap: () {
+                              Navigator.pop(bottomSheetContext);
+                              FamilyFunctionScreen.open(context, hive, repository);
+                            },
+                          ),
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF831843), Color(0xFF1E293B)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.pinkAccent.withAlpha(140)),
+                          ),
+                          child: ListTile(
+                            leading: const CircleAvatar(
+                              backgroundColor: Colors.pinkAccent,
+                              child: Icon(Icons.medical_services_outlined, color: Colors.white, size: 22),
+                            ),
+                            title: const Text(
+                              'Kezelések & Gyógyszerezés megnyitása',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                            subtitle: const Text(
+                              'Oxálsav kúra, fészekvizsgálat, takarmányozás és egyéb feladatok.',
+                              style: TextStyle(color: Colors.white70, fontSize: 11),
+                            ),
+                            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 16),
+                            onTap: () {
+                              Navigator.pop(bottomSheetContext);
+                              TreatmentsScreen.open(context, hive, repository);
+                            },
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 54,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amberAccent,
+                              foregroundColor: Colors.black,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            icon: const Icon(Icons.check, size: 22),
+                            label: const Text(
+                              'Osztályozás jóváhagyása & Bezárás',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                            onPressed: () {
+                              repository.updateHive(hive);
+                              setState(() {});
+                              Navigator.pop(bottomSheetContext);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('A család osztályozása sikeresen mentve!'),
+                                  backgroundColor: Colors.teal,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
                     ),
                   ),
                 ],
               ),
             );
-          }),
-          if (hasManualStatusIssue) ...[
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    widget.hive.status = 'green';
-                  });
-                  repository.updateHive(widget.hive);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'A kaptár kézi státusza Zöldre állítva!',
-                      ),
-                      backgroundColor: Colors.teal,
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.check, size: 16, color: Colors.black),
-                label: const Text(
-                  'Kézi státusz azonnali zöldre állítása',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black,
-                    fontSize: 12,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.greenAccent,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildTraitRow(String title, String currentValue, Function(String) onChanged) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(color: Colors.white70, fontSize: 11.5),
             ),
-          ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: ['+', '0', '-'].map((val) {
+              final bool isSel = currentValue == val;
+              Color activeColor;
+              if (val == '+') {
+                activeColor = Colors.greenAccent;
+              } else if (val == '0') {
+                activeColor = Colors.amberAccent;
+              } else {
+                activeColor = Colors.redAccent;
+              }
+              return GestureDetector(
+                onTap: () => onChanged(val),
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isSel ? activeColor.withAlpha(60) : Colors.black26,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isSel ? activeColor : Colors.white12,
+                      width: isSel ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Text(
+                    val,
+                    style: TextStyle(
+                      color: isSel ? activeColor : Colors.white54,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
         ],
       ),
     );

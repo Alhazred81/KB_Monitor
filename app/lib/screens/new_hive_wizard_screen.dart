@@ -60,7 +60,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
   // 2. lépés: Torony elemei (Aljdeszka, Fészekfiók, Opcionális Etető, Fedő)
   late TextEditingController _bottomCodeCtrl;
   late TextEditingController _broodCodeCtrl;
-  String _broodSize = 'hunor';
+  String _broodSize = 'dadant';
   bool _includeFeeder = false;
   late TextEditingController _feederCodeCtrl;
   late TextEditingController _roofCodeCtrl;

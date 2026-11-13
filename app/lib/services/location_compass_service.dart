@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_compass/flutter_compass.dart';
@@ -11,6 +12,7 @@ class LocationCompassService {
   double? _heading = 0.0;
   double? _accuracy;
   DateTime _lastCompassUpdate = DateTime.now();
+  StreamSubscription<CompassEvent>? _compassSubscription;
 
   LatLng get currentPosition => _currentPosition;
   String get statusMessage => _statusMessage;
@@ -52,7 +54,8 @@ class LocationCompassService {
 
   // Iránytű események indítása (ritkítva a ventilátor-hatás elkerüléséért)
   void initCompass(Function(double? heading, double? accuracy) onUpdate) {
-    FlutterCompass.events?.listen((CompassEvent event) {
+    _compassSubscription?.cancel();
+    _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
       if (event.heading != null) {
         final now = DateTime.now();
         if (now.difference(_lastCompassUpdate).inMilliseconds > 400 ||
@@ -64,6 +67,11 @@ class LocationCompassService {
         }
       }
     });
+  }
+
+  void dispose() {
+    _compassSubscription?.cancel();
+    _compassSubscription = null;
   }
 
   String getHeadingText(double? heading) {

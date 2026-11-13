@@ -128,6 +128,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   @override
   void dispose() {
+    _locationService.dispose();
     _localOtaServer?.close(force: true);
     _repository.removeListener(_onRepositoryChanged);
     _nfcAnimController.dispose();
@@ -498,7 +499,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                               ),
                               content: const Text(
                                 'A kiválasztott méret nem kombinálható a kaptárban lévő mérettel!\n\n'
-                                '• A Dadant kizárólag 1/2 Dadanttal használható együtt.\n'
+                                '• A Dadant rendszerben teljes Dadant és 1/2 Dadant fiókok használhatók.\n'
                                 '• Az NB, Hunor és 1/2 NB egymással kompatibilis, de a Dadanttal keresztbe nem keverhető.',
                                 style: TextStyle(color: Colors.white70, fontSize: 13),
                               ),
@@ -579,19 +580,20 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
       builder: (context) => HiveDetailSheet(
         hive: hive,
         redFlashOpacityAnim: _redFlashOpacityAnim,
-        onConfigurePressed: () {
-          Navigator.pop(context);
-          _openHiveConfigDialog(hive);
+        onConfigurePressed: () async {
+          await _openHiveConfigDialog(hive);
+          if (mounted) setState(() {});
         },
       ),
     );
   }
 
-  void _openHiveConfigDialog(HiveData hive) {
-    showDialog(
+  Future<void> _openHiveConfigDialog(HiveData hive) async {
+    await showDialog(
       context: context,
       builder: (context) => HiveConfigDialog(selectedHive: hive),
     );
+    if (mounted) setState(() {});
   }
 
   void _openSettingsScreen() {
@@ -1421,6 +1423,9 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                           final bool isPollenTrapActive = hive.boxes.any(
                             (b) => b.type == 'pollen_trap' && b.isActive,
                           );
+                          final bool hasActiveEscapement = hive.boxes.any(
+                            (b) => b.type == 'escapement' && b.isActive,
+                          );
 
                           final now = DateTime.now();
                           final oneWeekLater = now.add(const Duration(days: 7));
@@ -1450,14 +1455,27 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
                           final IconData hiveIcon = _getHiveIcon(hive);
 
-                          if (hasActiveBottomBoard || isPollenTrapActive) {
+                          if (hasActiveEscapement ||
+                              hasActiveBottomBoard ||
+                              isPollenTrapActive) {
+                            Color badgeColor;
+                            IconData badgeIcon;
+                            if (hasActiveEscapement) {
+                              badgeColor = Colors.amber[800]!;
+                              badgeIcon = Icons.transit_enterexit;
+                            } else if (isPollenTrapActive) {
+                              badgeColor = Colors.orange;
+                              badgeIcon = Icons.local_florist;
+                            } else {
+                              badgeColor = Colors.deepOrange;
+                              badgeIcon = Icons.bug_report;
+                            }
+
                             return FadeTransition(
                               opacity: _redFlashOpacityAnim,
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: isPollenTrapActive
-                                      ? Colors.orange
-                                      : Colors.deepOrange,
+                                  color: badgeColor,
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
                                     color: _isEditMode
@@ -1471,9 +1489,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                   children: [
                                     Center(
                                       child: Icon(
-                                        isPollenTrapActive
-                                            ? Icons.local_florist
-                                            : Icons.bug_report,
+                                        badgeIcon,
                                         color: Colors.white,
                                         size: 18,
                                       ),

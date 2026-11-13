@@ -1,0 +1,20 @@
+analyzer:
+  exclude:
+    - .pio/**
+    - obsolete/**
+    - src/**
+    - include/**
+    - data/**
+    - app/build/**
+    - app/android/**
+    - app/ios/**
+    - app/web/**
+    - app/windows/**
+    - app/macos/**
+    - app/linux/**
+    - app/.dart_tool/**
+  errors:
+    unused_field: ignore
+    unused_element: ignore
+    unused_local_variable: ignore
+    todo: ignore

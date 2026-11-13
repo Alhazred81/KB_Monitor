@@ -307,6 +307,25 @@ class HiveRepository extends ChangeNotifier {
   }
 
   void addBoxToHive(HiveData hive, BoxElement box) {
+    final isRoof = box.type == 'roof' ||
+        box.name.toLowerCase().contains('tető') ||
+        box.name.toLowerCase().contains('teto');
+    final isBottom =
+        box.type == 'bottom' || box.name.toLowerCase().contains('alj');
+
+    if (isRoof &&
+        hive.boxes.any((b) =>
+            b.type == 'roof' ||
+            b.name.toLowerCase().contains('tető') ||
+            b.name.toLowerCase().contains('teto'))) {
+      return; // Egynél több tető szigorúan tiltott
+    }
+    if (isBottom &&
+        hive.boxes.any((b) =>
+            b.type == 'bottom' || b.name.toLowerCase().contains('alj'))) {
+      return; // Egynél több aljdeszka szigorúan tiltott
+    }
+
     hive.boxes.add(box);
     sortHiveBoxes(hive.boxes); // Biztosítja a helyes rétegrendet (tetőetető mindig közvetlenül a tető alatt)
     final int calculatedPos = hive.boxes.indexOf(box) + 1;
@@ -318,6 +337,120 @@ class HiveRepository extends ChangeNotifier {
       'position_index': calculatedPos,
       'is_active': box.isActive,
     });
+    notifyListeners();
+  }
+
+  void reorderBox(HiveData hive, BoxElement box, {required bool moveUp}) {
+    if (box.type == 'roof' || box.type == 'bottom') return;
+
+    final int currentIndex = hive.boxes.indexOf(box);
+    if (currentIndex == -1) return;
+
+    int targetIndex = -1;
+    if (moveUp) {
+      // Feljebb mozgatás a képernyőn (a tető felé haladva a toronyban)
+      targetIndex = currentIndex + 1;
+      if (targetIndex >= hive.boxes.length) return;
+      if (hive.boxes[targetIndex].type == 'roof') return;
+
+      final temp = hive.boxes[currentIndex];
+      hive.boxes[currentIndex] = hive.boxes[targetIndex];
+      hive.boxes[targetIndex] = temp;
+    } else {
+      // Lejjebb mozgatás a képernyőn (az aljdeszka felé haladva a toronyban)
+      targetIndex = currentIndex - 1;
+      if (targetIndex < 0) return;
+      if (hive.boxes[targetIndex].type == 'bottom') return;
+
+      final temp = hive.boxes[currentIndex];
+      hive.boxes[currentIndex] = hive.boxes[targetIndex];
+      hive.boxes[targetIndex] = temp;
+    }
+
+    // Pozíciók újraindexelése a memóriában
+    for (int i = 0; i < hive.boxes.length; i++) {
+      hive.boxes[i].positionIndex = i;
+    }
+
+    // Hálózati optimalizáció: Csak a ténylegesen megcserélt két fiók pozícióját küldjük a szerverre
+    final bCurrent = hive.boxes[currentIndex];
+    final bTarget = hive.boxes[targetIndex];
+    if (bCurrent.dbId != null) {
+      _patchToSupabase('bodies', 'id=eq.${bCurrent.dbId}', {
+        'position_index': currentIndex + 1,
+      });
+    }
+    if (bTarget.dbId != null) {
+      _patchToSupabase('bodies', 'id=eq.${bTarget.dbId}', {
+        'position_index': targetIndex + 1,
+      });
+    }
+
+    notifyListeners();
+  }
+
+  void insertEscapeBoardUnderHoney(HiveData hive, BoxElement honeyBox) {
+    final int honeyIndex = hive.boxes.indexOf(honeyBox);
+    if (honeyIndex == -1) return;
+
+    // Ha közvetlenül alatta már szöktető van, nem teszünk be másikat
+    if (honeyIndex > 0 && hive.boxes[honeyIndex - 1].type == 'escapement') {
+      return;
+    }
+
+    final String escapementCode =
+        '${hive.id}_ESCAPEMENT_${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+
+    final escapementBox = BoxElement(
+      name: 'Szöktető',
+      code: escapementCode,
+      type: 'escapement',
+      size: honeyBox.size.isNotEmpty ? honeyBox.size : 'fel_dadant',
+      status: 'green',
+      isActive: true,
+      statusUpdatedAt: DateTime.now(),
+    );
+
+    // Beillesztjük közvetlenül a méztér alá (a méztér jelenlegi indexére,
+    // így a méztér és az összes felette lévő elem eggyel feljebb tolódik)
+    hive.boxes.insert(honeyIndex, escapementBox);
+
+    // Pozíciók újraindexelése
+    for (int i = 0; i < hive.boxes.length; i++) {
+      hive.boxes[i].positionIndex = i;
+    }
+
+    // Új elem mentése Supabase-be
+    _postToSupabase('bodies', {
+      'monitor_mac': hive.id,
+      'body_type': escapementBox.size,
+      'body_function': 'escapement',
+      'position_index': honeyIndex + 1,
+      'is_active': true,
+    });
+
+    // Frissítjük a többi elem pozícióját is Supabase-ben
+    for (int i = 0; i < hive.boxes.length; i++) {
+      final b = hive.boxes[i];
+      if (b.dbId != null) {
+        _patchToSupabase('bodies', 'id=eq.${b.dbId}', {
+          'position_index': i + 1,
+        });
+      }
+    }
+
+    // Holnapi emlékeztető feladat automatikus létrehozása (24 óra)
+    final tomorrow = DateTime.now().add(const Duration(hours: 24));
+    addScheduledTask(ScheduledTask(
+      id: 'TASK_${hive.id}_ESCAPEMENT_${DateTime.now().millisecondsSinceEpoch}',
+      hiveId: hive.id,
+      category: 'harvest',
+      title: 'Méhszöktetés: Fiókok elvétele',
+      description:
+          'A méztér alá helyezett méhszöktető leürítette a méheket. A méztereket most azonnal el kell takarítani pergetéshez!',
+      scheduledDate: tomorrow,
+    ));
+
     notifyListeners();
   }
 
@@ -1028,5 +1161,12 @@ class HiveRepository extends ChangeNotifier {
       _isSyncing = false;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _healthCheckTimer?.cancel();
+    _healthCheckTimer = null;
+    super.dispose();
   }
 }

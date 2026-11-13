@@ -1,0 +1,15 @@
+{
+  "dart.analysisExcludedFolders": [
+    ".pio",
+    "obsolete",
+    "build",
+    "app/build"
+  ],
+  "files.watcherExclude": {
+    "**/.pio/**": true,
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/build/**": true
+  }
+}
