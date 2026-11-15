@@ -11,6 +11,7 @@ extern Mpu6050State gMpu;
 extern Aht20State gAht20;
 extern Bmp280State gBmp280;
 extern Ltr390State gLtr;
+extern BatTempSensorState gBatTemp;
 extern uint32_t gSensRs485Baud;
 extern bool gRs485Initialized;
 extern String gLastSensTestResult;
@@ -117,6 +118,12 @@ String ltrValueText() {
     return "UVI " + String(gLtr.uvIndex, 1) + " | " + String(gLtr.lux, 1) + " lx";
 }
 
+String batTempValueText() {
+    if(!gBatTemp.enabled) return "";
+    if(!gBatTemp.lastReadOk && gBatTemp.lastGoodRead == 0) return "";
+    return String(gBatTemp.tempC, 1) + " °C (ADC: " + String(gBatTemp.rawAdc) + ", " + String(gBatTemp.voltageMv, 0) + " mV)";
+}
+
 void handleSensors(AsyncWebServerRequest *request) {
     if (!checkPinGuard(request)) return;
     String html = htmlHead("Szenzorok", "7");
@@ -132,6 +139,7 @@ void handleSensors(AsyncWebServerRequest *request) {
     html += sensorRowHtml("aht20", "AHT20 Hő/Pára (I2C2)", gAht20.enabled, gAht20.lastGoodRead>0, gAht20.lastReadOk, aht20ValueText());
     html += sensorRowHtml("bmp280", "BMP280 Nyomás (I2C2)", gBmp280.enabled, gBmp280.lastGoodRead>0, gBmp280.lastReadOk, bmp280ValueText());
     html += sensorRowHtml("ltr", "LTR-390 UV (I2C2)", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText());
+    html += sensorRowHtml("batt_temp", "Akku Hőmérséklet (IO21 ADC)", gBatTemp.enabled, gBatTemp.lastGoodRead>0, gBatTemp.lastReadOk, batTempValueText(), "Szerver IO21 ADC analóg bemenet. Kalibráció: T = (ADC * Gain) + Offset");
     html += "</div>";
 
     // --- Új Tanítós Kopogás Kártya ---
@@ -148,6 +156,16 @@ void handleSensors(AsyncWebServerRequest *request) {
     html += "</div>";
     // -------------------------------
 
+    html += "<div class='card wide'><h2>Akku Hőmérséklet Kalibráció (IO21 ADC)</h2>";
+    html += "<p class='hint'>Az akku hőmérséklet a szerver IO21 analóg lábáról mért ADC értékből számítódik.<br>Képlet: <b>T (°C) = (Nyers ADC &times; Gain) + Offset</b></p>";
+    html += "<form action='/sensconfig' method='POST'>";
+    html += "<div style='display:flex;gap:12px;flex-wrap:wrap;'>";
+    html += "<div style='flex:1;min-width:140px;'><label>Meredekség (Gain)</label><input type='number' step='any' name='bat_temp_gain' value='" + String(gBatTemp.gain, 5) + "'></div>";
+    html += "<div style='flex:1;min-width:140px;'><label>Eltolás (°C Offset)</label><input type='number' step='any' name='bat_temp_offset' value='" + String(gBatTemp.offset, 2) + "'></div>";
+    html += "</div>";
+    html += "<div style='margin-top:10px;'><button class='sec'>Kalibráció mentése</button></div>";
+    html += "</form></div>";
+
     html += "<div class='card wide'><h2>RS485 / Modbus beallitasok</h2><form action='/sensconfig' method='POST'><label>RS485 baudrate</label><select name='baud'>";
     const long bauds[] = {1200,2400,4800,9600,19200,38400,57600,115200};
     for(int i=0;i<8;i++){
@@ -160,9 +178,9 @@ void handleSensors(AsyncWebServerRequest *request) {
     html += "<label>Esoszenzor Modbus cim</label><input type='number' name='addr_rain' min='1' max='247' value='" + String(gRain.modbusAddr) + "'><button class='sec'>Mentes</button></form></div>";
 
     html += "<div class='card wide'><h2>Tesztelés</h2><p class='hint'>Azonnali, egyszeri lekerdezes a kivalasztott eszkozre.</p><div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px'>";
-    const char* tests[] = {"windspeed", "winddir", "sht", "rain", "mpu", "aht20", "bmp280", "ltr"};
-    const char* labels[] = {"Szelsebesseg teszt", "Szelirany teszt", "SHT57 teszt", "Eso teszt", "MPU6050 teszt", "AHT20 teszt", "BMP280 teszt", "LTR-390 teszt"};
-    for(int i=0; i<8; i++) {
+    const char* tests[] = {"windspeed", "winddir", "sht", "rain", "mpu", "aht20", "bmp280", "ltr", "bat_temp"};
+    const char* labels[] = {"Szelsebesseg teszt", "Szelirany teszt", "SHT57 teszt", "Eso teszt", "MPU6050 teszt", "AHT20 teszt", "BMP280 teszt", "LTR-390 teszt", "Akku Hőm. teszt"};
+    for(int i=0; i<9; i++) {
         html += "<form action='/senstest' method='POST' style='flex:1;min-width:120px'><input type='hidden' name='which' value='" + String(tests[i]) + "'><button class='sec'>" + String(labels[i]) + "</button></form>";
     }
     html += "</div>";
@@ -250,8 +268,17 @@ void handleSensConfig(AsyncWebServerRequest *request) {
     }
     gRain.isModbus = request->hasParam("rain_modbus", true);
 
+    if(request->hasParam("bat_temp_gain", true)) {
+        float g = request->getParam("bat_temp_gain", true)->value().toFloat();
+        gBatTemp.gain = g;
+    }
+    if(request->hasParam("bat_temp_offset", true)) {
+        float o = request->getParam("bat_temp_offset", true)->value().toFloat();
+        gBatTemp.offset = o;
+    }
+
     saveSensorConfig();
-    diagAdd("Szenzor RS485/Modbus beallitasok mentve.");
+    diagAdd("Szenzor és akku hőmérséklet beállítások mentve.");
     request->redirect("/sensors");
 }
 
@@ -262,6 +289,19 @@ void handleSensToggle(AsyncWebServerRequest *request) {
     }
     String key = request->getParam("key", true)->value();
     bool on = request->getParam("on", true)->value() == "1";
+
+    if(key == "batt_temp" || key == "bat_temp") {
+        gBatTemp.enabled = on;
+        saveSensorConfig();
+        String diagMsg = "Akku hőmérséklet mérés (IO21): " + String(on ? "bekapcsolva" : "kikapcsolva");
+        if(on) {
+            readBatteryTemperature();
+            diagMsg += " (" + String(gBatTemp.tempC, 1) + " °C)";
+        }
+        diagAdd(diagMsg);
+        request->send(200, "text/plain", "ok");
+        return;
+    }
 
     int bit = -1;
     if(key == "windspeed") bit = SENS_BIT_WINDSPEED;
@@ -302,6 +342,7 @@ void handleSensStatus(AsyncWebServerRequest *request) {
     json += sensStatusJsonEntry("aht20", gAht20.enabled, gAht20.lastGoodRead>0, gAht20.lastReadOk, aht20ValueText()) + ",";
     json += sensStatusJsonEntry("bmp280", gBmp280.enabled, gBmp280.lastGoodRead>0, gBmp280.lastReadOk, bmp280ValueText()) + ",";
     json += sensStatusJsonEntry("ltr", gLtr.enabled, gLtr.lastGoodRead>0, gLtr.lastReadOk, ltrValueText()) + ",";
+    json += sensStatusJsonEntry("batt_temp", gBatTemp.enabled, gBatTemp.lastGoodRead>0, gBatTemp.lastReadOk, batTempValueText()) + ",";
     
     // Kopogás státusz paraméterei a JSON-ban
     json += "\"knockUnlocked\":" + String(isSecretKnockUnlocked() ? "true" : "false") + ",";

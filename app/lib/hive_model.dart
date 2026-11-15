@@ -166,6 +166,13 @@ class FrameAnalysisRecord {
   final String populationEstimate;
   final int cappedBroodPct;
   final int openBroodPct;
+  final int honeyPct;
+  final int pollenPct;
+  final int droneBroodPct;
+  final bool queenDetected;
+  final String queenColor;
+  final int estimatedBeesCount;
+  final int queenCellsCount;
   final bool queenCellsDetected;
   final String broodHealthNote;
   bool isSyncedWithCloud;
@@ -179,6 +186,13 @@ class FrameAnalysisRecord {
     required this.populationEstimate,
     required this.cappedBroodPct,
     required this.openBroodPct,
+    this.honeyPct = 0,
+    this.pollenPct = 0,
+    this.droneBroodPct = 0,
+    this.queenDetected = false,
+    this.queenColor = 'Fehér (2026)',
+    this.estimatedBeesCount = 0,
+    this.queenCellsCount = 0,
     this.queenCellsDetected = false,
     this.broodHealthNote = 'Szabályos',
     this.isSyncedWithCloud = false,

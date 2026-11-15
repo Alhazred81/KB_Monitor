@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../hive_model.dart';
 import '../services/hive_repository.dart';
+import 'frame_ar_inspection_screen.dart';
 
 class FrameAnalysisScreen extends StatefulWidget {
   final HiveData hive;
@@ -142,43 +143,76 @@ class _FrameAnalysisScreenState extends State<FrameAnalysisScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             color: const Color(0xFF1E1E1E),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.amber,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    onPressed: _isProcessing ? null : _takeFramePhoto,
-                    icon: _isProcessing
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.black,
-                            ),
-                          )
-                        : const Icon(Icons.camera_alt),
-                    label: Text(
-                      _isProcessing ? 'Elemzés...' : 'Következő keret fotózása',
+                    icon: const Icon(Icons.view_in_ar, size: 22),
+                    label: const Text(
+                      'Élő AR Fészekkeret Vizsgálat',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (ctx) =>
+                              FrameArInspectionScreen(hive: widget.hive),
+                        ),
+                      );
+                    },
                   ),
                 ),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade700,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 14,
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.amber,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        onPressed: _isProcessing ? null : _takeFramePhoto,
+                        icon: _isProcessing
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : const Icon(Icons.camera_alt),
+                        label: Text(
+                          _isProcessing ? 'Elemzés...' : 'Fotó készítése',
+                        ),
+                      ),
                     ),
-                  ),
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Kész'),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Kész'),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -8,6 +8,7 @@ import 'package:printing/printing.dart';
 
 import '../hive_model.dart';
 import '../services/hive_repository.dart';
+import '../widgets/safe_camera_controller.dart';
 
 // ============================================================================
 // DINAMIKUS TÖRZSADAT MODELL (Adatbázis elemekhez)
@@ -410,11 +411,46 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
     return '${prefix}_${number.toString().padLeft(7, '0')}';
   }
 
+  pw.Widget _buildPdfBarcode({
+    required String code,
+    required String format,
+    required double sizeMm,
+  }) {
+    switch (format) {
+      case 'dmc':
+        return pw.BarcodeWidget(
+          barcode: pw.Barcode.dataMatrix(),
+          data: code,
+          width: sizeMm * PdfPageFormat.mm,
+          height: sizeMm * PdfPageFormat.mm,
+        );
+      case 'code128':
+        return pw.BarcodeWidget(
+          barcode: pw.Barcode.code128(),
+          data: code,
+          width: (sizeMm * 1.35) * PdfPageFormat.mm,
+          height: (sizeMm * 0.48) * PdfPageFormat.mm,
+          drawText: false,
+        );
+      case 'qr':
+      default:
+        return pw.BarcodeWidget(
+          barcode: pw.Barcode.qrCode(
+            errorCorrectLevel: pw.BarcodeQRCorrectionLevel.high,
+          ),
+          data: code,
+          width: sizeMm * PdfPageFormat.mm,
+          height: sizeMm * PdfPageFormat.mm,
+        );
+    }
+  }
+
   // ==========================================================================
   // 1. KÓDGENERÁLÁS DIalógus
   // ==========================================================================
   void _showCodeGenerationDialog() {
     String printPrefix = 'B';
+    String selectedBarcodeFormat = 'qr';
     int sheetsCount = 1;
     bool isGenerating = false;
     final TextEditingController sheetsCtrl = TextEditingController(text: '1');
@@ -493,14 +529,10 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                                     ),
                                   ),
                                   pw.SizedBox(height: 3 * PdfPageFormat.mm),
-                                  pw.BarcodeWidget(
-                                    barcode: pw.Barcode.qrCode(
-                                      errorCorrectLevel:
-                                          pw.BarcodeQRCorrectionLevel.high,
-                                    ),
-                                    data: code,
-                                    width: 48 * PdfPageFormat.mm,
-                                    height: 48 * PdfPageFormat.mm,
+                                  _buildPdfBarcode(
+                                    code: code,
+                                    format: selectedBarcodeFormat,
+                                    sizeMm: 48,
                                   ),
                                   pw.SizedBox(height: 3 * PdfPageFormat.mm),
                                   pw.Container(
@@ -611,6 +643,40 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedBarcodeFormat,
+                    dropdownColor: const Color(0xFF0F172A),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      labelText: 'Kód formátum',
+                      labelStyle: const TextStyle(color: Colors.amber),
+                      filled: true,
+                      fillColor: const Color(0xFF0F172A),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'qr',
+                        child: Text('QR-kód (Standard)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'dmc',
+                        child: Text('DMC – Data Matrix (Ipari mátrix kód)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'code128',
+                        child: Text('Code 128 (Lineáris vonalkód)'),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setDialogState(() => selectedBarcodeFormat = val);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: sheetsCtrl,
                     keyboardType: TextInputType.number,
@@ -712,6 +778,14 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
   // ==========================================================================
   void _showReprintSingleCodeDialog() {
     final TextEditingController searchCtrl = TextEditingController();
+    final MobileScannerController reprintScannerCtrl = MobileScannerController(
+      formats: const [
+        BarcodeFormat.qrCode,
+        BarcodeFormat.dataMatrix,
+        BarcodeFormat.code128,
+      ],
+    );
+    String reprintBarcodeFormat = 'qr';
     bool isScanningForReprint = false;
 
     showDialog(
@@ -780,14 +854,10 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                               textAlign: pw.TextAlign.center,
                             ),
                             pw.SizedBox(height: 5 * PdfPageFormat.mm),
-                            pw.BarcodeWidget(
-                              barcode: pw.Barcode.qrCode(
-                                errorCorrectLevel:
-                                    pw.BarcodeQRCorrectionLevel.high,
-                              ),
-                              data: codeUpper,
-                              width: 65 * PdfPageFormat.mm,
-                              height: 65 * PdfPageFormat.mm,
+                            _buildPdfBarcode(
+                              code: codeUpper,
+                              format: reprintBarcodeFormat,
+                              sizeMm: 65,
                             ),
                             pw.SizedBox(height: 5 * PdfPageFormat.mm),
                             pw.Container(
@@ -830,7 +900,7 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
               final Uint8List pdfBytes = await pdf.save();
               await Printing.layoutPdf(
                 onLayout: (PdfPageFormat format) async => pdfBytes,
-                name: 'QR_Ujranyomtatott_$codeUpper.pdf',
+                name: 'Cimke_${reprintBarcodeFormat.toUpperCase()}_$codeUpper.pdf',
               );
             }
 
@@ -846,7 +916,7 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Meglévő QR-kód Újranyomtatása',
+                      'Meglévő Kód Újranyomtatása (QR / DMC / Vonalkód)',
                       style: TextStyle(
                         color: Colors.tealAccent,
                         fontSize: 15,
@@ -860,8 +930,42 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'Olvasd be a meglévő, sérült QR-kódot a kamerával, vagy írd be a kódját (pl. B_, A_ vagy C_). Az app visszahúzza az összerendelést, és generál egy friss nyomtatási képet.',
+                    'Olvasd be a meglévő kódot (QR, DMC vagy Code 128) a kamerával, vagy írd be a kódját (pl. B_, A_ vagy C_). Az app visszahúzza az összerendelést, és generál egy friss nyomtatási képet.',
                     style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: reprintBarcodeFormat,
+                    dropdownColor: const Color(0xFF0F172A),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      labelText: 'Nyomtatási formátum',
+                      labelStyle: const TextStyle(color: Colors.tealAccent),
+                      filled: true,
+                      fillColor: const Color(0xFF0F172A),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'qr',
+                        child: Text('QR-kód (Standard)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'dmc',
+                        child: Text('DMC – Data Matrix (Ipari kód)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'code128',
+                        child: Text('Code 128 (Klasszikus vonalkód)'),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setDialogState(() => reprintBarcodeFormat = val);
+                      }
+                    },
                   ),
                   const SizedBox(height: 16),
                   if (isScanningForReprint) ...[
@@ -869,15 +973,57 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                       height: 220,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
-                        child: MobileScanner(
-                          onDetect: (capture) {
-                            final barcodes = capture.barcodes;
-                            if (barcodes.isNotEmpty &&
-                                barcodes.first.rawValue != null) {
-                              final scanned = barcodes.first.rawValue!;
-                              executePrint(scanned);
-                            }
-                          },
+                        child: Stack(
+                          children: [
+                            MobileScanner(
+                              controller: reprintScannerCtrl,
+                              errorBuilder: (context, error) {
+                                return Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.videocam_off, color: Colors.amberAccent, size: 36),
+                                      const SizedBox(height: 6),
+                                      const Text('Nem érhető el a kamerakép', style: TextStyle(color: Colors.white, fontSize: 12)),
+                                      const SizedBox(height: 8),
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+                                        icon: const Icon(Icons.cameraswitch, size: 18),
+                                        label: const Text('Kamera váltás'),
+                                        onPressed: () => reprintScannerCtrl.safeSwitchCamera(),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                              onDetect: (capture) {
+                                final barcodes = capture.barcodes;
+                                if (barcodes.isNotEmpty &&
+                                    barcodes.first.rawValue != null) {
+                                  final scanned = barcodes.first.rawValue!;
+                                  executePrint(scanned);
+                                }
+                              },
+                            ),
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.black87,
+                                  foregroundColor: Colors.amberAccent,
+                                  side: const BorderSide(color: Colors.amberAccent, width: 2),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  minimumSize: const Size(110, 42),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  elevation: 4,
+                                ),
+                                onPressed: () => reprintScannerCtrl.safeSwitchCamera(),
+                                icon: const Icon(Icons.cameraswitch, size: 20, color: Colors.amberAccent),
+                                label: const Text('Kamera', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -1554,6 +1700,13 @@ class ItemRegistrationScreen extends StatefulWidget {
 }
 
 class _ItemRegistrationScreenState extends State<ItemRegistrationScreen> {
+  final MobileScannerController _officeScannerCtrl = MobileScannerController(
+    formats: const [
+      BarcodeFormat.qrCode,
+      BarcodeFormat.dataMatrix,
+      BarcodeFormat.code128,
+    ],
+  );
   int _currentStep = 0;
   bool _isCameraScanning = false;
 
@@ -1568,6 +1721,7 @@ class _ItemRegistrationScreenState extends State<ItemRegistrationScreen> {
 
   @override
   void dispose() {
+    _officeScannerCtrl.dispose();
     _manualQrCtrl.dispose();
     _manualNfcCtrl.dispose();
     super.dispose();
@@ -1795,14 +1949,60 @@ class _ItemRegistrationScreenState extends State<ItemRegistrationScreen> {
                         height: 260,
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: MobileScanner(
-                            onDetect: (capture) {
-                              final List<Barcode> barcodes = capture.barcodes;
-                              if (barcodes.isNotEmpty &&
-                                  barcodes.first.rawValue != null) {
-                                _handleQrSelected(barcodes.first.rawValue!);
-                              }
-                            },
+                          child: Stack(
+                            children: [
+                              MobileScanner(
+                                controller: _officeScannerCtrl,
+                                errorBuilder: (context, error) {
+                                  return Container(
+                                    color: const Color(0xFF1E293B),
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(Icons.videocam_off, color: Colors.amberAccent, size: 42),
+                                          const SizedBox(height: 8),
+                                          const Text('Nem érhető el a kamerakép', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 12),
+                                          ElevatedButton.icon(
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+                                            icon: const Icon(Icons.cameraswitch),
+                                            label: const Text('Kamera váltása'),
+                                            onPressed: () => _officeScannerCtrl.safeSwitchCamera(),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                                onDetect: (capture) {
+                                  final List<Barcode> barcodes = capture.barcodes;
+                                  if (barcodes.isNotEmpty &&
+                                      barcodes.first.rawValue != null) {
+                                    _handleQrSelected(barcodes.first.rawValue!);
+                                  }
+                                },
+                              ),
+                              // BOXKESZTYŰBARÁT KAMERA VÁLTÓ GOMB
+                              Positioned(
+                                top: 10,
+                                right: 10,
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.black87,
+                                    foregroundColor: Colors.amberAccent,
+                                    side: const BorderSide(color: Colors.amberAccent, width: 2),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    minimumSize: const Size(130, 48),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    elevation: 5,
+                                  ),
+                                  onPressed: () => _officeScannerCtrl.safeSwitchCamera(),
+                                  icon: const Icon(Icons.cameraswitch, size: 24, color: Colors.amberAccent),
+                                  label: const Text('Kamera', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),

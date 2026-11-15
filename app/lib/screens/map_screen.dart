@@ -64,6 +64,13 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
   late AnimationController _compassRedAnimController;
   late Animation<double> _compassRedOpacityAnim;
 
+  final MobileScannerController _mapScannerCtrl = MobileScannerController(
+    formats: const [
+      BarcodeFormat.qrCode,
+      BarcodeFormat.dataMatrix,
+      BarcodeFormat.code128,
+    ],
+  );
   bool _isCameraActive = false;
 
   @override
@@ -128,6 +135,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   @override
   void dispose() {
+    _mapScannerCtrl.dispose();
     _locationService.dispose();
     _localOtaServer?.close(force: true);
     _repository.removeListener(_onRepositoryChanged);
@@ -702,7 +710,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
               ),
               const Divider(color: Colors.white24, height: 20),
 
-              // Szerver / Supabase kapcsolat státusz kártya (Zöld / Piros)
+              // Szerver / Supabase kapcsolat státusz kártya (Zöld / Piros) - rábökve azonnal a beállításokhoz ugrik
               Builder(
                 builder: (context) {
                   final bool isConnected =
@@ -710,54 +718,95 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   final Color statusColor =
                       isConnected ? Colors.greenAccent : Colors.redAccent;
 
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isConnected
-                          ? Colors.green.withAlpha(35)
-                          : Colors.red.withAlpha(35),
+                  return Material(
+                    color: Colors.transparent,
+                    child: InkWell(
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: statusColor.withAlpha(120)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          isConnected ? Icons.cloud_done : Icons.cloud_off,
-                          color: statusColor,
-                          size: 22,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                isConnected
-                                    ? 'Supabase Kapcsolat: AKTÍV (Zöld)'
-                                    : 'Supabase Kapcsolat: MEGSZAKADT (Piros)',
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              Text(
-                                isConnected
-                                    ? 'A szerver adatai szinkronizálva vannak a felhővel.'
-                                    : 'A szerver nem érhető el vagy hiányzik az internetkapcsolat.',
-                                style: const TextStyle(
-                                  color: Colors.white60,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) => const ServerAndWeatherConfigScreen(
+                              initialTabIndex: 4, // 5. FÜL: IOT & SUPABASE
+                            ),
                           ),
+                        );
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
                         ),
-                      ],
+                        decoration: BoxDecoration(
+                          color: isConnected
+                              ? Colors.green.withAlpha(35)
+                              : Colors.red.withAlpha(45),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: statusColor.withAlpha(140), width: 1.5),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isConnected ? Icons.cloud_done : Icons.cloud_off,
+                              color: statusColor,
+                              size: 26,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isConnected
+                                        ? 'Supabase Kapcsolat: AKTÍV (Zöld)'
+                                        : 'Supabase Kapcsolat: MEGSZAKADT (Piros)',
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    isConnected
+                                        ? 'A szerver adatai szinkronizálva vannak a felhővel.'
+                                        : 'A szerver nem érhető el vagy hiányzik az internetkapcsolat.',
+                                    style: const TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  if (!isConnected) ...[
+                                    const SizedBox(height: 6),
+                                    const Row(
+                                      children: [
+                                        Icon(Icons.tune, color: Colors.amberAccent, size: 14),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Koppints ide a kapcsolat beállításához ➔',
+                                          style: TextStyle(
+                                            color: Colors.amberAccent,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.arrow_forward_ios,
+                              color: statusColor.withAlpha(180),
+                              size: 16,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   );
                 },
@@ -1829,7 +1878,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
           )
         else
           ScannerOverlay(
-            cameraController: MobileScannerController(),
+            cameraController: _mapScannerCtrl,
             onDetect: (code) {
               setState(() {
                 _idController.text = code;

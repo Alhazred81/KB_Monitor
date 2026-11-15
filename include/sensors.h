@@ -102,6 +102,20 @@ struct Ltr390State {
     float lux;
 };
 
+// --- Akkumulátor hőmérséklet (Szerver IO21 ADC kalibrációval) ---
+struct BatTempSensorState {
+    bool          enabled      = true;
+    bool          lastReadOk   = false;
+    int           rawAdc       = 0;
+    float         voltageMv    = 0.0f;
+    float         tempC        = 0.0f;
+    float         gain         = DEFAULT_BAT_TEMP_GAIN;
+    float         offset       = DEFAULT_BAT_TEMP_OFFSET;
+    unsigned long lastPoll     = 0;
+    unsigned long lastGoodRead = 0;
+    String        lastError    = "";
+};
+
 extern WindSpeedState   gWindSpeed;
 extern WindDirState     gWindDir;
 extern ShtSensorState   gSht;
@@ -110,6 +124,7 @@ extern Mpu6050State     gMpu;
 extern Aht20State       gAht20;
 extern Bmp280State      gBmp280;
 extern Ltr390State      gLtr;
+extern BatTempSensorState gBatTemp;
 
 extern uint8_t gSensEnableMask;
 extern uint32_t gSensRs485Baud;
@@ -147,6 +162,12 @@ void i2c2Init();
 void aht20Poll();
 void bmp280Poll();
 void ltr390Poll();
+
+// Akku hőmérséklet (ADC IO21)
+float readBatteryTemperature();
+void batTempPoll();
+void setBatTempCalibration(float gain, float offset, bool saveToEeprom = true);
+void getBatTempCalibration(float& outGain, float& outOffset);
 
 void sensorsApplyEnabled();
 void sensTestRun(const String& which);

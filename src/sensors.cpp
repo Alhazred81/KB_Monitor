@@ -36,6 +36,7 @@ unsigned long gLearningStartTime = 0;
 
 Aht20State  gAht20;
 Bmp280State gBmp280;
+BatTempSensorState gBatTemp;
 
 // ─── Függvények megvalósítása ────────────────────────────────
 
@@ -57,6 +58,9 @@ void saveSensorConfig() {
   EEPROM.write(ADDR_SENS_ADDR_SHT,       gSht.modbusAddr);
   EEPROM.write(ADDR_SENS_ADDR_RAIN,      gRain.modbusAddr);
   EEPROM.write(ADDR_SENS_RAIN_MODE,      gRain.isModbus ? 1 : 0);
+  EEPROM.write(ADDR_BAT_TEMP_FLAG,       MAGIC_BYTE);
+  EEPROM.put(ADDR_BAT_TEMP_GAIN,         gBatTemp.gain);
+  EEPROM.put(ADDR_BAT_TEMP_OFFSET,       gBatTemp.offset);
   EEPROM.commit();
 }
 
@@ -64,18 +68,26 @@ void loadSensorConfig() {
   if(EEPROM.read(ADDR_SENS_FLAG) != MAGIC_BYTE) {
     gSensEnableMask = 0; 
     gSensRs485Baud = SENS_RS485_BAUD_DEFAULT;
-    return;
-  }
-  gSensEnableMask = EEPROM.read(ADDR_SENS_ENABLE_MASK);
-  EEPROM.get(ADDR_SENS_RS485_BAUD, gSensRs485Baud);
-  if(gSensRs485Baud == 0 || gSensRs485Baud > 921600) gSensRs485Baud = SENS_RS485_BAUD_DEFAULT;
+  } else {
+    gSensEnableMask = EEPROM.read(ADDR_SENS_ENABLE_MASK);
+    EEPROM.get(ADDR_SENS_RS485_BAUD, gSensRs485Baud);
+    if(gSensRs485Baud == 0 || gSensRs485Baud > 921600) gSensRs485Baud = SENS_RS485_BAUD_DEFAULT;
 
-  uint8_t v;
-  v = EEPROM.read(ADDR_SENS_ADDR_WINDSPEED); if(v >= 1 && v <= 247) gWindSpeed.modbusAddr = v;
-  v = EEPROM.read(ADDR_SENS_ADDR_WINDDIR);   if(v >= 1 && v <= 247) gWindDir.modbusAddr = v;
-  v = EEPROM.read(ADDR_SENS_ADDR_SHT);       if(v >= 1 && v <= 247) gSht.modbusAddr = v;
-  v = EEPROM.read(ADDR_SENS_ADDR_RAIN);      if(v >= 1 && v <= 247) gRain.modbusAddr = v;
-  gRain.isModbus = (EEPROM.read(ADDR_SENS_RAIN_MODE) == 1);
+    uint8_t v;
+    v = EEPROM.read(ADDR_SENS_ADDR_WINDSPEED); if(v >= 1 && v <= 247) gWindSpeed.modbusAddr = v;
+    v = EEPROM.read(ADDR_SENS_ADDR_WINDDIR);   if(v >= 1 && v <= 247) gWindDir.modbusAddr = v;
+    v = EEPROM.read(ADDR_SENS_ADDR_SHT);       if(v >= 1 && v <= 247) gSht.modbusAddr = v;
+    v = EEPROM.read(ADDR_SENS_ADDR_RAIN);      if(v >= 1 && v <= 247) gRain.modbusAddr = v;
+    gRain.isModbus = (EEPROM.read(ADDR_SENS_RAIN_MODE) == 1);
+  }
+
+  if(EEPROM.read(ADDR_BAT_TEMP_FLAG) == MAGIC_BYTE) {
+    EEPROM.get(ADDR_BAT_TEMP_GAIN, gBatTemp.gain);
+    EEPROM.get(ADDR_BAT_TEMP_OFFSET, gBatTemp.offset);
+  } else {
+    gBatTemp.gain = DEFAULT_BAT_TEMP_GAIN;
+    gBatTemp.offset = DEFAULT_BAT_TEMP_OFFSET;
+  }
 }
 
 uint16_t modbusCrc16(const uint8_t* data, size_t len) {
@@ -500,7 +512,58 @@ void ltr390Poll() {
   gLtr.lastError = "";
 }
 
+// ─── Akkumulátor hőmérséklet (Szerver IO21 ADC) ──────────────
+void setBatTempCalibration(float gain, float offset, bool saveToEeprom) {
+  gBatTemp.gain = gain;
+  gBatTemp.offset = offset;
+  if(saveToEeprom) {
+    EEPROM.write(ADDR_BAT_TEMP_FLAG, MAGIC_BYTE);
+    EEPROM.put(ADDR_BAT_TEMP_GAIN, gain);
+    EEPROM.put(ADDR_BAT_TEMP_OFFSET, offset);
+    EEPROM.commit();
+  }
+}
+
+void getBatTempCalibration(float& outGain, float& outOffset) {
+  outGain = gBatTemp.gain;
+  outOffset = gBatTemp.offset;
+}
+
+float readBatteryTemperature() {
+#if defined(PIN_BAT_TEMP_ADC)
+  // 10 mintás átlagolás az analóg zaj kiszűrésére
+  uint32_t sum = 0;
+  const int samples = 10;
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(PIN_BAT_TEMP_ADC);
+    delayMicroseconds(50);
+  }
+  gBatTemp.rawAdc = (int)(sum / samples);
+  gBatTemp.voltageMv = ((float)gBatTemp.rawAdc / 4095.0f) * 3300.0f;
+
+  // Kalibrált akku hőmérséklet: T (°C) = (nyers_adc * gain) + offset
+  gBatTemp.tempC = ((float)gBatTemp.rawAdc * gBatTemp.gain) + gBatTemp.offset;
+
+  gBatTemp.lastReadOk = true;
+  gBatTemp.lastGoodRead = millis();
+  gBatTemp.lastPoll = millis();
+  gBatTemp.lastError = "";
+  return gBatTemp.tempC;
+#else
+  gBatTemp.lastReadOk = false;
+  gBatTemp.lastError = "PIN_BAT_TEMP_ADC nincs definiálva a jelenlegi szerepkörben";
+  return 0.0f;
+#endif
+}
+
+void batTempPoll() {
+  readBatteryTemperature();
+}
+
 void sensorsApplyEnabled() {
+#if defined(PIN_BAT_TEMP_ADC)
+  pinMode(PIN_BAT_TEMP_ADC, INPUT);
+#endif
   bool anyRs485 = sensEnabled(SENS_BIT_WINDSPEED) || sensEnabled(SENS_BIT_WINDDIR) ||
                   sensEnabled(SENS_BIT_SHT) || (sensEnabled(SENS_BIT_RAIN) && gRain.isModbus);
   if(anyRs485 && !gRs485Initialized) rs485Init();
@@ -583,12 +646,25 @@ void sensTestRun(const String& which) {
     gLastSensTestOk = gLtr.lastReadOk;
     gLastSensTestResult = gLtr.lastReadOk ? "OK (I2C2)" : gLtr.lastError;
   }
+  else if(which == "bat_temp" || which == "batt_temp") {
+    readBatteryTemperature();
+    gLastSensTestOk = gBatTemp.lastReadOk;
+    gLastSensTestRaw = "ADC: " + String(gBatTemp.rawAdc) + " (" + String(gBatTemp.voltageMv, 1) + " mV)";
+    gLastSensTestResult = gBatTemp.lastReadOk 
+      ? ("OK: " + String(gBatTemp.tempC, 2) + " °C [Gain: " + String(gBatTemp.gain, 5) + ", Offset: " + String(gBatTemp.offset, 2) + "]")
+      : gBatTemp.lastError;
+  }
   else {
     gLastSensTestResult = "Ismeretlen szenzor: " + which;
   }
 }
 
 void sensorsLoop() {
+  // Akku hőmérséklet periodikus frissítése (ha elérhető és eltelt 5 másodperc)
+  if(gBatTemp.enabled && (millis() - gBatTemp.lastPoll >= 5000)) {
+    readBatteryTemperature();
+  }
+
   if(millis() - gLastSensorPoll < SENS_POLL_INTERVAL_MS) return;
   gLastSensorPoll = millis();
 

@@ -3,6 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../hive_model.dart';
 import '../services/hive_repository.dart';
+import '../widgets/safe_camera_controller.dart';
 
 class HoneyContainer {
   final String id;
@@ -822,26 +823,89 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                     ),
                     icon: const Icon(Icons.qr_code_scanner),
                     onPressed: () {
+                      final MobileScannerController dialogScannerCtrl = MobileScannerController(
+                        formats: const [
+                          BarcodeFormat.qrCode,
+                          BarcodeFormat.dataMatrix,
+                          BarcodeFormat.code128,
+                        ],
+                      );
                       showDialog(
                         context: context,
                         builder: (ctx) => AlertDialog(
                           backgroundColor: const Color(0xFF141428),
-                          title: const Text(
-                            'Méztér QR beolvasása',
-                            style: TextStyle(color: Colors.white, fontSize: 15),
+                          title: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Méztér QR beolvasása',
+                                style: TextStyle(color: Colors.white, fontSize: 15),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, color: Colors.white70),
+                                onPressed: () {
+                                  dialogScannerCtrl.dispose();
+                                  Navigator.pop(ctx);
+                                },
+                              ),
+                            ],
                           ),
                           content: SizedBox(
                             width: 280,
                             height: 280,
-                            child: MobileScanner(
-                              onDetect: (capture) {
-                                final barcodes = capture.barcodes;
-                                if (barcodes.isNotEmpty &&
-                                    barcodes.first.rawValue != null) {
-                                  Navigator.pop(ctx);
-                                  _searchBoxByCode(barcodes.first.rawValue!);
-                                }
-                              },
+                            child: Stack(
+                              children: [
+                                MobileScanner(
+                                  controller: dialogScannerCtrl,
+                                  errorBuilder: (context, error) {
+                                    return Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(Icons.videocam_off, color: Colors.amberAccent, size: 40),
+                                          const SizedBox(height: 8),
+                                          const Text('Nem érhető el a kamerakép', style: TextStyle(color: Colors.white, fontSize: 12)),
+                                          const SizedBox(height: 10),
+                                          ElevatedButton.icon(
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+                                            icon: const Icon(Icons.cameraswitch, size: 20),
+                                            label: const Text('Kamera váltás'),
+                                            onPressed: () => dialogScannerCtrl.safeSwitchCamera(),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                  onDetect: (capture) {
+                                    final barcodes = capture.barcodes;
+                                    if (barcodes.isNotEmpty &&
+                                        barcodes.first.rawValue != null) {
+                                      final scanned = barcodes.first.rawValue!;
+                                      dialogScannerCtrl.dispose();
+                                      Navigator.pop(ctx);
+                                      _searchBoxByCode(scanned);
+                                    }
+                                  },
+                                ),
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.black87,
+                                      foregroundColor: Colors.amberAccent,
+                                      side: const BorderSide(color: Colors.amberAccent, width: 2),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      minimumSize: const Size(110, 44),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      elevation: 4,
+                                    ),
+                                    onPressed: () => dialogScannerCtrl.safeSwitchCamera(),
+                                    icon: const Icon(Icons.cameraswitch, size: 20, color: Colors.amberAccent),
+                                    label: const Text('Kamera', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),

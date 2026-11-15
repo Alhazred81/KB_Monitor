@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../widgets/safe_camera_controller.dart';
 import 'server_config_screen.dart';
 
 class BlePairingScreen extends StatefulWidget {
@@ -12,11 +13,25 @@ class BlePairingScreen extends StatefulWidget {
 }
 
 class _BlePairingScreenState extends State<BlePairingScreen> {
+  final MobileScannerController _scannerController = MobileScannerController(
+    formats: const [
+      BarcodeFormat.qrCode,
+      BarcodeFormat.dataMatrix,
+      BarcodeFormat.code128,
+    ],
+  );
   bool _isScanning = true;
   bool _isConnected = false;
   String _detectedServerName = '';
   String _detectedPin = '';
-  String _statusMessage = 'Érintsd a mágnest a dobozhoz, majd olvasd be a fedél belső QR kódját!';
+  String _statusMessage =
+      'Érintsd a mágnest a dobozhoz, majd olvasd be a fedél belső QR kódját!';
+
+  @override
+  void dispose() {
+    _scannerController.dispose();
+    super.dispose();
+  }
 
   void _onQrDetected(BarcodeCapture capture) {
     if (!_isScanning) return;
@@ -54,7 +69,8 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
         HapticFeedback.mediumImpact();
         setState(() {
           _isConnected = true;
-          _statusMessage = 'Sikeresen párosítva a szerverrel ($_detectedServerName)!';
+          _statusMessage =
+              'Sikeresen párosítva a szerverrel ($_detectedServerName)!';
         });
       }
     });
@@ -88,7 +104,11 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
                   children: [
                     Row(
                       children: const [
-                        Icon(Icons.shield_outlined, color: Colors.tealAccent, size: 22),
+                        Icon(
+                          Icons.shield_outlined,
+                          color: Colors.tealAccent,
+                          size: 22,
+                        ),
                         SizedBox(width: 8),
                         Text(
                           'Lopásbiztos / Fénymentes Csatlakozás',
@@ -105,7 +125,11 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
                       '1. Érintsd a kulcstartód mágnesét a dobozhoz 2 mp-re.\n'
                       '2. Nincs villogó LED (sötétben is észrevétlen marad!).\n'
                       '3. Olvasd be a doboz belsejében lévő QR kódot a kamerával.',
-                      style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
                     ),
                   ],
                 ),
@@ -120,26 +144,103 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        MobileScanner(onDetect: _onQrDetected),
+                        MobileScanner(
+                          controller: _scannerController,
+                          errorBuilder: (context, error) {
+                            return Container(
+                              color: const Color(0xFF1E293B),
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      Icons.videocam_off,
+                                      color: Colors.amberAccent,
+                                      size: 42,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Nem érhető el a kamerakép',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Hiba: ${error.errorCode}',
+                                      style: const TextStyle(
+                                        color: Colors.white60,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.amber,
+                                        foregroundColor: Colors.black,
+                                      ),
+                                      icon: const Icon(Icons.cameraswitch),
+                                      label: const Text('Kamera váltása'),
+                                      onPressed: () => _scannerController.safeSwitchCamera(),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                          onDetect: _onQrDetected,
+                        ),
+                        // BOXKESZTYŰBARÁT KAMERA VÁLTÓ GOMB
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black87,
+                              foregroundColor: Colors.amberAccent,
+                              side: const BorderSide(color: Colors.amberAccent, width: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              minimumSize: const Size(130, 48),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              elevation: 5,
+                            ),
+                            onPressed: () => _scannerController.safeSwitchCamera(),
+                            icon: const Icon(Icons.cameraswitch, size: 24, color: Colors.amberAccent),
+                            label: const Text(
+                              'Kamera',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ),
+                        ),
                         Container(
                           width: 220,
                           height: 220,
                           decoration: BoxDecoration(
-                            border: Border.all(color: Colors.tealAccent, width: 2.5),
+                            border: Border.all(
+                              color: Colors.tealAccent,
+                              width: 2.5,
+                            ),
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
                         Positioned(
                           bottom: 16,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black.withAlpha(180),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: const Text(
-                              'Irányítsd a kamerát a belső QR kódra',
-                              style: TextStyle(color: Colors.white, fontSize: 12),
+                              'Irányítsd a kamerát a kódra',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ),
@@ -157,7 +258,9 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
                         color: const Color(0xFF1E293B),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: _isConnected ? Colors.greenAccent : Colors.amberAccent,
+                          color: _isConnected
+                              ? Colors.greenAccent
+                              : Colors.amberAccent,
                           width: 2,
                         ),
                       ),
@@ -165,8 +268,12 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            _isConnected ? Icons.bluetooth_connected : Icons.bluetooth_searching,
-                            color: _isConnected ? Colors.greenAccent : Colors.amberAccent,
+                            _isConnected
+                                ? Icons.bluetooth_connected
+                                : Icons.bluetooth_searching,
+                            color: _isConnected
+                                ? Colors.greenAccent
+                                : Colors.amberAccent,
                             size: 64,
                           ),
                           const SizedBox(height: 16),
@@ -183,7 +290,9 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
                             _statusMessage,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: _isConnected ? Colors.greenAccent : Colors.white70,
+                              color: _isConnected
+                                  ? Colors.greenAccent
+                                  : Colors.white70,
                               fontSize: 13,
                             ),
                           ),
@@ -193,13 +302,17 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF10b981),
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 14,
+                                ),
                               ),
                               onPressed: () {
                                 Navigator.pushReplacement(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => const ServerAndWeatherConfigScreen(),
+                                    builder: (context) =>
+                                        const ServerAndWeatherConfigScreen(),
                                   ),
                                 );
                               },

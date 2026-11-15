@@ -142,6 +142,12 @@
 #define ADDR_SENS_RAIN_MODE      266
 #define ADDR_AP_SSID             270  // 32 byte
 #define ADDR_COMM_MODE           302  //  1 byte (0: Wireless, 1: Wired CAN)
+#define ADDR_BAT_TEMP_FLAG       304  //  1 byte (MAGIC_BYTE)
+#define ADDR_BAT_TEMP_GAIN       305  //  4 byte float
+#define ADDR_BAT_TEMP_OFFSET     309  //  4 byte float
+
+#define DEFAULT_BAT_TEMP_GAIN    1.0f  // Alapértelmezett ADC gain akku hőmérséklethez
+#define DEFAULT_BAT_TEMP_OFFSET  0.0f  // Alapértelmezett ADC offset (°C) akku hőmérséklethez
 
 #define MAGIC_BYTE              0xA5
 #define DNS_PORT_NUM              53
@@ -170,6 +176,7 @@
     #define LORA_TXEN     RADIOLIB_NC
 
     #define PIN_BAT_ADC    9
+    #define PIN_BAT_TEMP_ADC 21  // Akku hőmérséklet ADC pin (Szerver IO21)
     #define PIN_HALL       34   // Rejtett mágnes / Hall-szenzor láb (lopásbiztos, LED nélküli BLE ébresztéshez)
     #define WAKE_PIN      39
 

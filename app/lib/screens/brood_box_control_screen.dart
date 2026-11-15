@@ -4,6 +4,9 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../hive_model.dart';
 import '../services/hive_repository.dart';
 import '../widgets/hive_config_dialog.dart';
+import '../widgets/safe_camera_controller.dart';
+import 'frame_ar_inspection_screen.dart';
+import 'varroa_counter_screen.dart';
 
 class BroodBoxControlScreen extends StatefulWidget {
   final HiveData hive;
@@ -608,8 +611,21 @@ class InvestigationsScreen extends StatefulWidget {
 }
 
 class _InvestigationsScreenState extends State<InvestigationsScreen> {
+  final MobileScannerController _scannerController = MobileScannerController(
+    formats: const [
+      BarcodeFormat.qrCode,
+      BarcodeFormat.dataMatrix,
+      BarcodeFormat.code128,
+    ],
+  );
   bool _isCameraActive = false;
   final bool _pullOutBoard = true;
+
+  @override
+  void dispose() {
+    _scannerController.dispose();
+    super.dispose();
+  }
 
   void _saveVarroaResult(int mites, int days) {
     widget.repository.addVarroaAnalysis(
@@ -649,6 +665,29 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
           ? Stack(
               children: [
                 MobileScanner(
+                  controller: _scannerController,
+                  errorBuilder: (context, error) {
+                    return Container(
+                      color: const Color(0xFF1E293B),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.videocam_off, color: Colors.amberAccent, size: 48),
+                            const SizedBox(height: 10),
+                            const Text('Nem érhető el a kamerakép', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 14),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+                              icon: const Icon(Icons.cameraswitch),
+                              label: const Text('Kamera váltása'),
+                              onPressed: () => _scannerController.safeSwitchCamera(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                   onDetect: (capture) {
                     final barcodes = capture.barcodes;
                     if (barcodes.isNotEmpty) {
@@ -662,13 +701,20 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Keresd a fészekkeretet vagy tálcát...',
-                          style: TextStyle(
-                            color: Colors.white,
-                            backgroundColor: Colors.black54,
-                            fontSize: 14,
+                        // BOXKESZTYŰBARÁT KAMERA VÁLTÓ GOMB
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black87,
+                            foregroundColor: Colors.amberAccent,
+                            side: const BorderSide(color: Colors.amberAccent, width: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            minimumSize: const Size(130, 48),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 5,
                           ),
+                          onPressed: () => _scannerController.safeSwitchCamera(),
+                          icon: const Icon(Icons.cameraswitch, size: 24, color: Colors.amberAccent),
+                          label: const Text('Kamera', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                         ),
                         IconButton(
                           onPressed: () =>
@@ -676,10 +722,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
                           icon: const Icon(
                             Icons.close,
                             color: Colors.white,
-                            size: 32,
+                            size: 30,
                           ),
                           style: IconButton.styleFrom(
-                            backgroundColor: Colors.black54,
+                            backgroundColor: Colors.black87,
+                            padding: const EdgeInsets.all(10),
                           ),
                         ),
                       ],
@@ -702,8 +749,15 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
                             icon: Icons.bug_report,
                             color: Colors.deepOrangeAccent,
                             label: 'Kamerás Varroa Vizsgálat',
-                            onPressed: () =>
-                                setState(() => _isCameraActive = true),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (ctx) =>
+                                      VarroaCounterScreen(hive: widget.hive),
+                                ),
+                              );
+                            },
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -711,11 +765,18 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
                           height: 140,
                           child: _buildTile(
                             context,
-                            icon: Icons.grid_on,
+                            icon: Icons.view_in_ar,
                             color: Colors.lightBlueAccent,
-                            label: 'Kamerás Fészek Vizsgálat',
-                            onPressed: () =>
-                                setState(() => _isCameraActive = true),
+                            label: 'Kamerás Fészek Vizsgálat (AR)',
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (ctx) => FrameArInspectionScreen(
+                                      hive: widget.hive),
+                                ),
+                              );
+                            },
                           ),
                         ),
                       ],

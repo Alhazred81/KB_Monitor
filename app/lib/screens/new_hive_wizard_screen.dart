@@ -10,6 +10,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../hive_model.dart';
 import '../services/hive_repository.dart';
 import '../services/location_compass_service.dart';
+import '../widgets/safe_camera_controller.dart';
 
 class NewHiveWizardScreen extends StatefulWidget {
   final LocationCompassService locationService;
@@ -28,6 +29,13 @@ class NewHiveWizardScreen extends StatefulWidget {
 }
 
 class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
+  final MobileScannerController _scannerController = MobileScannerController(
+    formats: const [
+      BarcodeFormat.qrCode,
+      BarcodeFormat.dataMatrix,
+      BarcodeFormat.code128,
+    ],
+  );
   int _currentStep = 0;
 
   // --- ESZKÖZ SZEREPKÖR ÉS HIBRID WI-FI PROVISIONING ---
@@ -120,6 +128,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
 
   @override
   void dispose() {
+    _scannerController.dispose();
     _macController.dispose();
     _wifiSsidCtrl.dispose();
     _wifiPassCtrl.dispose();
@@ -1097,6 +1106,34 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
               child: Stack(
                 children: [
                   MobileScanner(
+                    controller: _scannerController,
+                    errorBuilder: (context, error) {
+                      return Container(
+                        color: const Color(0xFF1E293B),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.videocam_off, color: Colors.amberAccent, size: 42),
+                              const SizedBox(height: 8),
+                              const Text('Nem érhető el a kamerakép', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
+                              Text('Hiba: ${error.errorCode}', style: const TextStyle(color: Colors.white60, fontSize: 11)),
+                              const SizedBox(height: 12),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.amber,
+                                  foregroundColor: Colors.black,
+                                ),
+                                icon: const Icon(Icons.cameraswitch),
+                                label: const Text('Kamera váltása'),
+                                onPressed: () => _scannerController.safeSwitchCamera(),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                     onDetect: (capture) {
                       final barcodes = capture.barcodes;
                       if (barcodes.isNotEmpty &&
@@ -1108,17 +1145,40 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                       }
                     },
                   ),
+                  // BOXKESZTYŰBARÁT KAMERA VÁLTÓ GOMB
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black87,
+                        foregroundColor: Colors.amberAccent,
+                        side: const BorderSide(color: Colors.amberAccent, width: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        minimumSize: const Size(125, 48),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 5,
+                      ),
+                      onPressed: () => _scannerController.safeSwitchCamera(),
+                      icon: const Icon(Icons.cameraswitch, size: 24, color: Colors.amberAccent),
+                      label: const Text(
+                        'Kamera',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                  ),
                   Positioned(
                     top: 10,
                     right: 10,
                     child: IconButton(
                       style: IconButton.styleFrom(
                         backgroundColor: Colors.black87,
+                        padding: const EdgeInsets.all(10),
                       ),
                       icon: const Icon(
                         Icons.close,
                         color: Colors.white,
-                        size: 30,
+                        size: 28,
                       ),
                       onPressed: () =>
                           setState(() => _activeScannerTarget = null),
