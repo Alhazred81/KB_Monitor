@@ -26,24 +26,24 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: const Color(0xFF1E293B),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-        side: BorderSide(color: Colors.amber.shade500, width: 2.2),
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: Colors.amber.shade500, width: 2.0),
       ),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
+        constraints: const BoxConstraints(maxWidth: 480),
         child: Padding(
-          padding: const EdgeInsets.all(22.0),
+          padding: const EdgeInsets.all(16.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Fejléc nagy figyelmeztető ikonnal
+              // Fejléc
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: Colors.amber.shade900.withValues(alpha: 0.35),
                       shape: BoxShape.circle,
@@ -52,10 +52,10 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
                     child: const Icon(
                       Icons.warning_amber_rounded,
                       color: Colors.amberAccent,
-                      size: 34,
+                      size: 28,
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -65,16 +65,16 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w900,
-                            fontSize: 18,
+                            fontSize: 17,
                             letterSpacing: 0.3,
                           ),
                         ),
-                        const SizedBox(height: 3),
+                        const SizedBox(height: 2),
                         Text(
                           targetHiveInfo,
                           style: const TextStyle(
                             color: Colors.amberAccent,
-                            fontSize: 13,
+                            fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -83,126 +83,128 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
 
-              // Riasztási sáv
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: badgeColor.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: badgeColor, width: 1.2),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.report_problem, color: badgeColor, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        badgeText,
-                        style: TextStyle(
-                          color: badgeColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
+              // Görgethető tartalom, hogy semmilyen képernyőn ne csorduljon túl
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Riasztási sáv
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: badgeColor, width: 1.2),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.report_problem, color: badgeColor, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                badgeText,
+                                style: TextStyle(
+                                  color: badgeColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
+                      const SizedBox(height: 10),
 
-              // Fő üzenet
-              Text(
-                primaryMessage,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  height: 1.35,
-                ),
-              ),
-              const SizedBox(height: 10),
+                      // Fő üzenet
+                      Text(
+                        primaryMessage,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
 
-              // Részletes biológiai / szakmai magyarázat
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black38,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  biologicalExplanation,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                    height: 1.45,
+                      // Részletes magyarázat (tömör!)
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.black38,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          biologicalExplanation,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Kérdés
+                      Center(
+                        child: Text(
+                          confirmationQuestion,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              // Kérdés
-              Center(
-                child: Text(
-                  confirmationQuestion,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13.5,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // GOMBOK: Nagy MÉGSE és CSAKAZÉRTIS! gombok
+              // Gombok (egy soros, kesztyűbarát, túlcsordulás-mentes)
               Row(
                 children: [
-                  // NAGY MÉGSE GOMB (Ésszerű, biztonságos döntés)
                   Expanded(
-                    flex: 5,
                     child: SizedBox(
-                      height: 52,
+                      height: 48,
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF059669), // Smaragdzöld
+                          backgroundColor: const Color(0xFF059669), // Zöld
                           foregroundColor: Colors.white,
                           elevation: 3,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
                         onPressed: () => Navigator.pop(context, false),
-                        icon: const Icon(Icons.shield, size: 20),
-                        label: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'MÉGSE',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                              ),
+                        icon: const Icon(Icons.shield, size: 18),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'MÉGSE',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
                             ),
-                            Text(
-                              'Védjük a mézet & családot',
-                              style: TextStyle(fontSize: 10, color: Colors.white70),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-
-                  // NAGY FELÜLBÍRÁLÁS GOMB (Szakszerű override / saját felelősségre)
+                  const SizedBox(width: 10),
                   Expanded(
-                    flex: 5,
                     child: SizedBox(
-                      height: 52,
+                      height: 48,
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFDC2626), // Piros
@@ -211,25 +213,20 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
                         onPressed: () => Navigator.pop(context, true),
-                        icon: const Icon(Icons.priority_high, size: 20),
-                        label: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'FELÜLBÍRÁLÁS',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                              ),
+                        icon: const Icon(Icons.priority_high, size: 18),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'FELÜLBÍRÁLÁS',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
                             ),
-                            Text(
-                              'Végrehajtás saját felelősségre',
-                              style: TextStyle(fontSize: 10, color: Colors.white70),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -245,12 +242,10 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
 }
 
 /// 1. FIGYELMEZTETÉS: ETETŐ ÉS MÉZTÉR ÖSSZEFÉRHETETLENSÉGE
-/// "Ha etetőre van szükség, akkor méztéri fiókok nem nagyon vannak a környéken..."
-/// Cukorszirup mézkamrába hordásának (mézhamisítás) megelőzése.
 Future<bool> showFeederHoneyConflictDialog({
   required BuildContext context,
   required HiveData hive,
-  required String conflictType, // 'adding_feeder_with_honey' | 'adding_honey_with_feeder' | 'feeding_with_honey'
+  required String conflictType,
   VoidCallback? onConfirm,
 }) async {
   String title;
@@ -260,23 +255,22 @@ Future<bool> showFeederHoneyConflictDialog({
 
   if (conflictType == 'adding_feeder_with_honey') {
     title = 'Tetőetető felhelyezés';
-    badgeText = 'ÖSSZEFÉRHETETLENSÉG: Méztéri fiók van a kaptáron!';
-    primaryMessage = 'Ha etetőre van szükség, méztéri fiókoknak nincs keresnivalójuk a kaptáron!';
+    badgeText = 'Méztéri fiók van a kaptáron!';
+    primaryMessage = 'Etetéshez a méztéri fiókot le kell venni!';
     biologicalExplanation =
-        'A kaptáron jelenleg méztér található. A szirupetetés során a méhek a cukorszirupot közvetlenül a mézkamrába hordhatják, ami a tiszta virágméz cukorral történő elszennyeződéséhez (mézhamisításhoz) vezet!\n\nEtetés előtt a mézteret le kell venni, vagy a pergetést be kell fejezni.';
+        'A méhek a cukorszirupot a mézkamrába hordhatják, ami mézhamisításhoz vezet. Etetés előtt vedd le a mézteret.';
   } else if (conflictType == 'adding_honey_with_feeder') {
     title = 'Méztér hozzáadás';
-    badgeText = 'ÖSSZEFÉRHETETLENSÉG: Tetőetető / aktív etetés van a kaptáron!';
-    primaryMessage = 'Etetés vagy serkentés alatt tilos mézteret felhelyezni!';
+    badgeText = 'Tetőetető / aktív etetés van a kaptáron!';
+    primaryMessage = 'Etetés alatt tilos mézteret felhelyezni!';
     biologicalExplanation =
-        'A kaptár jelenleg tetőetetővel rendelkezik vagy etetés alatt áll. Ha egy család etetésre szorul, még nem termelőképes. A méztér felrakásakor a beadott cukorszirup bekerül a méztéri lépekbe, ami tönkreteszi a méz tisztaságát!';
+        'A beadott szirup bekerül a méztéri lépekbe, ami elszennyezi a tiszta virágmézet.';
   } else {
-    // feeding_with_honey
     title = 'Szirupadagolás aktiválás';
-    badgeText = 'SZIRUP VESZÉLY: Méztéri fiók van a kaptáron!';
-    primaryMessage = 'Pergetésre szánt méztér jelenlétében szigorúan tilos az etetés!';
+    badgeText = 'Méztéri fiók van a kaptáron!';
+    primaryMessage = 'Méztér jelenlétében tilos a szirupetetés!';
     biologicalExplanation =
-        'A kaptáron mézkamra található. A szirupos serkentés vagy feletetés azonnali cukorlerakódást eredményez a mézsejtekben. Csak akkor indíts etetést, ha a mézteret előtte leszedted!';
+        'A szirup közvetlenül a mézkamrába kerül. Etetés előtt a mézteret le kell venni.';
   }
 
   final result = await showDialog<bool>(
@@ -288,7 +282,7 @@ Future<bool> showFeederHoneyConflictDialog({
       primaryMessage: primaryMessage,
       biologicalExplanation: biologicalExplanation,
       targetHiveInfo: 'Kaptár: ${hive.name} (${hive.id})',
-      badgeColor: const Color(0xFFF59E0B), // Sárga/narancs
+      badgeColor: const Color(0xFFF59E0B),
       confirmationQuestion: 'Biztosan összeengeded az etetést a méztérrel?',
     ),
   );
@@ -301,7 +295,6 @@ Future<bool> showFeederHoneyConflictDialog({
 }
 
 /// 2. FIGYELMEZTETÉS: GYENGE / BETEG CSALÁDOK MEGCSAPOLÁSA
-/// Gyenge családoknál méztér felrakás vagy virágporgyűjtő bekapcsolás ellen.
 Future<bool> showWeakColonyWarningDialog({
   required BuildContext context,
   required HiveData hive,
@@ -313,19 +306,19 @@ Future<bool> showWeakColonyWarningDialog({
   final bool isPollenTrap = actionTitle.toLowerCase().contains('pollen') ||
       actionTitle.toLowerCase().contains('virágpor');
 
-  String badgeText = 'FIGYELEM: Gyenge vagy beteg család (${hive.weakOrSickReason})';
+  String badgeText = 'Gyenge vagy beteg család (${hive.weakOrSickReason})';
   String primaryMessage = isPollenTrap
       ? 'A virágpor elvonása a család összeomlásához vezethet!'
       : isHoneySuper
-          ? 'Méztérrel a légtér hűtési/fűtési túlterhelése végzetes lehet!'
-          : 'A megcsapolás veszélyezteti a család túlélését!';
+          ? 'A megnövelt légtér kihűléshez vezethet!'
+          : 'A megcsapolás veszélyezteti a családot!';
 
   String biologicalExplanation = customWarningMessage ??
       (isPollenTrap
-          ? 'A virágpor a méhcsalád egyetlen fehérjeforrása, ami nélkülözhetetlen a fiasítás táplálásához, a dajkaméhek garatmirigy-működéséhez és az immunvédelemhez. Beteg vagy gyenge család elől elvonni a virágport a fiasítás leállását és a család pusztulását okozza.'
+          ? 'A virágpor a család egyetlen fehérjeforrása az álcák és dajkák számára. Elvonása leállítja a fiasítást.'
           : isHoneySuper
-              ? 'A méztér felhelyezése jelentősen megnöveli a kaptár légterét. A gyenge család nem képes kifűteni a megnövelt teret (a fiasítás megfázhat), ráadásul a megcsapolás elveszi a túléléshez szükséges méztartalékokat.'
-              : 'A gyenge vagy megbetegedett családok megcsapolása súlyos biológiai stresszt jelent.');
+              ? 'A gyenge család nem tudja kifűteni a mézteret, a fiasítás megfázhat és elvész a tartalék méz.'
+              : 'A veszélyeztetett családok megcsapolása súlyos stresszt okoz.');
 
   final result = await showDialog<bool>(
     context: context,
@@ -336,8 +329,8 @@ Future<bool> showWeakColonyWarningDialog({
       primaryMessage: primaryMessage,
       biologicalExplanation: biologicalExplanation,
       targetHiveInfo: 'Kaptár: ${hive.name} (${hive.id}) - $actionTitle',
-      badgeColor: const Color(0xFFEF4444), // Piros
-      confirmationQuestion: 'Biztosan megcsapolod ezt a veszélyeztetett családot?',
+      badgeColor: const Color(0xFFEF4444),
+      confirmationQuestion: 'Biztosan megcsapolod ezt a családot?',
     ),
   );
 
@@ -349,12 +342,10 @@ Future<bool> showWeakColonyWarningDialog({
 }
 
 /// 3. FIGYELMEZTETÉS: POLLENGYŰJTŐ ÉS MÉZTÉR ÖSSZEFÉRHETETLENSÉGE
-/// "Ha van fenn méztéri fiók, jelezzen, ha be akarom kapcsolni a pollengyűjtőt, és viszont.
-/// Aktív pollengyűjtő mellett figyelmeztessen, ha méztéri fiókot akarok felrakni."
 Future<bool> showPollenHoneyConflictDialog({
   required BuildContext context,
   required HiveData hive,
-  required String conflictType, // 'enabling_pollen_with_honey' | 'adding_honey_with_pollen'
+  required String conflictType,
   VoidCallback? onConfirm,
 }) async {
   String title;
@@ -365,24 +356,18 @@ Future<bool> showPollenHoneyConflictDialog({
 
   if (conflictType == 'enabling_pollen_with_honey') {
     title = 'Pollengyűjtő bekapcsolása';
-    badgeText = 'FIGYELMEZTETÉS: Méztéri fiók van a kaptáron!';
-    primaryMessage = 'Fennlévő méztér mellett a virágporgyűjtő bekapcsolása nem javasolt!';
+    badgeText = 'Méztéri fiók van a kaptáron!';
+    primaryMessage = 'Fennlévő méztér mellett a pollengyűjtő nem javasolt!';
     biologicalExplanation =
-        'A kaptáron jelenleg mézkamra (méztér) található, a család méztermelésben van.\n\n'
-        '• A pollengyűjtő rács aktiválása szűkíti a kijárónyílást és lelassítja a gyűjtőméhek forgalmát, ezáltal drasztikusan lecsökkenti a mézbehordást a mézkamrába.\n'
-        '• Főhordás idején a szűk rács gátolja a kaptár belső szellőzését is, ami nehezíti a nektár víztartalmának párologtatását (a méz érlelését).\n\n'
-        'A virágporgyűjtőt a tavaszi fészekfejlesztési időszakban célszerű üzemeltetni méztér felrakása nélkül.';
-    confirmationQuestion = 'Biztosan bekapcsolod a pollengyűjtőt a méztér alatt?';
+        'A pollengyűjtő rács lelassítja a kijárást és akadályozza a mézhordást a mézkamrába. Méztermelés alatt a virágporgyűjtést kapcsold ki.';
+    confirmationQuestion = 'Bekapcsolod így is a méztér alatt?';
   } else {
-    // adding_honey_with_pollen
     title = 'Méztér felhelyezése';
-    badgeText = 'FIGYELMEZTETÉS: Aktív pollengyűjtő van a kaptáron!';
-    primaryMessage = 'Aktív pollengyűjtő mellett nem javasolt méztéri fiókot felrakni!';
+    badgeText = 'Aktív pollengyűjtő van a kaptáron!';
+    primaryMessage = 'Aktív pollengyűjtő mellett nem javasolt méztért felrakni!';
     biologicalExplanation =
-        'A kaptáron jelenleg be van kapcsolva a pollengyűjtő rács.\n\n'
-        '• A pollengyűjtő rács lelassítja a gyűjtőméhek forgalmát és gátolja a nektár akadálytalan felhordását a méztérbe.\n'
-        '• A méztermelés megkezdése előtt a virágporgyűjtést ki kell kapcsolni, hogy a méhek maximális kapacitással tölthessék fel a mézkamrát.';
-    confirmationQuestion = 'Biztosan felhelyezed a mézteret az aktív pollengyűjtő mellé?';
+        'A bekapcsolt rács gátolja a nektár behordását a méztérbe. Mézkamra felrakása előtt kapcsold ki a pollengyűjtőt.';
+    confirmationQuestion = 'Felhelyezed így is a mézteret?';
   }
 
   final result = await showDialog<bool>(
@@ -394,7 +379,7 @@ Future<bool> showPollenHoneyConflictDialog({
       primaryMessage: primaryMessage,
       biologicalExplanation: biologicalExplanation,
       targetHiveInfo: 'Kaptár: ${hive.name} (${hive.id})',
-      badgeColor: const Color(0xFFF97316), // Narancssárga
+      badgeColor: const Color(0xFFF97316),
       confirmationQuestion: confirmationQuestion,
     ),
   );
