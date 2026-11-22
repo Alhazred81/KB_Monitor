@@ -414,26 +414,16 @@ class HiveData {
   /// ha nincs fenn egyetlen extra fiók sem!
   bool get hasExtraBoxes {
     return boxes.any((b) {
+      if (isRoofBox(b) || isBottomBox(b) || isPollenBox(b)) return false;
       final t = b.type.toLowerCase();
       final n = b.name.toLowerCase();
-      final bool isBase = t == 'bottom' ||
-          t == '15' ||
-          n.contains('alj') ||
-          t == 'pollen_trap' ||
-          t == '11' ||
-          n.contains('pollen') ||
-          n.contains('virágpor') ||
-          t == 'brood_box' ||
+      final bool isBrood = t == 'brood_box' ||
           t == 'broodbox' ||
           t == 'nest' ||
           t == '8' ||
           n.contains('fészek') ||
-          n.contains('feszek') ||
-          t == 'roof' ||
-          n.contains('tető') ||
-          n.contains('teto') ||
-          n.contains('dekli');
-      return !isBase;
+          n.contains('feszek');
+      return !isBrood;
     });
   }
 

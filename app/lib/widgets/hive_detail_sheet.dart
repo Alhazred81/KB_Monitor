@@ -603,6 +603,44 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
 
             ...displayedBoxes.map((box) {
               final displayName = _getBoxDisplayName(box);
+              final bool isBottomBroodBox =
+                  (bottomBroodBox != null && box.code == bottomBroodBox.code);
+              final bool isFeeder = (displayName == 'Tetőetető' ||
+                  displayName == 'Etető' ||
+                  box.type == 'feeder' ||
+                  box.type == 'roof_feeder');
+              final bool isHoney = (displayName == 'Méztér' ||
+                  box.type == 'honey' ||
+                  box.type == '9');
+              final bool isEscapement = (displayName == 'Szöktető' ||
+                  box.type == 'escapement' ||
+                  box.type == '13');
+
+              final bool canBeEscaped = (!isBottomBroodBox &&
+                  !isFeeder &&
+                  !isEscapement &&
+                  box.type != 'roof' &&
+                  box.type != 'bottom' &&
+                  box.type != 'pollen_trap');
+
+              final int escapementIndex = widget.hive.boxes.indexWhere(
+                (b) => b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
+              );
+              final int currentBoxIndex = widget.hive.boxes.indexOf(box);
+              final bool isDirectlyAboveEscapement =
+                  (escapementIndex != -1 && currentBoxIndex == escapementIndex + 1);
+              final bool isEscapedByBoard =
+                  (escapementIndex != -1 && currentBoxIndex > escapementIndex && canBeEscaped);
+              final bool isEscapementOverdue = isEscapement &&
+                  box.statusUpdatedAt != null &&
+                  DateTime.now().difference(box.statusUpdatedAt!).inMinutes >= 24 * 60;
+
+              final Color boxBorderColor = _getBoxBorderColor(
+                box: box,
+                isEscapedByBoard: isEscapedByBoard,
+                isDirectlyAboveEscapement: isDirectlyAboveEscapement,
+                isEscapementOverdue: isEscapementOverdue,
+              );
 
               if (box.type == 'bottom' || displayName == 'Aljdeszka') {
                 return Padding(
@@ -613,16 +651,15 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                       color: const Color(0xFF1E293B),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: box.isActive
-                            ? Colors.deepOrange
-                            : Colors.white12,
+                        color: boxBorderColor,
+                        width: box.isActive ? 2.0 : 1.5,
                       ),
                     ),
                     child: Row(
                       children: [
                         Icon(
                           Icons.dns_outlined,
-                          color: box.isActive ? Colors.deepOrangeAccent : Colors.white54,
+                          color: boxBorderColor,
                           size: 22,
                         ),
                         const SizedBox(width: 10),
@@ -744,14 +781,15 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                           color: const Color(0xFF1E293B),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: box.isActive ? Colors.orange : Colors.white12,
+                            color: boxBorderColor,
+                            width: box.isActive ? 2.0 : 1.5,
                           ),
                         ),
                         child: Row(
                           children: [
                             Icon(
                               Icons.filter_vintage,
-                              color: box.isActive ? Colors.amberAccent : Colors.white38,
+                              color: boxBorderColor,
                               size: 22,
                             ),
                             const SizedBox(width: 10),
@@ -883,12 +921,13 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                         color: const Color(0xFF1E293B),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: isEscapement
-                              ? (isEscapementOverdue ? Colors.redAccent : Colors.amberAccent)
-                              : (isEscapedByBoard
-                                  ? Colors.orangeAccent
-                                  : Colors.amberAccent.withAlpha(140)),
-                          width: (isDirectlyAboveEscapement || isEscapement) ? 2.0 : 1.5,
+                          color: boxBorderColor,
+                          width: (isDirectlyAboveEscapement ||
+                                  isEscapement ||
+                                  isEscapedByBoard ||
+                                  boxBorderColor != Colors.greenAccent.withAlpha(160))
+                              ? 2.0
+                              : 1.5,
                         ),
                       ),
                       child: Column(
@@ -1022,11 +1061,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                 else
                                   Icon(
                                     boxIcon,
-                                    color: (box.type == 'roof'
-                                        ? Colors.tealAccent
-                                        : isEscapedByBoard
-                                            ? Colors.orangeAccent
-                                            : Colors.amberAccent),
+                                    color: boxBorderColor,
                                     size: 22,
                                   ),
                                 const SizedBox(width: 10),
@@ -1284,6 +1319,70 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
     );
   }
 
+  Color _getBoxBorderColor({
+    required BoxElement box,
+    required bool isEscapedByBoard,
+    required bool isDirectlyAboveEscapement,
+    required bool isEscapementOverdue,
+  }) {
+    final lowerType = box.type.toLowerCase();
+    final lowerName = box.name.toLowerCase();
+
+    // 1. Aljdeszka
+    if (isBottomBox(box)) {
+      if (!box.isActive) {
+        return Colors.greenAccent.withAlpha(160);
+      }
+      final bool isDue = box.isVarroaCheckDue ||
+          (box.statusUpdatedAt != null &&
+              DateTime.now().difference(box.statusUpdatedAt!).inDays >= 3);
+      return isDue ? Colors.redAccent : Colors.amberAccent;
+    }
+
+    // 2. Pollengyűjtő
+    if (isPollenBox(box)) {
+      return box.isActive ? Colors.orangeAccent : Colors.greenAccent.withAlpha(160);
+    }
+
+    // 3. Méhszöktető
+    if (lowerType == 'escapement' ||
+        lowerType == '13' ||
+        lowerName.contains('szöktet') ||
+        lowerName.contains('szoktet')) {
+      return isEscapementOverdue ? Colors.redAccent : Colors.amberAccent;
+    }
+
+    // 4. Szöktető feletti leszöktetett méztér / fiók
+    if (isEscapedByBoard) {
+      return isEscapementOverdue ? Colors.redAccent : Colors.orangeAccent;
+    }
+
+    // 5. Tetőetető
+    if (isFeederBox(box) || lowerName.contains('etet')) {
+      if (widget.hive.feederStatus == 'blinking_red') return Colors.redAccent;
+      if (widget.hive.hasFeeder &&
+          widget.hive.feederLevelPercent <= 20.0 &&
+          widget.hive.feedingMode != 'off') {
+        return Colors.orangeAccent;
+      }
+      return Colors.greenAccent.withAlpha(160);
+    }
+
+    // 6. Tető
+    if (isRoofBox(box)) {
+      return widget.hive.isLocked ? Colors.amberAccent : Colors.greenAccent.withAlpha(160);
+    }
+
+    // 7. Fészekfiók és egyéb normál fiókok
+    if (box.status == 'red' || box.status == 'flashing_red') return Colors.redAccent;
+    if (box.status == 'orange') return Colors.orangeAccent;
+    if (box.status == 'yellow') return Colors.amberAccent;
+    if (box.status == 'purple') return Colors.purpleAccent;
+
+    // Nincs teendő -> Zöld keret
+    return Colors.greenAccent.withAlpha(160);
+  }
+
   Widget _buildNextTaskCard(
     BuildContext context,
     HiveData hive,
@@ -1504,37 +1603,46 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(taskIcon, color: badgeColor, size: 17),
-              const SizedBox(width: 6),
-              const Text(
-                'KÖVETKEZŐ TEENDŐ',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                  letterSpacing: 1.0,
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(taskIcon, color: badgeColor, size: 16),
+                    const SizedBox(width: 6),
+                    const Flexible(
+                      child: Text(
+                        'KÖVETKEZŐ TEENDŐ',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                          letterSpacing: 1.0,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const Spacer(),
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withAlpha(40),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: badgeColor.withAlpha(140)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                decoration: BoxDecoration(
+                  color: badgeColor.withAlpha(40),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: badgeColor.withAlpha(140)),
+                ),
+                child: Text(
+                  dueBadgeText,
+                  style: TextStyle(
+                    color: badgeColor,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
                   ),
-                  child: Text(
-                    dueBadgeText,
-                    style: TextStyle(
-                      color: badgeColor,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -1556,67 +1664,61 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
               fontSize: 11.5,
             ),
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                final type = next['type'] as String;
-                if (type == 'escapement_harvest') {
-                  _showFinishEscapementConfirmation(context, hive, repository);
-                } else if (type == 'scheduled') {
-                  final task = next['task'] as ScheduledTask;
-                  setState(() {
-                    task.isCompleted = true;
-                  });
-                  repository.completeTask(task.id);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Feladat készre jelentve: ${next['title']}'),
-                      backgroundColor: Colors.teal,
-                    ),
-                  );
-                } else if (type == 'bottom_board') {
-                  final box = next['box'] as BoxElement;
-                  setState(() {
-                    repository.toggleBoxActiveState(hive, box, false);
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Feladat készre jelentve: ${next['title']}'),
-                      backgroundColor: Colors.teal,
-                    ),
-                  );
-                }
-              },
-              icon: Icon(
-                next['type'] == 'escapement_harvest'
-                    ? Icons.check_circle_rounded
-                    : Icons.check_circle_outline,
-                size: 20,
-                color: const Color(0xFF0F172A),
-              ),
-              label: Text(
-                next['type'] == 'escapement_harvest'
-                    ? 'Szöktetés kész (fiókok elvétele)'
-                    : 'Feladat készre jelentése',
-                style: const TextStyle(
+          if (next['type'] != 'escapement_harvest') ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  final type = next['type'] as String;
+                  if (type == 'scheduled') {
+                    final task = next['task'] as ScheduledTask;
+                    setState(() {
+                      task.isCompleted = true;
+                    });
+                    repository.completeTask(task.id);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Feladat készre jelentve: ${next['title']}'),
+                        backgroundColor: Colors.teal,
+                      ),
+                    );
+                  } else if (type == 'bottom_board') {
+                    final box = next['box'] as BoxElement;
+                    setState(() {
+                      repository.toggleBoxActiveState(hive, box, false);
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Feladat készre jelentve: ${next['title']}'),
+                        backgroundColor: Colors.teal,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(
+                  Icons.check_circle_outline,
+                  size: 20,
                   color: Color(0xFF0F172A),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
                 ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: next['type'] == 'escapement_harvest'
-                    ? Colors.tealAccent
-                    : Colors.greenAccent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                label: const Text(
+                  'Feladat készre jelentése',
+                  style: TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.greenAccent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
           if (!hive.hasExtraBoxes) ...[
             const SizedBox(height: 12),
             _buildGloveFriendlyActionButtons(context, hive, repository),
