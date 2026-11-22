@@ -176,7 +176,7 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
-              'Kód: ${widget.broodBox.code} (${widget.broodBox.size.toUpperCase()})',
+              'Kód: ${widget.broodBox.code}',
               style: const TextStyle(
                 fontSize: 11,
                 color: Colors.white60,

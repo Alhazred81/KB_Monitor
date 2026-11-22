@@ -294,68 +294,11 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
     return box.name.replaceAll(RegExp(r'\s*\(\s*\)'), '').trim();
   }
 
-  // Segédfüggvény a tiszta, formázott fiókcímhez (pl. Fészek (DADANT), Tető, Tetőetető)
+  // Segédfüggvény a tiszta fiókcímhez (pl. Fészek, Méztér, Tető, Tetőetető)
+  // A méhész számára nem szükséges a keretméretet (Dadant, Fél Dadant, Hunor) kiírni
   String _getBoxFormattedTitle(BoxElement box) {
-    String displayName = _getBoxDisplayName(box).replaceAll(RegExp(r'\s*\(\s*\)'), '').trim();
-    final lowerSize = box.size.trim().toLowerCase().replaceAll(RegExp(r'[\(\)]'), '');
-    final lowerName = displayName.toLowerCase();
-
-    // Nem keretméret tartozékok esetén nem írunk ki felesleges méretet
-    final nonFrameTypes = {
-      'tető',
-      'teto',
-      'tetőetető',
-      'eteto',
-      'etető',
-      'feeder',
-      'roof',
-      'aljdeszka',
-      'bottom',
-      'szellőző',
-      'szellozo',
-      'vent',
-      'szöktető',
-      'szokteto',
-      'escapement',
-      'pollengyűjtő',
-      'pollen_trap',
-      'trap',
-      'kezelőlap hordozó',
-      'treatment_strip',
-      'anyarács',
-      'queen_excluder',
-    };
-
-    if (nonFrameTypes.contains(lowerName) ||
-        nonFrameTypes.contains(lowerSize) ||
-        lowerSize.isEmpty ||
-        lowerSize == 'elem') {
-      return displayName;
-    }
-
-    // Ha Fészek vagy Méztér
-    String sizeText = box.size.toUpperCase().replaceAll(RegExp(r'[\(\)]'), '').trim();
-    if (displayName == 'Fészek') {
-      if (lowerSize == 'fészek' || lowerSize.isEmpty || lowerSize == 'hunor') {
-        sizeText = 'HUNOR';
-      } else if (lowerSize.contains('dadant')) {
-        sizeText = 'DADANT';
-      }
-    } else if (displayName == 'Méztér') {
-      if (lowerSize.contains('1/2 dadant') ||
-          lowerSize.contains('half_dadant') ||
-          lowerSize.contains('fel_dadant')) {
-        sizeText = '1/2 DADANT';
-      } else if (lowerSize.contains('hunor')) {
-        sizeText = 'HUNOR';
-      }
-    }
-
-    if (sizeText.isEmpty || displayName.toUpperCase().contains(sizeText)) {
-      return displayName;
-    }
-
-    return '$displayName ($sizeText)';
+    String displayName = _getBoxDisplayName(box).replaceAll(RegExp(r'\s*\([^)]*\)'), '').trim();
+    return displayName;
   }
 
   IconData _getBoxIcon(BoxElement box) {

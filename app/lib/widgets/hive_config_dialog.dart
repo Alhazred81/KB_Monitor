@@ -179,17 +179,7 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
   }
 
   String _formatBoxTitle(BoxElement box) {
-    final displayName = _getBoxDisplayName(box);
-    final formattedSize = _formatSize(box.size);
-    if (formattedSize.isNotEmpty &&
-        displayName != 'Aljdeszka' &&
-        displayName != 'Tető' &&
-        displayName != 'Szöktető' &&
-        displayName != 'Szellőző' &&
-        displayName != 'Pollengyűjtő') {
-      return '$displayName ($formattedSize)';
-    }
-    return displayName;
+    return _getBoxDisplayName(box).replaceAll(RegExp(r'\s*\([^)]*\)'), '').trim();
   }
 
   IconData _getBoxIcon(BoxElement box) {
