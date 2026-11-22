@@ -73,38 +73,91 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
             height: 1.4,
           ),
         ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text(
-              'Mégse',
-              style: TextStyle(color: Colors.white60),
-            ),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            icon: const Icon(Icons.done_all, size: 16),
-            label: const Text('Igen, fiókok elvétele'),
-            onPressed: () {
-              Navigator.pop(dialogCtx);
-              final removedCount = repository.finishEscapementAndHarvest(hive);
-              setState(() {});
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Szöktetés kész: $removedCount db fiók és a szöktető elvéve a kaptárból.',
+          Row(
+            children: [
+              // 1. Boxkesztyű-barát MÉGSE gomb
+              Expanded(
+                flex: 4,
+                child: SizedBox(
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24, width: 1.5),
+                      backgroundColor: const Color(0xFF0F172A),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    onPressed: () => Navigator.pop(dialogCtx),
+                    icon: const Icon(Icons.close, size: 20, color: Colors.white60),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Mégse',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ),
-                  backgroundColor: Colors.teal,
-                  duration: const Duration(seconds: 4),
                 ),
-              );
-            },
+              ),
+              const SizedBox(width: 10),
+              // 2. Boxkesztyű-barát IGEN, FIÓKOK ELVÉTELE gomb
+              Expanded(
+                flex: 6,
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.tealAccent,
+                      foregroundColor: const Color(0xFF0F172A),
+                      elevation: 3,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(dialogCtx);
+                      final removedCount = repository.finishEscapementAndHarvest(hive);
+                      setState(() {});
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Szöktetés kész: $removedCount db fiók és a szöktető elvéve a kaptárból.',
+                          ),
+                          backgroundColor: Colors.teal,
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.check_circle_rounded,
+                      size: 22,
+                      color: Color(0xFF0F172A),
+                    ),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Igen, fiókok elvétele',
+                        style: TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
