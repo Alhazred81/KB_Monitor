@@ -1459,6 +1459,40 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
       }
     }
 
+    // 1/B. Anyacsere 3 napos és 14 napos vizsgálatainak garantált megjelenítése
+    if (hive.queenReplacementState == 'introduced_cage') {
+      final cageStart = hive.queenIntroducedAt ?? now;
+      final dueDate = cageStart.add(const Duration(days: 3));
+      final bool alreadyInTasks = allTasks.any((t) => (t['title'] as String).contains('kirágósra állítása'));
+      if (!alreadyInTasks) {
+        allTasks.add({
+          'id': 'QUEEN_CAGE_${hive.id}',
+          'title': 'Anyakalitka kirágósra állítása (3 nap)',
+          'description':
+              'A 3 napos beszoktatási idő letelt. Nyisd meg a cukorlepényes kirágónyílást a kalitkán, hogy a méhek ki tudják rágni az anyát!',
+          'date': dueDate,
+          'type': 'queen_cage_switch',
+        });
+      }
+    } else if (hive.queenReplacementState == 'introduced_chewout') {
+      final chewStart = hive.queenIntroducedAt ?? now;
+      final dueDate3 = chewStart.add(const Duration(days: 3));
+      final bool isChewCompleted = repository.scheduledTasks.any(
+        (t) => t.hiveId == hive.id && t.title.contains('kirágás ellenőrzése') && t.isCompleted,
+      );
+      final bool alreadyInTasks = allTasks.any((t) => (t['title'] as String).contains('kirágás ellenőrzése'));
+      if (!isChewCompleted && !alreadyInTasks) {
+        allTasks.add({
+          'id': 'QUEEN_CHEW_${hive.id}',
+          'title': 'Anya elfogadás & kirágás ellenőrzése (3 nap)',
+          'description':
+              'Rövid, kíméletes ellenőrzés a fészek bolygatása nélkül: megnézni, hogy a méhek kirágták-e az anyát a kalitkából.',
+          'date': dueDate3,
+          'type': 'queen_chew_check',
+        });
+      }
+    }
+
     // 0. Aktív méhszöktetés (mindent megelőző prioritás: max 24 órán belüli fiókelvétel)
     final int escapementIndex = hive.boxes.indexWhere(
       (b) => b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
@@ -1720,53 +1754,95 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
             SizedBox(
               width: double.infinity,
               height: 48,
-              child: ElevatedButton.icon(
-                onPressed: () {
+              child: Builder(
+                builder: (btnCtx) {
                   final type = next['type'] as String;
-                  if (type == 'scheduled') {
-                    final task = next['task'] as ScheduledTask;
-                    setState(() {
-                      task.isCompleted = true;
-                    });
-                    repository.completeTask(task.id);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Feladat készre jelentve: ${next['title']}'),
-                        backgroundColor: Colors.teal,
-                      ),
-                    );
-                  } else if (type == 'bottom_board') {
-                    final box = next['box'] as BoxElement;
-                    setState(() {
-                      repository.toggleBoxActiveState(hive, box, false);
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Feladat készre jelentve: ${next['title']}'),
-                        backgroundColor: Colors.teal,
-                      ),
-                    );
+                  final String title = next['title'] as String;
+                  final bool isCageSwitch = type == 'queen_cage_switch' || title.contains('kirágósra állítása');
+                  final bool isChewCheck = type == 'queen_chew_check' || title.contains('kirágás ellenőrzése');
+
+                  IconData btnIcon = Icons.check_circle_outline;
+                  String btnLabel = 'Feladat készre jelentése';
+                  Color btnBg = Colors.greenAccent;
+                  Color btnFg = const Color(0xFF0F172A);
+
+                  if (isCageSwitch) {
+                    btnIcon = Icons.lock_open;
+                    btnLabel = 'Anyakalitka átállítása kirágósra';
+                    btnBg = Colors.amberAccent;
+                    btnFg = Colors.black;
+                  } else if (isChewCheck) {
+                    btnIcon = Icons.verified_outlined;
+                    btnLabel = 'Kirágás rendben (Anya kint van)';
+                    btnBg = Colors.tealAccent;
+                    btnFg = Colors.black;
                   }
+
+                  return ElevatedButton.icon(
+                    onPressed: () {
+                      if (isCageSwitch) {
+                        showQueenReplacementFlowDialog(
+                          context: context,
+                          hive: hive,
+                          repository: repository,
+                        );
+                      } else if (isChewCheck) {
+                        setState(() {
+                          for (var t in repository.scheduledTasks) {
+                            if (t.hiveId == hive.id &&
+                                (t.id.contains('QUEEN_CHEW') || t.title.contains('kirágás ellenőrzése'))) {
+                              t.isCompleted = true;
+                            }
+                          }
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Anya kirágás ellenőrzése kész! A 14 napos vizsgálat aktív marad.'),
+                            backgroundColor: Colors.teal,
+                          ),
+                        );
+                      } else if (type == 'scheduled') {
+                        final task = next['task'] as ScheduledTask;
+                        setState(() {
+                          task.isCompleted = true;
+                        });
+                        repository.completeTask(task.id);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Feladat készre jelentve: ${next['title']}'),
+                            backgroundColor: Colors.teal,
+                          ),
+                        );
+                      } else if (type == 'bottom_board') {
+                        final box = next['box'] as BoxElement;
+                        setState(() {
+                          repository.toggleBoxActiveState(hive, box, false);
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Feladat készre jelentve: ${next['title']}'),
+                            backgroundColor: Colors.teal,
+                          ),
+                        );
+                      }
+                    },
+                    icon: Icon(btnIcon, size: 20, color: btnFg),
+                    label: Text(
+                      btnLabel,
+                      style: TextStyle(
+                        color: btnFg,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: btnBg,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  );
                 },
-                icon: const Icon(
-                  Icons.check_circle_outline,
-                  size: 20,
-                  color: Color(0xFF0F172A),
-                ),
-                label: const Text(
-                  'Feladat készre jelentése',
-                  style: TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.greenAccent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
               ),
             ),
           ],
@@ -3328,20 +3404,74 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Row(
+                              Row(
                                 children: [
-                                  Icon(Icons.workspace_premium, color: Colors.amberAccent, size: 20),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Tenyészbírálati jegyek (Gyors minősítés):',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
+                                  const Icon(Icons.workspace_premium, color: Colors.amberAccent, size: 20),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'Tenyészbírálati jegyek (Gyors minősítés):',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    onPressed: () {
+                                      setModalState(() {
+                                        hive.resetEvaluation(
+                                          newQueenId: hive.queen?.id,
+                                          reason: 'Tiszta lap - kézi alaphelyzetbe állítás',
+                                        );
+                                      });
+                                      setState(() {});
+                                      repository.updateHive(hive);
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Család minősítése alaphelyzetbe állítva (Tiszta lap)!'),
+                                          backgroundColor: Colors.teal,
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.refresh, size: 14, color: Colors.amberAccent),
+                                    label: const Text(
+                                      'Alaphelyzet',
+                                      style: TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold),
                                     ),
                                   ),
                                 ],
                               ),
+                              if (hive.evaluation.notes.contains('Tiszta lap') || hive.queenReplacementState != null) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.teal.withAlpha(35),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.tealAccent.withAlpha(100)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.auto_awesome, color: Colors.tealAccent, size: 16),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          hive.evaluation.notes.isNotEmpty
+                                              ? hive.evaluation.notes
+                                              : 'Tiszta lap aktív - Új anya behelyezve, minősítések alapállapotban.',
+                                          style: const TextStyle(color: Colors.tealAccent, fontSize: 11, fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 10),
                               _buildTraitRow('Szelídség', hive.evaluation.temperament, (val) {
                                 setModalState(() => hive.evaluation.temperament = val);

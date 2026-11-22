@@ -1264,22 +1264,68 @@ class HiveRepository extends ChangeNotifier {
   }
 
   void scheduleQueenAcceptanceInspection(HiveData hive, DateTime scheduledDate) {
-    // Eltávolítjuk az esetleges korábbi függő vizsgálatot ennél a kaptárnál a duplikáció elkerülésére
+    scheduleQueenReplacementTasks(hive, isCageMode: false, custom14DayDate: scheduledDate);
+  }
+
+  void scheduleQueenReplacementTasks(
+    HiveData hive, {
+    required bool isCageMode,
+    DateTime? custom14DayDate,
+  }) {
+    final now = DateTime.now();
+    final inspection3Day = DateTime(now.year, now.month, now.day + 3, 10, 0);
+
+    // Eltávolítjuk a korábbi anyacserés teendőket ennél a kaptárnál a duplikáció elkerülésére
     _scheduledTasks.removeWhere(
-      (t) => t.hiveId == hive.id && t.category == 'inspection' && !t.isCompleted,
+      (t) =>
+          t.hiveId == hive.id &&
+          (t.id.contains('QUEEN') ||
+              t.title.contains('Anyakalitka') ||
+              t.title.contains('Anya elfogadás') ||
+              t.title.contains('Anyásítás vizsgálata')),
     );
 
-    final inspectionTask = ScheduledTask(
-      id: 'TASK_${hive.id}_QUEEN_INSP_${DateTime.now().millisecondsSinceEpoch}',
-      hiveId: hive.id,
-      category: 'inspection',
-      title: 'Anyásítás vizsgálata: Petézés & Fiasítás',
-      description:
-          'Lejárt a 14 napos nyugalmi időszak ("ne nyúlj hozzá") a(z) ${hive.name} kaptárban. Vizsgáld meg az új anya elfogadását, a kirágást, az új petéket és a fiasításképet!',
-      scheduledDate: scheduledDate,
-      isCompleted: false,
-    );
-    addScheduledTask(inspectionTask);
+    if (isCageMode) {
+      // Szoktatós mód: 3 nap múlva kalitka átállítása kirágósra
+      final cageTask = ScheduledTask(
+        id: 'TASK_${hive.id}_QUEEN_CAGE_${now.millisecondsSinceEpoch}',
+        hiveId: hive.id,
+        category: 'inspection',
+        title: 'Anyakalitka kirágósra állítása (3 nap)',
+        description:
+            'A 3 napos beszoktatási idő letelt a(z) ${hive.name} kaptárban. Nyisd meg a cukorlepényes kirágónyílást a kalitkán, hogy a méhek ki tudják rágni az anyát!',
+        scheduledDate: inspection3Day,
+        isCompleted: false,
+      );
+      addScheduledTask(cageTask);
+    } else {
+      // Kirágós mód: 3 nap múlva kirágás ellenőrzése + 14 nap múlva fiasítás vizsgálat
+      final chewCheckTask = ScheduledTask(
+        id: 'TASK_${hive.id}_QUEEN_CHEW_${now.millisecondsSinceEpoch}',
+        hiveId: hive.id,
+        category: 'inspection',
+        title: 'Anya elfogadás & kirágás ellenőrzése (3 nap)',
+        description:
+            'Rövid, kíméletes ellenőrzés a(z) ${hive.name} kaptárban a fészek bolygatása nélkül: megnézni, hogy a méhek kirágták-e az anyát a kalitkából.',
+        scheduledDate: inspection3Day,
+        isCompleted: false,
+      );
+      addScheduledTask(chewCheckTask);
+
+      final lockEnd = custom14DayDate ?? (hive.lockedUntil ?? now.add(const Duration(days: 14)));
+      final inspection14Day = DateTime(lockEnd.year, lockEnd.month, lockEnd.day, 10, 0);
+      final inspectionTask = ScheduledTask(
+        id: 'TASK_${hive.id}_QUEEN_INSP_${now.millisecondsSinceEpoch + 1}',
+        hiveId: hive.id,
+        category: 'inspection',
+        title: 'Anyásítás vizsgálata: Petézés & Fiasítás (14 nap)',
+        description:
+            'Lejárt a 14 napos nyugalmi időszak ("ne nyúlj hozzá") a(z) ${hive.name} kaptárban. Vizsgáld meg az új anya elfogadását, a kirágást, az új petéket és a fiasításképet!',
+        scheduledDate: inspection14Day,
+        isCompleted: false,
+      );
+      addScheduledTask(inspectionTask);
+    }
   }
 
   void addLocalFrameAnalysis(FrameAnalysisRecord record) {
@@ -1584,6 +1630,7 @@ class HiveRepository extends ChangeNotifier {
         _isOnline = true;
         _weatherStation.status = 'green';
         final List<dynamic> data = jsonDecode(monitorsRes.body);
+        final Map<String, HiveData> existingHivesMap = {for (var h in _hives) h.id: h};
         _hives.clear();
 
         int index = 0;
@@ -1830,13 +1877,14 @@ class HiveRepository extends ChangeNotifier {
 
           double latOffset = (index % 3) * 0.00015;
           double lngOffset = (index ~/ 3) * 0.00015;
+          final prevHive = existingHivesMap[mac];
 
           _hives.add(
             HiveData(
               id: mac,
               name: name,
               location: LatLng(37.422500 + latOffset, -122.084500 + lngOffset),
-              status: rawStatus,
+              status: prevHive?.status ?? rawStatus,
               familyFunction: familyFunction,
               protocol: protocol,
               dailyVarroaDrop: dailyVarroa,
@@ -1862,7 +1910,12 @@ class HiveRepository extends ChangeNotifier {
               isAutoPaired: isAutoPaired,
               boxes: loadedBoxes,
               serverConnection: 'Supabase OK',
-              evaluation: EvaluationData(notes: notes),
+              queen: prevHive?.queen,
+              queenReplacementState: prevHive?.queenReplacementState,
+              queenIntroducedAt: prevHive?.queenIntroducedAt,
+              lockedUntil: prevHive?.lockedUntil,
+              lockReason: prevHive?.lockReason,
+              evaluation: prevHive?.evaluation ?? EvaluationData(notes: notes),
             ),
           );
           index++;

@@ -920,17 +920,25 @@ Future<void> showQueenReplacementFlowDialog({
                             );
 
                         hive.queenReplacementState = 'introduced_cage';
+                        hive.queenIntroducedAt = DateTime.now();
                         hive.status = 'yellow';
                         hive.queen = queenToAssign;
-                        // Tiszta lap :)
-                        hive.evaluation = EvaluationData(notes: 'Tiszta lap - beadva szoktatósra (${queenToAssign.id})');
+                        // Tiszta lap - Minden jegy alapállapotba kerül
+                        hive.resetEvaluation(
+                          newQueenId: queenToAssign.id,
+                          reason: 'Tiszta lap - beadva szoktatósra (${queenToAssign.id})',
+                        );
 
+                        repository.scheduleQueenReplacementTasks(hive, isCageMode: true);
                         repository.updateHive(hive);
                         Navigator.pop(dialogCtx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Új anya (${queenToAssign.id}) szoktatósra beadva! Pár nap múlva állítsd kirágósra.'),
+                            content: Text(
+                              'Új anya (${queenToAssign.id}) szoktatósra beadva! 3 nap múlva esedékes az anyakalitka kirágósra állítása.',
+                            ),
                             backgroundColor: Colors.blueAccent,
+                            duration: const Duration(seconds: 4),
                           ),
                         );
                       },
@@ -943,7 +951,7 @@ Future<void> showQueenReplacementFlowDialog({
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text('Új anya beadva szoktatósra', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                Text('Zárt kalitka (nem rághatják ki még)', style: TextStyle(fontSize: 10.5, color: Colors.white70)),
+                                Text('Zárt kalitka (3 nap múlva kirágósra állítás)', style: TextStyle(fontSize: 10.5, color: Colors.white70)),
                               ],
                             ),
                           ),
@@ -970,13 +978,17 @@ Future<void> showQueenReplacementFlowDialog({
 
                         // 14 napos lakat aktiválása
                         hive.queenReplacementState = 'introduced_chewout';
+                        hive.queenIntroducedAt = DateTime.now();
                         final lockEnd = DateTime.now().add(const Duration(days: 14));
                         hive.lockedUntil = lockEnd;
                         hive.lockReason = 'Új anya kirágósra adva (${queenToAssign.id} - Ne nyúlj hozzá!)';
                         hive.status = 'green';
                         hive.queen = queenToAssign;
-                        // Tiszta lap :)
-                        hive.evaluation = EvaluationData(notes: 'Tiszta lap - beadva kirágósra (${queenToAssign.id})');
+                        // Tiszta lap - Minden jegy alapállapotba kerül
+                        hive.resetEvaluation(
+                          newQueenId: queenToAssign.id,
+                          reason: 'Tiszta lap - beadva kirágósra (${queenToAssign.id})',
+                        );
 
                         // Szokásos délelőtti (10:00) vizsgálat beütemezése a lakat lejárata napjára
                         final inspectionDate = DateTime(
@@ -986,15 +998,20 @@ Future<void> showQueenReplacementFlowDialog({
                           10,
                           0,
                         );
-                        repository.scheduleQueenAcceptanceInspection(hive, inspectionDate);
+                        repository.scheduleQueenReplacementTasks(
+                          hive,
+                          isCageMode: false,
+                          custom14DayDate: inspectionDate,
+                        );
                         repository.updateHive(hive);
 
                         Navigator.pop(dialogCtx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              'Új anya (${queenToAssign.id}) kirágósra beadva! Kaptár 14 napra lezárva (🔒 Lakat: Tilos bolygatni)!\n'
-                              '📅 Vizsgálat beütemezve a lejárathoz: ${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')} (10:00)',
+                              'Új anya (${queenToAssign.id}) kirágósra beadva! Tiszta lap indult.\n'
+                              '📅 3 nap múlva: Kirágás-ellenőrzés\n'
+                              '📅 14 nap múlva: Anyásítás vizsgálat (${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')})',
                             ),
                             backgroundColor: Colors.teal,
                             duration: const Duration(seconds: 5),
@@ -1046,6 +1063,7 @@ Future<void> showQueenReplacementFlowDialog({
                       ),
                       onPressed: () {
                         hive.queenReplacementState = 'introduced_chewout';
+                        hive.queenIntroducedAt = DateTime.now();
                         final lockEnd = DateTime.now().add(const Duration(days: 14));
                         hive.lockedUntil = lockEnd;
                         hive.lockReason = 'Új anya kirágósra adva (Ne nyúlj hozzá!)';
@@ -1059,7 +1077,11 @@ Future<void> showQueenReplacementFlowDialog({
                           10,
                           0,
                         );
-                        repository.scheduleQueenAcceptanceInspection(hive, inspectionDate);
+                        repository.scheduleQueenReplacementTasks(
+                          hive,
+                          isCageMode: false,
+                          custom14DayDate: inspectionDate,
+                        );
                         repository.updateHive(hive);
 
                         Navigator.pop(dialogCtx);
@@ -1067,7 +1089,8 @@ Future<void> showQueenReplacementFlowDialog({
                           SnackBar(
                             content: Text(
                               'Kirágósra állítva! Kaptár 14 napra zárolva (🔒 Lakat: Tilos bolygatni)!\n'
-                              '📅 Vizsgálat beütemezve a lejárathoz: ${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')} (10:00)',
+                              '📅 3 nap múlva: Kirágás-ellenőrzés\n'
+                              '📅 14 nap múlva: Anyásítás vizsgálat (${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')})',
                             ),
                             backgroundColor: Colors.teal,
                             duration: const Duration(seconds: 5),

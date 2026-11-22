@@ -393,8 +393,28 @@ class HiveData {
 
   // --- ANYACSERE & LAKAT MEZŐK ---
   String? queenReplacementState; // null / 'none', 'needs_replacement', 'queen_removed', 'introduced_cage', 'introduced_chewout'
+  DateTime? queenIntroducedAt; // Anyabehelyezés időpontja (3 napos vizsgálathoz)
   DateTime? lockedUntil; // Zárolás lejárati ideje (kirágós anyabeadás esetén kb. 2 hét)
   String? lockReason; // Zárolás oka (pl. 'Új anya kirágósra adva')
+
+  void resetEvaluation({String? newQueenId, String? reason}) {
+    evaluation = EvaluationData(
+      gathering: '+',
+      temperament: '+',
+      hygiene: '+',
+      consumption: '+',
+      pollenCollection: '+',
+      building: '+',
+      propolis: '+',
+      swarming: '+',
+      robbing: '+',
+      diseaseResistance: '+',
+      miteResistance: '+',
+      reproduction: '+',
+      winterSurvival: '+',
+      notes: reason ?? 'Tiszta lap - új anya (${newQueenId ?? queen?.id ?? ""})',
+    );
+  }
 
   bool get isQueenReplacementActive =>
       queenReplacementState == 'needs_replacement' ||
@@ -537,6 +557,7 @@ class HiveData {
     this.sztojRemainingSeconds = 0,
     this.feederStatusMessage,
     this.queenReplacementState,
+    this.queenIntroducedAt,
     this.lockedUntil,
     this.lockReason,
   })  : _customFeederStatus = feederStatus,
