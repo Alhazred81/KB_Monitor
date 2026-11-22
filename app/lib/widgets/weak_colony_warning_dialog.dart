@@ -347,3 +347,61 @@ Future<bool> showWeakColonyWarningDialog({
   }
   return false;
 }
+
+/// 3. FIGYELMEZTETÉS: POLLENGYŰJTŐ ÉS MÉZTÉR ÖSSZEFÉRHETETLENSÉGE
+/// "Ha van fenn méztéri fiók, jelezzen, ha be akarom kapcsolni a pollengyűjtőt, és viszont.
+/// Aktív pollengyűjtő mellett figyelmeztessen, ha méztéri fiókot akarok felrakni."
+Future<bool> showPollenHoneyConflictDialog({
+  required BuildContext context,
+  required HiveData hive,
+  required String conflictType, // 'enabling_pollen_with_honey' | 'adding_honey_with_pollen'
+  VoidCallback? onConfirm,
+}) async {
+  String title;
+  String badgeText;
+  String primaryMessage;
+  String biologicalExplanation;
+  String confirmationQuestion;
+
+  if (conflictType == 'enabling_pollen_with_honey') {
+    title = 'Pollengyűjtő bekapcsolása';
+    badgeText = 'FIGYELMEZTETÉS: Méztéri fiók van a kaptáron!';
+    primaryMessage = 'Fennlévő méztér mellett a virágporgyűjtő bekapcsolása nem javasolt!';
+    biologicalExplanation =
+        'A kaptáron jelenleg mézkamra (méztér) található, a család méztermelésben van.\n\n'
+        '• A pollengyűjtő rács aktiválása szűkíti a kijárónyílást és lelassítja a gyűjtőméhek forgalmát, ezáltal drasztikusan lecsökkenti a mézbehordást a mézkamrába.\n'
+        '• Főhordás idején a szűk rács gátolja a kaptár belső szellőzését is, ami nehezíti a nektár víztartalmának párologtatását (a méz érlelését).\n\n'
+        'A virágporgyűjtőt a tavaszi fészekfejlesztési időszakban célszerű üzemeltetni méztér felrakása nélkül.';
+    confirmationQuestion = 'Biztosan bekapcsolod a pollengyűjtőt a méztér alatt?';
+  } else {
+    // adding_honey_with_pollen
+    title = 'Méztér felhelyezése';
+    badgeText = 'FIGYELMEZTETÉS: Aktív pollengyűjtő van a kaptáron!';
+    primaryMessage = 'Aktív pollengyűjtő mellett nem javasolt méztéri fiókot felrakni!';
+    biologicalExplanation =
+        'A kaptáron jelenleg be van kapcsolva a pollengyűjtő rács.\n\n'
+        '• A pollengyűjtő rács lelassítja a gyűjtőméhek forgalmát és gátolja a nektár akadálytalan felhordását a méztérbe.\n'
+        '• A méztermelés megkezdése előtt a virágporgyűjtést ki kell kapcsolni, hogy a méhek maximális kapacitással tölthessék fel a mézkamrát.';
+    confirmationQuestion = 'Biztosan felhelyezed a mézteret az aktív pollengyűjtő mellé?';
+  }
+
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => _LargeBeekeepingWarningDialog(
+      title: title,
+      badgeText: badgeText,
+      primaryMessage: primaryMessage,
+      biologicalExplanation: biologicalExplanation,
+      targetHiveInfo: 'Kaptár: ${hive.name} (${hive.id})',
+      badgeColor: const Color(0xFFF97316), // Narancssárga
+      confirmationQuestion: confirmationQuestion,
+    ),
+  );
+
+  if (result == true) {
+    onConfirm?.call();
+    return true;
+  }
+  return false;
+}

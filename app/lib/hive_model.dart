@@ -480,8 +480,16 @@ class HiveData {
 
   bool get hasHoneySuper => boxes.any((b) =>
       b.type == 'honey' ||
+      b.type == '9' ||
       b.name.toLowerCase().contains('méz') ||
       b.name.toLowerCase().contains('mez'));
+
+  bool get hasActivePollenTrap => boxes.any((b) =>
+      (b.type == 'pollen_trap' ||
+          b.type == '11' ||
+          b.name.toLowerCase().contains('pollen') ||
+          b.name.toLowerCase().contains('virágpor')) &&
+      b.isActive);
   BoxElement? get feederBox => boxes.cast<BoxElement?>().firstWhere(
     (b) =>
         b != null &&

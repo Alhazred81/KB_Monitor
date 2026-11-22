@@ -356,7 +356,28 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
       return;
     }
 
-    // 2. Gyenge / beteg család megcsapolás elleni védelme
+    // 2. Pollengyűjtő és Méztér összeférhetetlenség ellenőrzése
+    if (_newBoxType == 'honey' && _activeHive!.hasActivePollenTrap) {
+      showPollenHoneyConflictDialog(
+        context: context,
+        hive: _activeHive!,
+        conflictType: 'adding_honey_with_pollen',
+        onConfirm: _executeAddElementToActiveHive,
+      );
+      return;
+    }
+
+    if (_newBoxType == 'pollen_trap' && _activeHive!.hasHoneySuper) {
+      showPollenHoneyConflictDialog(
+        context: context,
+        hive: _activeHive!,
+        conflictType: 'enabling_pollen_with_honey',
+        onConfirm: _executeAddElementToActiveHive,
+      );
+      return;
+    }
+
+    // 3. Gyenge / beteg család megcsapolás elleni védelme
     final bool isHoneyOrPollen =
         (_newBoxType == 'honey' || _newBoxType == 'pollen_trap');
     if (isHoneyOrPollen && _activeHive!.isWeakOrSick) {
@@ -990,6 +1011,22 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                                 activeThumbColor: Colors.orange,
                                                 activeTrackColor: Colors.orange.withAlpha(120),
                                                 onChanged: (val) {
+                                                  if (val && _activeHive!.hasHoneySuper) {
+                                                    showPollenHoneyConflictDialog(
+                                                      context: context,
+                                                      hive: _activeHive!,
+                                                      conflictType: 'enabling_pollen_with_honey',
+                                                      onConfirm: () {
+                                                        _repository.toggleBoxActiveState(
+                                                          _activeHive!,
+                                                          box,
+                                                          true,
+                                                        );
+                                                        setState(() {});
+                                                      },
+                                                    );
+                                                    return;
+                                                  }
                                                   _repository.toggleBoxActiveState(
                                                     _activeHive!,
                                                     box,

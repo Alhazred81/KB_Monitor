@@ -548,7 +548,29 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         return;
                       }
 
-                      // 2. Gyenge vagy beteg család védelme
+                      // 2. Pollengyűjtő és Méztér összeférhetetlenség ellenőrzése
+                      if (selectedType == 'honey' &&
+                          selectedTargetHive!.hasActivePollenTrap) {
+                        showPollenHoneyConflictDialog(
+                          context: context,
+                          hive: selectedTargetHive!,
+                          conflictType: 'adding_honey_with_pollen',
+                          onConfirm: executeAdd,
+                        );
+                        return;
+                      }
+                      if (selectedType == 'pollen_trap' &&
+                          selectedTargetHive!.hasHoneySuper) {
+                        showPollenHoneyConflictDialog(
+                          context: context,
+                          hive: selectedTargetHive!,
+                          conflictType: 'enabling_pollen_with_honey',
+                          onConfirm: executeAdd,
+                        );
+                        return;
+                      }
+
+                      // 3. Gyenge vagy beteg család védelme
                       final bool isHoneyOrPollen = (selectedType == 'honey' ||
                           selectedType == 'pollen_trap');
                       if (isHoneyOrPollen && selectedTargetHive!.isWeakOrSick) {

@@ -726,12 +726,30 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
               } else if (box.type == 'pollen_trap' ||
                   displayName == 'Pollengyűjtő') {
                 void togglePollen(bool val) {
-                  if (val && widget.hive.isWeakOrSick) {
-                    showWeakColonyWarningDialog(
-                      context: context,
-                      hive: widget.hive,
-                      actionTitle: 'Pollengyűjtő bekapcsolása',
-                      onConfirm: () {
+                  if (val) {
+                    void proceedWithEnable() {
+                      if (widget.hive.isWeakOrSick) {
+                        showWeakColonyWarningDialog(
+                          context: context,
+                          hive: widget.hive,
+                          actionTitle: 'Pollengyűjtő bekapcsolása',
+                          onConfirm: () {
+                            setState(() {
+                              repository.toggleBoxActiveState(
+                                widget.hive,
+                                box,
+                                true,
+                              );
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Virágporgyűjtés bekapcsolva!'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          },
+                        );
+                      } else {
                         setState(() {
                           repository.toggleBoxActiveState(
                             widget.hive,
@@ -745,24 +763,32 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                             backgroundColor: Colors.orange,
                           ),
                         );
-                      },
-                    );
+                      }
+                    }
+
+                    // Figyelmeztetés ha méztér van fenn
+                    if (widget.hive.hasHoneySuper) {
+                      showPollenHoneyConflictDialog(
+                        context: context,
+                        hive: widget.hive,
+                        conflictType: 'enabling_pollen_with_honey',
+                        onConfirm: proceedWithEnable,
+                      );
+                    } else {
+                      proceedWithEnable();
+                    }
                   } else {
                     setState(() {
                       repository.toggleBoxActiveState(
                         widget.hive,
                         box,
-                        val,
+                        false,
                       );
                     });
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          val
-                              ? 'Virágporgyűjtés bekapcsolva!'
-                              : 'Virágporgyűjtés kikapcsolva',
-                        ),
-                        backgroundColor: val ? Colors.orange : Colors.teal,
+                      const SnackBar(
+                        content: Text('Virágporgyűjtés kikapcsolva'),
+                        backgroundColor: Colors.teal,
                       ),
                     );
                   }
