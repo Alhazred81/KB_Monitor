@@ -54,6 +54,30 @@ class _CalendarScreenState extends State<CalendarScreen> {
           }
         }
       }
+
+      // Ha van olyan kaptár, ahol a 14 napos nyugalmi lakat ma jár le
+      if (hive.lockedUntil != null) {
+        final lockExpireDay = _stripTime(hive.lockedUntil!);
+        if (lockExpireDay == target) {
+          final bool alreadyPresent = tasks.any(
+            (t) => t.hiveId == hive.id && t.category == 'inspection',
+          );
+          if (!alreadyPresent) {
+            tasks.add(
+              ScheduledTask(
+                id: 'QUEEN_INSP_${hive.id}_${lockExpireDay.millisecondsSinceEpoch}',
+                hiveId: hive.id,
+                category: 'inspection',
+                title: 'Anyásítás vizsgálata: Petézés & Fiasítás',
+                description:
+                    'Lejárt a 14 napos nyugalmi időszak a(z) ${hive.name} kaptárban. Vizsgáld meg az új anya elfogadását, a kirágást és a fiasításképet!',
+                scheduledDate: hive.lockedUntil!,
+                isCompleted: false,
+              ),
+            );
+          }
+        }
+      }
     }
 
     return tasks;

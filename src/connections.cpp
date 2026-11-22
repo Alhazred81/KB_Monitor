@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include "web_common.h"
 #include <esp_wifi.h>
+#include "syrup_manager.h"
 
 unsigned long currentServerTimestamp = 1787680000; 
 extern uint8_t gApChannel;
@@ -121,6 +122,13 @@ void processIncomingJson(const String& payload, const String& protocol, const St
 
     String deviceMac = doc["device_mac"] | doc["m"] | fallbackMac;
 
+    if (commType == "refill_req" || commType == "szirup_req") {
+        String targetTank = doc["tank_id"] | "ABC";
+        bool ok = syrupRequestRefill(deviceMac.c_str(), targetTank.c_str());
+        addLogEntry(protocol, deviceMac, ok ? "Utántöltés elfogadva (ABC)" : "Utántöltés elutasítva / SZTOJ");
+        return;
+    }
+
     if (commType != "comm_tel" && commType != "comm_aud") {
         addLogEntry(protocol, deviceMac, "Ismeretlen comm_type: " + commType);
         return;
@@ -134,6 +142,15 @@ void processIncomingJson(const String& payload, const String& protocol, const St
         
         info = "Akku: " + String(vbat, 2) + "V, Belső Hő: " + String(temp, 1) + "°C";
         updateNodeRamCache(deviceMac, temp, hum, vbat);
+
+        // Szirup szint (ultrahang) jelentés a syrup_managernek
+        if (doc["sensors"].containsKey("feeder_distance_mm")) {
+            uint16_t distMm = doc["sensors"]["feeder_distance_mm"];
+            syrupReportFeederLevel(deviceMac.c_str(), distMm);
+        } else if (doc.containsKey("feed_mm")) {
+            uint16_t distMm = doc["feed_mm"];
+            syrupReportFeederLevel(deviceMac.c_str(), distMm);
+        }
     } else {
         float zcr = doc["audio"]["zcr_hz"] | doc["a"]["z"] | doc["z"] | 0.0;
         info = "Audio csomag érkezett (ZCR: " + String(zcr, 1) + " Hz)";
@@ -156,11 +173,24 @@ void processIncomingJson(const String& payload, const String& protocol, const St
 
 // ─── ESP-NOW LOGIKA ───
 void sendEspNowAck(const uint8_t *mac_addr, int rssi) {
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+
     JsonDocument ackDoc;
     ackDoc["comm_type"] = "comm_ack";
     ackDoc["sleep_sec"] = random(5, 21);
     ackDoc["timestamp"] = currentServerTimestamp; 
     ackDoc["server_rssi"] = rssi; 
+
+    // Ha a monitor SZTOJ üzemmódban van (ütközés miatt várakoztatva)
+    uint32_t remSec = 0;
+    if (syrupIsMonitorInSztoj(macStr, &remSec)) {
+        ackDoc["cmd"] = "sztoj";
+        ackDoc["sztoj"] = true;
+        ackDoc["sleep_sec"] = remSec > 0 ? remSec : 300;
+        Serial.printf("[ESP-NOW SZTOJ] Monitor %s várakoztatva (%ds alvás)\n", macStr, (int)ackDoc["sleep_sec"]);
+    }
 
     String ackPayload;
     serializeJson(ackDoc, ackPayload);

@@ -10,6 +10,7 @@
 #include "web_theme.h"
 #include "NtfyClient.h"
 #include "modem_mgr.h"
+#include "syrup_manager.h"
 
 extern AsyncWebServer server;
 extern NtfyClient ntfy;
@@ -280,12 +281,47 @@ void handleTestReport(AsyncWebServerRequest *request) {
     }
 }
 
+// ─── SZIRUP API VÉGPONTOK (AUTO-PÁROSÍTÁS, RETESZ, ÁLLAPOT) ───
+void handleSyrupStatus(AsyncWebServerRequest *request) {
+    String json = syrupGetStatusJson();
+    request->send(200, "application/json", json);
+}
+
+void handleSyrupRefillReq(AsyncWebServerRequest *request) {
+    if (!request->hasParam("monitor_id", true)) {
+        request->send(400, "application/json", "{\"error\":\"Hiányzó monitor_id paraméter\"}");
+        return;
+    }
+    String mId = request->getParam("monitor_id", true)->value();
+    String tId = request->hasParam("tank_id", true) ? request->getParam("tank_id", true)->value() : "ABC";
+    
+    bool ok = syrupRequestRefill(mId.c_str(), tId.c_str());
+    String resp = "{\"success\":";
+    resp += ok ? "true" : "false";
+    resp += ",\"monitor_id\":\"" + mId + "\",\"tank_id\":\"" + tId + "\"}";
+    request->send(ok ? 200 : 409, "application/json", resp);
+}
+
+void handleSyrupReset(AsyncWebServerRequest *request) {
+    String target = "ABC";
+    if (request->hasParam("target", true)) {
+        target = request->getParam("target", true)->value();
+    }
+    bool ok = syrupResetInterlock(target.c_str());
+    request->send(ok ? 200 : 404, "application/json", ok ? "{\"reset\":true}" : "{\"error\":\"Nem található reteszelt egység\"}");
+}
+
 void initIotRoutes() {
     server.on("/iot", HTTP_GET, handleIot);
     server.on("/api/save_iot", HTTP_POST, handleSaveIot);
     server.on("/ntfysend", HTTP_POST, handleNtfySend);
     server.on("/ntfypoll", HTTP_GET, handleNtfyPoll);
     server.on("/testreport", HTTP_GET, handleTestReport);
+
+    // Szirup API
+    server.on("/api/syrup/status", HTTP_GET, handleSyrupStatus);
+    server.on("/api/syrup/refill", HTTP_POST, handleSyrupRefillReq);
+    server.on("/api/syrup/reset", HTTP_POST, handleSyrupReset);
 }
 
 #endif // ROLE_SERVER

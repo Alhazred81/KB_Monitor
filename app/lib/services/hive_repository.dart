@@ -175,8 +175,209 @@ class HiveRepository extends ChangeNotifier {
     }
   }
 
-  final List<QueenData> _queens = [];
-  final List<HiveData> _hives = [];
+  static List<BoxElement> createStandardBoxes(String mac, {required bool isHoneyProducer}) {
+    final List<BoxElement> boxes = [
+      BoxElement(
+        name: 'Aljdeszka',
+        code: '${mac}_BOT',
+        type: 'bottom',
+        size: 'bottom',
+        isActive: false,
+      ),
+      BoxElement(
+        name: 'Pollengyűjtő',
+        code: '${mac}_POLLEN',
+        type: 'pollen_trap',
+        size: 'dadant',
+        isActive: false,
+      ),
+      BoxElement(
+        name: 'Fészekfiók',
+        code: '${mac}_BROOD',
+        type: 'brood_box',
+        size: 'dadant',
+        status: 'green',
+        isActive: true,
+      ),
+    ];
+
+    if (isHoneyProducer) {
+      for (int i = 1; i <= 4; i++) {
+        boxes.add(
+          BoxElement(
+            name: 'Méztér',
+            code: '${mac}_HONEY_0$i',
+            type: 'honey',
+            size: 'half_dadant',
+            status: 'green',
+            isActive: true,
+          ),
+        );
+      }
+    } else {
+      boxes.add(
+        BoxElement(
+          name: 'Tetőetető',
+          code: '${mac}_FEEDER',
+          type: 'feeder',
+          size: 'dadant',
+          status: 'green',
+          isActive: true,
+        ),
+      );
+    }
+
+    boxes.add(
+      BoxElement(
+        name: 'Tető',
+        code: '${mac}_ROOF',
+        type: 'roof',
+        size: 'dadant',
+        isActive: false,
+      ),
+    );
+
+    sortHiveBoxes(boxes);
+    return boxes;
+  }
+
+  final List<QueenData> _queens = [
+    // Kaptárhoz rendelt anyák
+    QueenData(
+      id: 'HU-2024-015',
+      origin: 'Pannon méh (Törzsállomány)',
+      vintage: '2024 (Zöld)',
+      isAlive: true,
+      needsReplacement: false,
+    ),
+    QueenData(
+      id: 'HU-2025-055',
+      origin: 'Krajnai F1 (Termékenyített)',
+      vintage: '2025 (Kék)',
+      isAlive: true,
+      needsReplacement: false,
+    ),
+    // Kaptárhoz nem rendelt, szabad tartalék anyák
+    QueenData(
+      id: 'HU-2026-042',
+      origin: 'Pannon méh (Törzsállomány)',
+      vintage: '2026 (Fehér)',
+      isAlive: true,
+      needsReplacement: false,
+    ),
+    QueenData(
+      id: 'HU-2025-118',
+      origin: 'Krajnai F1 (Pároztatóból)',
+      vintage: '2025 (Kék)',
+      isAlive: true,
+      needsReplacement: false,
+    ),
+    QueenData(
+      id: 'HU-2026-089',
+      origin: 'Buckfast F0 (Tenyésztői)',
+      vintage: '2026 (Fehér)',
+      isAlive: true,
+      needsReplacement: false,
+    ),
+  ];
+  final List<HiveData> _hives = [
+    HiveData(
+      id: 'AA:BB:CC:DD:EE:01',
+      name: '1. Család (Méztermelő)',
+      location: const LatLng(37.422500, -122.084500),
+      status: 'green',
+      familyFunction: 'méz',
+      queen: QueenData(
+        id: 'HU-2024-015',
+        origin: 'Pannon méh (Törzsállomány)',
+        vintage: '2024 (Zöld)',
+        isAlive: true,
+        needsReplacement: false,
+      ),
+      temp: 34.8,
+      humidity: 60.0,
+      extTemp: 21.5,
+      extHumidity: 54.0,
+      weight: 38.5,
+      batteryVoltage: 4.15,
+      zcr: 3800.0,
+      swarmIndex: 12.0,
+      feedingMode: 'off',
+      feederLevelPercent: 0.0,
+      boxes: createStandardBoxes('AA:BB:CC:DD:EE:01', isHoneyProducer: true),
+      serverConnection: 'Supabase OK',
+    ),
+    HiveData(
+      id: 'AA:BB:CC:DD:EE:02',
+      name: '2. Család (Bővülő)',
+      location: const LatLng(37.422650, -122.084500),
+      status: 'green',
+      familyFunction: 'tartalék',
+      queen: QueenData(
+        id: 'HU-2025-055',
+        origin: 'Krajnai F1 (Termékenyített)',
+        vintage: '2025 (Kék)',
+        isAlive: true,
+        needsReplacement: false,
+      ),
+      temp: 34.5,
+      humidity: 58.0,
+      extTemp: 21.5,
+      extHumidity: 54.0,
+      weight: 29.0,
+      batteryVoltage: 4.10,
+      zcr: 3600.0,
+      swarmIndex: 8.0,
+      feedingMode: 'auto_stim',
+      feederLevelPercent: 60.0,
+      pairedTankId: 'ABC tartály & Szivattyú',
+      isAutoPaired: true,
+      boxes: createStandardBoxes('AA:BB:CC:DD:EE:02', isHoneyProducer: false),
+      serverConnection: 'Supabase OK',
+    ),
+    HiveData(
+      id: 'AA:BB:CC:DD:EE:03',
+      name: '3. Család (Termelő)',
+      location: const LatLng(37.422800, -122.084500),
+      status: 'green',
+      familyFunction: 'propolisz',
+      temp: 34.6,
+      humidity: 59.0,
+      extTemp: 21.5,
+      extHumidity: 54.0,
+      weight: 31.0,
+      batteryVoltage: 4.08,
+      zcr: 3700.0,
+      swarmIndex: 10.0,
+      feedingMode: 'auto_stim',
+      feederLevelPercent: 60.0,
+      pairedTankId: 'ABC tartály & Szivattyú',
+      isAutoPaired: true,
+      boxes: createStandardBoxes('AA:BB:CC:DD:EE:03', isHoneyProducer: true),
+      serverConnection: 'Supabase OK',
+    ),
+    HiveData(
+      id: 'AA:BB:CC:DD:EE:04',
+      name: '4. Család (Dajka / Anyanevelő)',
+      location: const LatLng(37.422500, -122.084350),
+      status: 'green',
+      familyFunction: 'dajka',
+      temp: 34.7,
+      humidity: 61.0,
+      extTemp: 21.5,
+      extHumidity: 54.0,
+      weight: 32.5,
+      batteryVoltage: 4.12,
+      zcr: 3650.0,
+      swarmIndex: 5.0,
+      feedingMode: 'auto_stim',
+      feederLevelPercent: 60.0,
+      pairedTankId: 'ABC tartály & Szivattyú',
+      isAutoPaired: true,
+      boxes: createStandardBoxes('AA:BB:CC:DD:EE:04', isHoneyProducer: false),
+      serverConnection: 'Supabase OK',
+    ),
+  ];
   final List<FrameAnalysisRecord> _pendingFrameAnalyses = [];
   final List<VarroaAnalysisRecord> _pendingVarroaAnalyses = [];
   final List<ScheduledTask> _scheduledTasks = [];
@@ -209,15 +410,27 @@ class HiveRepository extends ChangeNotifier {
 
   final SyrupPumpData _syrupPump = SyrupPumpData(
     id: 'PUMP_01',
-    name: 'szirupszivattyú',
+    name: 'ABC tartály & Szivattyú',
     location: const LatLng(37.422200, -122.083800),
     totalPumpedLiters: 0.0,
-    lastOperationStatus: 'Készenlétben',
+    lastOperationStatus: 'Készenlétben (Zöld: OK)',
     status: 'green',
+    pairedHiveNames: ['Kaptár 01'],
   );
 
   List<HiveData> get hives => _hives;
   List<QueenData> get queens => _queens;
+
+  /// Kaptárhoz nem rendelt, szabad regisztrált anyák listája
+  List<QueenData> getUnassignedQueens() {
+    final assignedQueenIds = _hives
+        .where((h) => h.queen != null && h.queen!.id.isNotEmpty)
+        .map((h) => h.queen!.id)
+        .toSet();
+    return _queens
+        .where((q) => q.isAlive && !assignedQueenIds.contains(q.id))
+        .toList();
+  }
   List<FrameAnalysisRecord> get pendingFrameAnalyses => _pendingFrameAnalyses;
   List<VarroaAnalysisRecord> get pendingVarroaAnalyses =>
       _pendingVarroaAnalyses;
@@ -251,7 +464,12 @@ class HiveRepository extends ChangeNotifier {
   }
 
   void addQueen(QueenData queen) {
-    _queens.add(queen);
+    final idx = _queens.indexWhere((q) => q.id == queen.id);
+    if (idx >= 0) {
+      _queens[idx] = queen;
+    } else {
+      _queens.add(queen);
+    }
     _postToSupabase('queens', {
       'queen_number': queen.id,
       'origin': queen.origin,
@@ -307,17 +525,31 @@ class HiveRepository extends ChangeNotifier {
   }
 
   void addBoxToHive(HiveData hive, BoxElement box) {
-    final isRoof = box.type == 'roof' ||
-        box.name.toLowerCase().contains('tető') ||
-        box.name.toLowerCase().contains('teto');
+    final isEscapement = box.type == 'escapement' ||
+        box.name.toLowerCase().contains('szöktet') ||
+        box.name.toLowerCase().contains('szoktet');
+    final isRoof = !isEscapement &&
+        (box.type == 'roof' ||
+            ((box.name.toLowerCase().contains('tető') ||
+                    box.name.toLowerCase().contains('teto')) &&
+                !box.name.toLowerCase().contains('etet')));
     final isBottom =
         box.type == 'bottom' || box.name.toLowerCase().contains('alj');
+    final isPollen = box.type == 'pollen_trap' ||
+        box.name.toLowerCase().contains('pollen') ||
+        box.name.toLowerCase().contains('virágpor');
+    final isFeeder = box.type == 'feeder' ||
+        box.type == 'roof_feeder' ||
+        box.name.toLowerCase().contains('etet');
 
     if (isRoof &&
         hive.boxes.any((b) =>
             b.type == 'roof' ||
-            b.name.toLowerCase().contains('tető') ||
-            b.name.toLowerCase().contains('teto'))) {
+            ((b.name.toLowerCase().contains('tető') ||
+                    b.name.toLowerCase().contains('teto')) &&
+                !b.name.toLowerCase().contains('szöktet') &&
+                !b.name.toLowerCase().contains('szoktet') &&
+                !b.name.toLowerCase().contains('etet')))) {
       return; // Egynél több tető szigorúan tiltott
     }
     if (isBottom &&
@@ -325,9 +557,23 @@ class HiveRepository extends ChangeNotifier {
             b.type == 'bottom' || b.name.toLowerCase().contains('alj'))) {
       return; // Egynél több aljdeszka szigorúan tiltott
     }
+    if (isPollen &&
+        hive.boxes.any((b) =>
+            b.type == 'pollen_trap' ||
+            b.name.toLowerCase().contains('pollen') ||
+            b.name.toLowerCase().contains('virágpor'))) {
+      return; // Egynél több pollengyűjtő szigorúan tiltott
+    }
+    if (isFeeder &&
+        hive.boxes.any((b) =>
+            b.type == 'feeder' ||
+            b.type == 'roof_feeder' ||
+            b.name.toLowerCase().contains('etet'))) {
+      return; // Egynél több tetőetető szigorúan tiltott
+    }
 
     hive.boxes.add(box);
-    sortHiveBoxes(hive.boxes); // Biztosítja a helyes rétegrendet (tetőetető mindig közvetlenül a tető alatt)
+    sortHiveBoxes(hive.boxes); // Szigorú méhészeti szabályok betartása (pollengyűjtő közvetlenül az aljdeszkán, tetőetető közvetlenül a tető alatt)
     final int calculatedPos = hive.boxes.indexOf(box) + 1;
 
     _postToSupabase('bodies', {
@@ -342,6 +588,14 @@ class HiveRepository extends ChangeNotifier {
 
   void reorderBox(HiveData hive, BoxElement box, {required bool moveUp}) {
     if (box.type == 'roof' || box.type == 'bottom') return;
+    // Szigorú szabály: pollengyűjtő csak közvetlenül az aljdeszkán, tetőetető csak a dekli alatt lehet!
+    final isPollen = box.type == 'pollen_trap' ||
+        box.name.toLowerCase().contains('pollen') ||
+        box.name.toLowerCase().contains('virágpor');
+    final isFeeder = box.type == 'feeder' ||
+        box.type == 'roof_feeder' ||
+        box.name.toLowerCase().contains('etet');
+    if (isPollen || isFeeder) return;
 
     final int currentIndex = hive.boxes.indexOf(box);
     if (currentIndex == -1) return;
@@ -351,7 +605,14 @@ class HiveRepository extends ChangeNotifier {
       // Feljebb mozgatás a képernyőn (a tető felé haladva a toronyban)
       targetIndex = currentIndex + 1;
       if (targetIndex >= hive.boxes.length) return;
-      if (hive.boxes[targetIndex].type == 'roof') return;
+      final target = hive.boxes[targetIndex];
+      // Nem lehet a tető vagy a tetőetető helyére / fölé tolni
+      if (target.type == 'roof' ||
+          target.type == 'feeder' ||
+          target.type == 'roof_feeder' ||
+          target.name.toLowerCase().contains('etet')) {
+        return;
+      }
 
       final temp = hive.boxes[currentIndex];
       hive.boxes[currentIndex] = hive.boxes[targetIndex];
@@ -360,7 +621,14 @@ class HiveRepository extends ChangeNotifier {
       // Lejjebb mozgatás a képernyőn (az aljdeszka felé haladva a toronyban)
       targetIndex = currentIndex - 1;
       if (targetIndex < 0) return;
-      if (hive.boxes[targetIndex].type == 'bottom') return;
+      final target = hive.boxes[targetIndex];
+      // Nem lehet az aljdeszka vagy a pollengyűjtő helyére / alá tolni
+      if (target.type == 'bottom' ||
+          target.type == 'pollen_trap' ||
+          target.name.toLowerCase().contains('pollen') ||
+          target.name.toLowerCase().contains('virágpor')) {
+        return;
+      }
 
       final temp = hive.boxes[currentIndex];
       hive.boxes[currentIndex] = hive.boxes[targetIndex];
@@ -389,13 +657,34 @@ class HiveRepository extends ChangeNotifier {
     notifyListeners();
   }
 
-  void insertEscapeBoardUnderHoney(HiveData hive, BoxElement honeyBox) {
-    final int honeyIndex = hive.boxes.indexOf(honeyBox);
-    if (honeyIndex == -1) return;
+  void insertEscapeBoardUnderBox(HiveData hive, BoxElement targetBox) {
+    int targetIndex = hive.boxes.indexWhere(
+      (b) => identical(b, targetBox) || (targetBox.dbId != null && b.dbId == targetBox.dbId),
+    );
+    if (targetIndex == -1) {
+      targetIndex = hive.boxes.indexWhere((b) => b.code == targetBox.code);
+    }
+    if (targetIndex <= 0) return;
 
-    // Ha közvetlenül alatta már szöktető van, nem teszünk be másikat
-    if (honeyIndex > 0 && hive.boxes[honeyIndex - 1].type == 'escapement') {
-      return;
+    // Ha a toronyban máshol volt már szöktető, azt eltávolítjuk és áthelyezzük az új fiók alá
+    final existingEscapementIdx = hive.boxes.indexWhere(
+      (b) => b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
+    );
+    if (existingEscapementIdx != -1) {
+      // Ha már közvetlenül ez alatt a fiók alatt volt, nincs további teendő
+      if (existingEscapementIdx == targetIndex - 1) return;
+      final oldEscapement = hive.boxes.removeAt(existingEscapementIdx);
+      if (oldEscapement.dbId != null) {
+        _deleteFromSupabase('bodies', 'id=eq.${oldEscapement.dbId}');
+      }
+      // Index újraszámítása az eltávolítás után
+      targetIndex = hive.boxes.indexWhere(
+        (b) => identical(b, targetBox) || (targetBox.dbId != null && b.dbId == targetBox.dbId),
+      );
+      if (targetIndex == -1) {
+        targetIndex = hive.boxes.indexWhere((b) => b.code == targetBox.code);
+      }
+      if (targetIndex <= 0) return;
     }
 
     final String escapementCode =
@@ -405,15 +694,15 @@ class HiveRepository extends ChangeNotifier {
       name: 'Szöktető',
       code: escapementCode,
       type: 'escapement',
-      size: honeyBox.size.isNotEmpty ? honeyBox.size : 'fel_dadant',
+      size: targetBox.size.isNotEmpty ? targetBox.size : 'fel_dadant',
       status: 'green',
       isActive: true,
       statusUpdatedAt: DateTime.now(),
     );
 
-    // Beillesztjük közvetlenül a méztér alá (a méztér jelenlegi indexére,
-    // így a méztér és az összes felette lévő elem eggyel feljebb tolódik)
-    hive.boxes.insert(honeyIndex, escapementBox);
+    // Beillesztjük közvetlenül a kiválasztott fiók ALÁ
+    // (a targetIndex pozícióra szúrjuk be, így a célfiók és a felette lévő összes fiók feljebb tolódik)
+    hive.boxes.insert(targetIndex, escapementBox);
 
     // Pozíciók újraindexelése
     for (int i = 0; i < hive.boxes.length; i++) {
@@ -425,7 +714,7 @@ class HiveRepository extends ChangeNotifier {
       'monitor_mac': hive.id,
       'body_type': escapementBox.size,
       'body_function': 'escapement',
-      'position_index': honeyIndex + 1,
+      'position_index': targetIndex + 1,
       'is_active': true,
     });
 
@@ -439,36 +728,124 @@ class HiveRepository extends ChangeNotifier {
       }
     }
 
-    // Holnapi emlékeztető feladat automatikus létrehozása (24 óra)
-    final tomorrow = DateTime.now().add(const Duration(hours: 24));
-    addScheduledTask(ScheduledTask(
-      id: 'TASK_${hive.id}_ESCAPEMENT_${DateTime.now().millisecondsSinceEpoch}',
-      hiveId: hive.id,
-      category: 'harvest',
-      title: 'Méhszöktetés: Fiókok elvétele',
-      description:
-          'A méztér alá helyezett méhszöktető leürítette a méheket. A méztereket most azonnal el kell takarítani pergetéshez!',
-      scheduledDate: tomorrow,
-    ));
+    // Tisztítjuk az esetleges feladatokat, a méhszöktetés a toronyban lévő Szöktető kereten él visszaszámlálóval
+    scheduledTasks.removeWhere((t) =>
+        t.hiveId == hive.id &&
+        (t.id.contains('ESCAPEMENT') || t.title.contains('Méhszöktetés')));
 
     notifyListeners();
+  }
+
+  void insertEscapeBoardUnderHoney(HiveData hive, BoxElement honeyBox) {
+    insertEscapeBoardUnderBox(hive, honeyBox);
   }
 
   void removeBoxFromHive(HiveData hive, BoxElement box) {
     if (box.type == 'bottom') return; // Az aljdeszka a kaptár fix alapeleme, nem törölhető
     hive.boxes.removeWhere((b) =>
         identical(b, box) ||
-        (box.dbId != null && b.dbId == box.dbId) ||
-        (box.code.isNotEmpty && b.code == box.code && b.type == box.type));
+        (box.dbId != null && b.dbId == box.dbId));
+
+    // Ha szöktetőt veszünk ki, töröljük a kapcsolódó 24 órás feladatot is
+    if (box.type == 'escapement' || box.name.toLowerCase().contains('szöktet')) {
+      scheduledTasks.removeWhere((t) =>
+          t.hiveId == hive.id &&
+          (t.id.contains('ESCAPEMENT') || t.title.contains('Méhszöktetés')));
+    }
+
     if (box.dbId != null) {
       _deleteFromSupabase('bodies', 'id=eq.${box.dbId}');
-    } else {
-      _deleteFromSupabase(
-        'bodies',
-        'monitor_mac=eq.${hive.id}&body_function=eq.${box.type}',
-      );
     }
     notifyListeners();
+  }
+
+  /// Szöktetés kész: eltávolítja a méhszöktetőt és az összes felette lévő fiókot (tető kivételével).
+  /// A szöktető ALATT lévő fiókok (fészek, alsóbb mézterek, aljdeszka) garantáltan érintetlenül a kaptáron maradnak!
+  int finishEscapementAndHarvest(HiveData hive) {
+    final int escapementIndex = hive.boxes.indexWhere(
+      (b) => b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
+    );
+    if (escapementIndex == -1) return 0;
+
+    final escapementBox = hive.boxes[escapementIndex];
+
+    // 1. Különválogatjuk a megmaradó és az elveendő fiókokat:
+    // - Ami a szöktető ALATT van (i < escapementIndex): BIZTOSAN MEGMARAD (aljdeszka, fészek, alsóbb mézterek)
+    // - Maga a szöktető (i == escapementIndex): ELVÉTELRE KERÜL
+    // - Ami a szöktető FELETT van (i > escapementIndex):
+    //     - Ha tető (dekli): MEGMARAD A KAPTÁRON!
+    //     - Ha fiók (méztér, kiegészítő): ELVÉTELRE KERÜL
+    final List<BoxElement> remainingBoxes = [];
+    final List<BoxElement> removedBoxes = [];
+
+    // Alatta lévő elemek: mind érintetlenül megmarad a kaptáron
+    for (int i = 0; i < escapementIndex; i++) {
+      remainingBoxes.add(hive.boxes[i]);
+    }
+
+    // Maga a szöktető elvételre kerül
+    removedBoxes.add(escapementBox);
+
+    // Felette lévő elemek: a tető megmarad, a mézterek elvételre kerülnek
+    for (int i = escapementIndex + 1; i < hive.boxes.length; i++) {
+      final b = hive.boxes[i];
+      if (isRoofBox(b)) {
+        remainingBoxes.add(b);
+      } else {
+        removedBoxes.add(b);
+      }
+    }
+
+    // Biztosítjuk, hogy a tető mindig a torony tetején legyen
+    if (!remainingBoxes.any((b) => isRoofBox(b))) {
+      remainingBoxes.add(
+        BoxElement(
+          name: 'Tető',
+          code: '${hive.id}_ROOF',
+          type: 'roof',
+          size: 'dadant',
+          isActive: false,
+        ),
+      );
+    }
+
+    // 2. Csere a megmaradó fiókokra (garantáltan érintetlen marad minden alsó fiók)
+    hive.boxes.clear();
+    hive.boxes.addAll(remainingBoxes);
+
+    // 3. Supabase-ből CSAK a konkrétan elvett fiókok törlése egyedi ID alapján
+    for (var b in removedBoxes) {
+      if (b.dbId != null) {
+        _deleteFromSupabase('bodies', 'id=eq.${b.dbId}');
+      }
+    }
+
+    // 4. Kapcsolódó méhszöktetési feladatok törlése
+    scheduledTasks.removeWhere((t) =>
+        t.hiveId == hive.id &&
+        (t.id.contains('ESCAPEMENT') || t.title.contains('Méhszöktetés')));
+
+    // 5. Pozíciók újrarendezése és mentése
+    for (int i = 0; i < hive.boxes.length; i++) {
+      hive.boxes[i].positionIndex = i;
+      if (hive.boxes[i].dbId != null) {
+        _patchToSupabase('bodies', 'id=eq.${hive.boxes[i].dbId}', {
+          'position_index': i + 1,
+        });
+      }
+    }
+
+    final int removedSuperCount = removedBoxes.length - 1; // Szöktető nélkül az elvett mézterek száma
+
+    _postToSupabase('history_logs', {
+      'monitor_mac': hive.id,
+      'event_type': 'pergetes',
+      'description':
+          'Szöktetés kész: $removedSuperCount db méztéri fiók és a méhszöktető elvéve a toronyból. Megmaradt fiókok száma: ${hive.boxes.length}.',
+    });
+
+    notifyListeners();
+    return removedSuperCount;
   }
 
   void toggleBoxActiveState(HiveData hive, BoxElement box, bool newValue) {
@@ -481,11 +858,18 @@ class HiveRepository extends ChangeNotifier {
               : 'Aljdeszka kihúzva')
         : (newValue ? 'Pollengyűjtő bekapcsolva' : 'Pollengyűjtő kikapcsolva');
 
-    _patchToSupabase(
-      'bodies',
-      'monitor_mac=eq.${hive.id}&body_function=eq.${box.type}',
-      {'is_active': newValue},
-    );
+    if (box.dbId != null) {
+      _patchToSupabase('bodies', 'id=eq.${box.dbId}', {'is_active': newValue});
+    } else {
+      final String funcFilter = box.type == 'bottom'
+          ? 'bottom'
+          : 'in.(${box.type},pollen_trap,pollen,viragpor,11)';
+      _patchToSupabase(
+        'bodies',
+        'monitor_mac=eq.${hive.id}&body_function=$funcFilter',
+        {'is_active': newValue},
+      );
+    }
 
     _postToSupabase('history_logs', {
       'monitor_mac': hive.id,
@@ -526,39 +910,290 @@ class HiveRepository extends ChangeNotifier {
     notifyListeners();
   }
 
-  void pumpSyrup(SyrupPumpData pump, double liters, String targetHiveName) {
-    pump.totalPumpedLiters += liters;
-    pump.lastOperationStatus =
-        'Cél: $targetHiveName\n${liters.toStringAsFixed(1)}L (OK)';
-
-    for (var hive in _hives) {
-      if (hive.name == targetHiveName) {
-        hive.syrupLiters += liters;
-        _postToSupabase('treatments', {
-          'monitor_mac': hive.id,
-          'treatment_type': 'Szirup etetés',
-          'scheduled_date': DateTime.now().toIso8601String().split('T').first,
-          'is_completed': true,
-          'dosage': '${liters.toStringAsFixed(1)} liter',
-          'notes':
-              'Összesen kapott szirup: ${hive.syrupLiters.toStringAsFixed(1)} L',
-        });
-        _postToSupabase('history_logs', {
-          'monitor_mac': hive.id,
-          'event_type': 'etetés',
-          'description':
-              'Adagolva: ${liters.toStringAsFixed(1)} L szirup (Összesen: ${hive.syrupLiters.toStringAsFixed(1)} L)',
-        });
-        break;
+  // ==========================================================================
+  // NTFY ÉRTESÍTÉSEK KÜLDÉSE (ntfy.sh / kb_sim7000g_balazs)
+  // ==========================================================================
+  Future<void> sendNtfyNotification(
+    String message, {
+    String title = 'Szirup Rendszer',
+    int priority = 3,
+    dynamic tags,
+  }) async {
+    try {
+      final url = Uri.parse('https://ntfy.sh/kb_sim7000g_balazs');
+      final headers = <String, String>{
+        'Title': title,
+        'Priority': priority.toString(),
+      };
+      if (tags != null) {
+        if (tags is List) {
+          headers['Tags'] = tags.join(',');
+        } else {
+          headers['Tags'] = tags.toString();
+        }
       }
+      await http.post(
+        url,
+        headers: headers,
+        body: message,
+      );
+    } catch (e) {
+      debugPrint('Ntfy küldési hiba: $e');
+    }
+  }
+
+  // ==========================================================================
+  // SZIRUP UTÁNTÖLTÉS, AUTO-PÁROSÍTÁS, ÜTKÖZÉSVÉDELEM (SZTOJ) ÉS RETESZELÉS
+  // ==========================================================================
+
+  /// Monitor utántöltés kérése auto-párosítással és ütközéskezeléssel
+  Future<void> requestSyrupRefillForHive(
+    HiveData hive,
+    double liters, {
+    bool simulateTimeout = false,
+  }) async {
+    // 1. RETESZ ELLENŐRZÉS: Ha a szivattyú villogó piros retesz alatt van, NEM indulhat el!
+    if (_syrupPump.isPumpInterlocked || _syrupPump.status == 'blinking_red') {
+      hive.feederStatus = 'blinking_red';
+      hive.feederStatusMessage = 'Szivattyú LETILTVA (Villogó Piros): Vészleállítás aktív!';
+      notifyListeners();
+      return;
+    }
+
+    // 2. ÜTKÖZÉSVIZSGÁLAT (COLLISION DETECTION):
+    // Ha egy másik kaptár éppen töltés alatt áll, a szerver küld egy "SZTOJ" jelet (5 perc várakozás)
+    final busyHive = _hives.firstWhere(
+      (h) => h.id != hive.id && h.isQueuedForRefill,
+      orElse: () => HiveData(
+        id: '',
+        name: '',
+        location: const LatLng(0, 0),
+        status: 'green',
+        temp: 0,
+        humidity: 0,
+        extTemp: 0,
+        extHumidity: 0,
+        weight: 0,
+        batteryVoltage: 0,
+        zcr: 0,
+        boxes: [],
+        serverConnection: '',
+      ),
+    );
+
+    if (busyHive.id.isNotEmpty) {
+      // ÜTKÖZÉS VAN! -> SZTOJ jelzés küldése ennek a monitornak (5 perc / 300 mp)
+      hive.feederStatus = 'orange'; // Narancs: várakozóban
+      hive.isQueuedForRefill = false;
+      hive.sztojRemainingSeconds = 300;
+      hive.feederStatusMessage = 'SZTOJ: Várakozás másik adagoló (${busyHive.name}) feltöltésére (5 perc)';
+      notifyListeners();
+
+      await sendNtfyNotification(
+        'SZTOJ JELZÉS: ${hive.name} kaptár utántöltése 5 percre várakoztatva, mert ${busyHive.name} töltése éppen folyamatban van.',
+        title: 'Szirup Ütközésvédelem (SZTOJ)',
+        priority: 2,
+        tags: 'hourglass,warning',
+      );
+      return;
+    }
+
+    // 3. HA TISZTA A PÁLYA: Kijelöljük a szivattyút és elindítjuk a folyamatot
+    hive.isQueuedForRefill = true;
+    hive.feederStatus = 'orange'; // Narancs: adagolás folyamatban
+    hive.feederStatusMessage = 'Utántöltés folyamatban: ${liters.toStringAsFixed(1)}L -> ${_syrupPump.name}';
+    _syrupPump.status = 'orange';
+    _syrupPump.lastOperationStatus = 'Adagolás: ${hive.name} (${liters.toStringAsFixed(1)}L)';
+    notifyListeners();
+
+    // 4. SZINTEMELKEDÉS WATCHDOG TIMEOUT VIZSGÁLAT
+    if (simulateTimeout) {
+      // Szimulált vagy valós hiba: a szivattyú jár, de NEM emelkedik a szirup szintje!
+      await Future.delayed(const Duration(seconds: 2));
+      triggerSyrupEmergencyTimeout(
+        hive,
+        _syrupPump,
+        'Szintemelkedési timeout: nem emelkedik a szirup (csőtörés / dugulás / üres tartály)',
+      );
+      return;
+    }
+
+    // 5. NORMÁLIS MENET: Sikeres szintemelkedés és AUTO-PÁROSÍTÁS megerősítése
+    await Future.delayed(const Duration(milliseconds: 1500));
+    hive.isQueuedForRefill = false;
+    hive.pairedTankId = _syrupPump.name;
+    hive.isAutoPaired = true;
+    if (!_syrupPump.pairedHiveNames.contains(hive.name)) {
+      _syrupPump.pairedHiveNames.add(hive.name);
+    }
+
+    // Szint növelése
+    hive.feederLevelPercent = (hive.feederLevelPercent + (liters * 18.0)).clamp(0.0, 100.0);
+    hive.syrupLiters += liters;
+    _syrupPump.totalPumpedLiters += liters;
+
+    // Állapot beállítása a szint alapján
+    if (hive.feederLevelPercent >= 50.0) {
+      hive.feederStatus = 'green';
+    } else if (hive.feederLevelPercent >= 20.0) {
+      hive.feederStatus = 'yellow';
+    } else {
+      hive.feederStatus = 'orange';
+    }
+    hive.feederStatusMessage = 'Auto-párosítva: ${_syrupPump.name} | Utántöltve: +${liters.toStringAsFixed(1)}L';
+
+    _syrupPump.status = 'green';
+    _syrupPump.lastOperationStatus = 'Cél: ${hive.name} | ${liters.toStringAsFixed(1)}L (OK)';
+
+    notifyListeners();
+
+    await sendNtfyNotification(
+      'Sikeres auto-párosítás és adagolás: ${hive.name} <-> ${_syrupPump.name} összerendelve! (+${liters.toStringAsFixed(1)}L beadagolva)',
+      title: 'Szirup Párosítás & Adagolás OK',
+      priority: 3,
+      tags: 'white_check_mark,droplet',
+    );
+  }
+
+  /// VÉSZLEÁLLÍTÁS: Szintemelkedési timeout -> Villogó Piros és Szivattyú Reteszelése
+  void triggerSyrupEmergencyTimeout(
+    HiveData hive,
+    SyrupPumpData pump,
+    String reason,
+  ) {
+    hive.isQueuedForRefill = false;
+    hive.feederStatus = 'blinking_red';
+    hive.feederStatusMessage = 'VÉSZLEÁLLÍTÁS: $reason';
+
+    pump.status = 'blinking_red';
+    pump.isPumpInterlocked = true; // SZIVATTYÚ TELJESEN LETILTVA!
+    pump.emergencyStopReason = reason;
+    pump.lastOperationStatus = 'VÉSZLEÁLLÍTÁS: Szivattyú letiltva (Villogó Piros)!';
+
+    notifyListeners();
+
+    // Sürgős NTFY riasztás
+    sendNtfyNotification(
+      'VÉSZLEÁLLÍTÁS! ${hive.name} kaptárnál a szivattyú (${pump.name}) bekapcsolt, de a szirup szintje hosszabb ideig NEM emelkedett (Timeout)! A szivattyú azonnal leállítva és VILLOGÓ PIROS retesszel letiltva.',
+      title: '🚨 SZIRUP VÉSZLEÁLLÍTÁS: ${hive.name}',
+      priority: 5,
+      tags: 'rotating_light,skull,warning',
+    );
+  }
+
+  /// Vészleállítás / Villogó piros retesz feloldása a gazda által
+  void resetPumpEmergencyInterlock(SyrupPumpData pump) {
+    pump.isPumpInterlocked = false;
+    pump.status = 'green';
+    pump.emergencyStopReason = null;
+    pump.lastOperationStatus = 'Készenlétben (Retesz feloldva)';
+
+    for (var h in _hives) {
+      if (h.feederStatus == 'blinking_red') {
+        h.feederStatus = h.feederLevelPercent >= 50.0 ? 'green' : 'yellow';
+        h.feederStatusMessage = 'Retesz feloldva, normál üzem visszaállítva.';
+      }
+    }
+
+    notifyListeners();
+
+    sendNtfyNotification(
+      'A szirup szivattyú (${pump.name}) vészretesze feloldva a gazda által. A rendszer újra üzemkész.',
+      title: 'Szirup Retesz Törölve',
+      priority: 3,
+      tags: 'wrench,green_circle',
+    );
+  }
+
+  void pumpSyrup(SyrupPumpData pump, double liters, String targetHiveName) {
+    // 1. RETESZ ELLENŐRZÉS: Villogó piros esetén azonnali tiltás
+    if (pump.isPumpInterlocked || pump.status == 'blinking_red') {
+      pump.lastOperationStatus = 'SZIVATTYÚ TILTVA (VILLOGÓ PIROS)!';
+      notifyListeners();
+      return;
+    }
+
+    final targetHive = _hives.firstWhere(
+      (h) => h.name == targetHiveName,
+      orElse: () => _hives.first,
+    );
+
+    requestSyrupRefillForHive(targetHive, liters);
+  }
+
+  /// Sziruptartály valós idejű szenzoros szintjének frissítése
+  void updateSyrupTankLevel(double levelPercent) {
+    _syrupPump.tankLevelPercent = levelPercent.clamp(0.0, 100.0);
+    notifyListeners();
+  }
+
+  void setSyrupPumpEmergency(bool isEmergency, {String? reason}) {
+    _syrupPump.isPumpInterlocked = isEmergency;
+    if (isEmergency) {
+      _syrupPump.emergencyStopReason =
+          reason ?? 'Vészleállítás: szivattyú reteszelve és tiltva!';
+    } else {
+      _syrupPump.emergencyStopReason = null;
     }
     notifyListeners();
   }
 
-  void refillSyrupTank(SyrupPumpData pump, double liters) {
-    pump.totalPumpedLiters = 0.0;
-    pump.lastOperationStatus =
-        'Tartály újratöltve (${liters.toStringAsFixed(0)} L)';
+  /// Vízadagoló valós idejű vízszintjének frissítése
+  void updateWatererLevel(double levelPercent) {
+    _waterer.waterLevel = levelPercent.clamp(0.0, 100.0);
+    if (_waterer.waterLevel <= 5.0) {
+      sendNtfyNotification(
+        'Az itató (${_waterer.name}) vízszintje 5% alá esett! Utántöltés szükséges!',
+        title: '⚠️ Kiszáradt vízadagoló!',
+        priority: 4,
+        tags: 'warning,droplet',
+      );
+    }
+    notifyListeners();
+  }
+
+  /// Vízadagoló hőmérsékletének frissítése (fagyvédelem)
+  void updateWatererTemp(double temp) {
+    _waterer.waterTemp = temp;
+    if (_waterer.waterTemp <= 1.0) {
+      _waterer.emergencyStopReason =
+          'FAGYVESZÉLY: A vízhőmérséklet ${_waterer.waterTemp.toStringAsFixed(1)}°C-ra süllyedt!';
+      sendNtfyNotification(
+        'Az itató vízhőmérséklete ${_waterer.waterTemp.toStringAsFixed(1)}°C! Fagyás és jégképződés veszély!',
+        title: '❄️ Vízadagoló fagyveszély!',
+        priority: 5,
+        tags: 'snowflake,rotating_light',
+      );
+    }
+    notifyListeners();
+  }
+
+  /// Vízadagoló vészleállítása / kézi reteszelése
+  void setWatererEmergency(bool isEmergency, {String? reason}) {
+    _waterer.isInterlocked = isEmergency;
+    if (isEmergency) {
+      _waterer.emergencyStopReason =
+          reason ?? 'Vészleállítás / szivárgás védelem aktív!';
+      sendNtfyNotification(
+        'Az itató (${_waterer.name}) leállítva: ${_waterer.emergencyStopReason}',
+        title: '🚨 Vízadagoló vészleállítás!',
+        priority: 5,
+        tags: 'rotating_light,alert',
+      );
+    } else {
+      _waterer.emergencyStopReason = null;
+    }
+    notifyListeners();
+  }
+
+  /// Vízadagoló vészhelyzeti reteszének feloldása
+  void resetWatererEmergency() {
+    _waterer.isInterlocked = false;
+    _waterer.emergencyStopReason = null;
+    _waterer.status = 'green';
+    if (_waterer.waterTemp <= 1.0) {
+      _waterer.waterTemp = 18.5; // Normál hőmérséklet visszaállítása feloldáskor
+    }
     notifyListeners();
   }
 
@@ -626,6 +1261,25 @@ class HiveRepository extends ChangeNotifier {
       'notes': task.description,
     });
     notifyListeners();
+  }
+
+  void scheduleQueenAcceptanceInspection(HiveData hive, DateTime scheduledDate) {
+    // Eltávolítjuk az esetleges korábbi függő vizsgálatot ennél a kaptárnál a duplikáció elkerülésére
+    _scheduledTasks.removeWhere(
+      (t) => t.hiveId == hive.id && t.category == 'inspection' && !t.isCompleted,
+    );
+
+    final inspectionTask = ScheduledTask(
+      id: 'TASK_${hive.id}_QUEEN_INSP_${DateTime.now().millisecondsSinceEpoch}',
+      hiveId: hive.id,
+      category: 'inspection',
+      title: 'Anyásítás vizsgálata: Petézés & Fiasítás',
+      description:
+          'Lejárt a 14 napos nyugalmi időszak ("ne nyúlj hozzá") a(z) ${hive.name} kaptárban. Vizsgáld meg az új anya elfogadását, a kirágást, az új petéket és a fiasításképet!',
+      scheduledDate: scheduledDate,
+      isCompleted: false,
+    );
+    addScheduledTask(inspectionTask);
   }
 
   void addLocalFrameAnalysis(FrameAnalysisRecord record) {
@@ -961,7 +1615,7 @@ class HiveRepository extends ChangeNotifier {
           final bodiesRes = await http
               .get(
                 Uri.parse(
-                  '$_supabaseUrl/rest/v1/bodies?monitor_mac=eq.$mac&select=*',
+                  '$_supabaseUrl/rest/v1/bodies?monitor_mac=eq.$mac&select=*&order=position_index.asc',
                 ),
                 headers: _headers,
               )
@@ -1069,6 +1723,7 @@ class HiveRepository extends ChangeNotifier {
                 final int? bodyDbId = (bRow['id'] as num?)?.toInt();
                 final String bType = bRow['body_type'] ?? 'hunor';
                 final bool isActive = bRow['is_active'] ?? false;
+                final int? posIndex = (bRow['position_index'] as num?)?.toInt();
                 loadedBoxes.add(
                   BoxElement(
                     dbId: bodyDbId,
@@ -1078,26 +1733,92 @@ class HiveRepository extends ChangeNotifier {
                     size: bType,
                     isActive: isActive,
                     status: 'green',
+                    positionIndex: posIndex,
                   ),
                 );
               }
             }
           }
 
-          // A kaptár pontosan azokat a fiókokat tartalmazza, amelyek a valóságban / adatbázisban léteznek
+          final String familyFunction = row['family_function'] ??
+              row['familyFunction'] ??
+              row['function'] ??
+              (name.toLowerCase().contains('méz') || mac.endsWith('01')
+                  ? 'méz'
+                  : 'gyujto_mez');
+          final bool isHoneyColony = familyFunction == 'méz' ||
+              familyFunction == 'gyujto_mez' ||
+              familyFunction == 'méztermelő' ||
+              name.toLowerCase().contains('méz') ||
+              mac.endsWith('01');
+
+          // Felhasználói előírás: Torony rétegrend ellenőrzése és szükség esetén szabványosítása
+          final bool hasBottom = loadedBoxes.any((b) => b.type == 'bottom');
+          final bool hasPollen = loadedBoxes.any((b) => b.type == 'pollen_trap');
+          final bool hasBrood = loadedBoxes.any((b) => b.type == 'brood_box' || b.type == 'nest');
+          final bool hasRoof = loadedBoxes.any((b) => b.type == 'roof');
+          final int honeyCount = loadedBoxes.where((b) => b.type == 'honey').length;
+          final bool hasFeeder = loadedBoxes.any((b) => b.type == 'feeder' || b.type == 'roof_feeder');
+
+          final bool isStandard = hasBottom &&
+              hasPollen &&
+              hasBrood &&
+              hasRoof &&
+              (isHoneyColony ? (honeyCount >= 4) : hasFeeder);
+
+          if (!isStandard) {
+            // Nem felel meg az előírásnak: azonnal szabványosítjuk és elmentjük Supabase-be is!
+            loadedBoxes = createStandardBoxes(mac, isHoneyProducer: isHoneyColony);
+            _deleteFromSupabase('bodies', 'monitor_mac=eq.$mac');
+            for (int bi = 0; bi < loadedBoxes.length; bi++) {
+              final box = loadedBoxes[bi];
+              _postToSupabase('bodies', {
+                'monitor_mac': mac,
+                'body_type': box.size,
+                'body_function': box.type,
+                'position_index': bi + 1,
+                'is_active': box.isActive,
+              });
+            }
+          }
+
           final bool originallyMissingBrood =
               !loadedBoxes.any((b) => b.type == 'brood_box' || b.type == 'nest');
 
           sortHiveBoxes(loadedBoxes);
 
+          // Konzekvens üzem: Ha a sziruptartály (ABC tartály) nem üres és nem hibás,
+          // akkor a kaptár automatikusan össze van vele lőve, és az etető üzemképes (nincs üres tartály miatti letiltás)!
+          final bool hasFeederOnHive = loadedBoxes.any((b) =>
+              b.type == 'feeder' ||
+              b.type == 'roof_feeder' ||
+              b.name.toLowerCase().contains('etet'));
+          final bool isTankHealthy = !_syrupPump.isPumpInterlocked &&
+              _syrupPump.status != 'blinking_red' &&
+              _syrupPump.tankLevelPercent > 10.0;
+
+          double effectiveFeederLevel = feederLevelPercent;
+          String effectiveFeedingMode = feedingMode;
+          String? pairedTank = hasFeederOnHive ? _syrupPump.name : null;
+          bool isAutoPaired = hasFeederOnHive && isTankHealthy;
+
+          if (hasFeederOnHive && isTankHealthy) {
+            // Ha van szirup a tartályban, az etető szintje legalább üzemszerű vagy automatán töltődik
+            if (effectiveFeederLevel <= 5.0) {
+              effectiveFeederLevel = 60.0;
+            }
+            if (effectiveFeedingMode == 'off' || effectiveFeedingMode.isEmpty) {
+              effectiveFeedingMode = 'auto_stim';
+            }
+            if (!_syrupPump.pairedHiveNames.contains(name)) {
+              _syrupPump.pairedHiveNames.add(name);
+            }
+          }
+
           final String rawStatus = row['status'] ??
               (swarmIdx >= 70.0
                   ? 'purple'
                   : (originallyMissingBrood ? 'yellow' : 'green'));
-          final String familyFunction = row['family_function'] ??
-              row['familyFunction'] ??
-              row['function'] ??
-              (originallyMissingBrood ? 'gyenge' : 'gyujto_mez');
           final String? protocol = row['protocol'];
           final double dailyVarroa =
               (row['daily_varroa_drop'] as num?)?.toDouble() ?? 0.0;
@@ -1127,16 +1848,18 @@ class HiveRepository extends ChangeNotifier {
               batteryVoltage: 4.1,
               zcr: 3800.0,
               swarmIndex: swarmIdx,
-              feedingMode: feedingMode,
+              feedingMode: effectiveFeedingMode,
               feedingMaxLiters: feedingMaxLiters,
               feedingIntervalHours: feedingIntervalHours,
               feedingIntervalDays: feedingIntervalDays,
               feedingStopBeforeSunsetMinutes: feedingStopSunsetMin,
               feedingPortionLiters: feedingPortionLiters,
-              feederLevelPercent: feederLevelPercent,
+              feederLevelPercent: effectiveFeederLevel,
               feederCalibEmptyMm: feederCalibEmptyMm,
               feederCalibFullMm: feederCalibFullMm,
               feederRawDistanceMm: feederRawDistanceMm,
+              pairedTankId: pairedTank,
+              isAutoPaired: isAutoPaired,
               boxes: loadedBoxes,
               serverConnection: 'Supabase OK',
               evaluation: EvaluationData(notes: notes),
@@ -1161,6 +1884,37 @@ class HiveRepository extends ChangeNotifier {
       _isSyncing = false;
       notifyListeners();
     }
+  }
+
+  /// Kaptártornyok szabványosítása az adatbázisban és a helyi memóriában a felhasználói előírás alapján:
+  /// - Mindegyik alul: Aljdeszka + Pollengyűjtő (dadant) + Fészekfiók (dadant)
+  /// - Mézgyűjtő család: 4 db 1/2 dadant méztér + Tető
+  /// - A többi család: Tetőetető (dadant) + Tető
+  Future<void> standardizeAllTowersInDatabase({bool forceDbSync = true}) async {
+    for (var hive in _hives) {
+      final bool isHoneyColony = hive.familyFunction == 'méz' ||
+          hive.familyFunction == 'gyujto_mez' ||
+          hive.familyFunction == 'méztermelő' ||
+          hive.name.toLowerCase().contains('méz') ||
+          hive.id.endsWith('01');
+
+      hive.boxes = createStandardBoxes(hive.id, isHoneyProducer: isHoneyColony);
+
+      if (forceDbSync && _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+        _deleteFromSupabase('bodies', 'monitor_mac=eq.${hive.id}');
+        for (int bi = 0; bi < hive.boxes.length; bi++) {
+          final box = hive.boxes[bi];
+          _postToSupabase('bodies', {
+            'monitor_mac': hive.id,
+            'body_type': box.size,
+            'body_function': box.type,
+            'position_index': bi + 1,
+            'is_active': box.isActive,
+          });
+        }
+      }
+    }
+    notifyListeners();
   }
 
   @override

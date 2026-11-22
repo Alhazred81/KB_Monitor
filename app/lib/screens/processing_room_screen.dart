@@ -843,10 +843,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                               ),
                               IconButton(
                                 icon: const Icon(Icons.close, color: Colors.white70),
-                                onPressed: () {
-                                  dialogScannerCtrl.dispose();
-                                  Navigator.pop(ctx);
-                                },
+                                onPressed: () => Navigator.pop(ctx),
                               ),
                             ],
                           ),
@@ -881,7 +878,6 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                                     if (barcodes.isNotEmpty &&
                                         barcodes.first.rawValue != null) {
                                       final scanned = barcodes.first.rawValue!;
-                                      dialogScannerCtrl.dispose();
                                       Navigator.pop(ctx);
                                       _searchBoxByCode(scanned);
                                     }
@@ -909,7 +905,9 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                             ),
                           ),
                         ),
-                      );
+                      ).then((_) {
+                        dialogScannerCtrl.dispose();
+                      });
                     },
                   ),
                 ],

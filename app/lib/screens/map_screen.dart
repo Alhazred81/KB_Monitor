@@ -16,6 +16,10 @@ import '../widgets/weak_colony_warning_dialog.dart';
 import '../widgets/scanner_controls.dart';
 import '../widgets/scanner_overlay.dart';
 import '../widgets/top_gps_bar.dart';
+import '../widgets/candy_icon.dart';
+import '../widgets/waterer_icon.dart';
+import '../widgets/queen_replacement_dialog.dart';
+import '../widgets/help_bubble.dart';
 import 'new_hive_wizard_screen.dart';
 import 'office_dashboard_screen.dart';
 import 'processing_room_screen.dart';
@@ -124,11 +128,9 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
     _locationService.initCompass((heading, accuracy) {
       if (mounted) {
-        setState(() {
-          if (_isMapFreeRotate && !_isEditMode && heading != null) {
-            _mapController.rotate(-heading);
-          }
-        });
+        if (_isMapFreeRotate && !_isEditMode && heading != null) {
+          _mapController.rotate(-heading);
+        }
       }
     });
   }
@@ -942,120 +944,60 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1E1E1E),
-          title: Row(
-            children: [
-              const Icon(Icons.water, color: Colors.lightBlueAccent),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  waterer.name,
-                  style: const TextStyle(
-                    color: Colors.amberAccent,
-                    fontSize: 18,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Azonosító: ${waterer.id}',
-                style: const TextStyle(
-                  color: Colors.white54,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              const Divider(color: Colors.white24, height: 20),
-              _buildStationRow(
-                'Folyadékszint (Vízszint)',
-                '${waterer.waterLevel}%',
-                Icons.waves,
-                Colors.lightBlueAccent,
-              ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: LinearProgressIndicator(
-                  value: (waterer.waterLevel / 100.0).clamp(0.0, 1.0),
-                  minHeight: 10,
-                  backgroundColor: Colors.white12,
-                  color: Colors.lightBlueAccent,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildStationRow(
-                'Vízhőmérséklet',
-                '${waterer.waterTemp} °C',
-                Icons.thermostat,
-                Colors.amber,
-              ),
-              const SizedBox(height: 8),
-              _buildStationRow(
-                'Akkumulátor',
-                '${waterer.batteryVoltage} V',
-                Icons.battery_full,
-                Colors.greenAccent,
-              ),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber,
-                foregroundColor: Colors.black,
-              ),
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Bezárás'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showSyrupPumpDetails(SyrupPumpData pump) {
-    const double maxTankCapacity = 100.0;
-    final double remainingLiters = (maxTankCapacity - pump.totalPumpedLiters)
-        .clamp(0.0, maxTankCapacity);
-    final double levelPct = (remainingLiters / maxTankCapacity) * 100.0;
-
-    final hivesWithFeeder = _repository.hives
-        .where((h) => h.hasFeeder)
-        .toList();
-
-    showDialog(
-      context: context,
-      builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final double levelPct = waterer.waterLevel.clamp(0.0, 100.0);
+            final Color waterColor = getWatererStatusColor(waterer.status);
+            final String statusLabel = getWatererStatusLabel(waterer.status);
+            final bool isFreeze = waterer.waterTemp <= 1.0;
+            final bool isBlinking = (waterer.status == 'blinking_red');
+
             return AlertDialog(
               backgroundColor: const Color(0xFF1E1E1E),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: waterColor.withAlpha(140), width: 1.5),
               ),
               title: Row(
                 children: [
-                  const Icon(
-                    Icons.settings_input_component,
-                    color: Colors.orangeAccent,
-                    size: 26,
+                  WatererIcon(
+                    size: 32,
+                    status: waterer.status,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      pump.name,
-                      style: const TextStyle(
-                        color: Colors.amberAccent,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          waterer.name,
+                          style: const TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          statusLabel,
+                          style: TextStyle(
+                            color: waterColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                  HelpBubbleButton(
+                    title: 'Vízadagoló Állapot Súgó',
+                    message: 'Itató 5-fokozatú állapotai:\n\n'
+                        '• Zöld: Optimális vízszint (> 50%)\n'
+                        '• Sárga: Közepes vízszint (25-50%)\n'
+                        '• Narancs: Alacsony szint (< 25%, utántöltés szükséges)\n'
+                        '• Piros: Kiszáradt / Üres itató (<= 5%)\n'
+                        '• Villogó Piros: Fagyveszély (vízhő <= 1.0°C) vagy vészleállítás.',
+                    iconColor: waterColor,
+                    size: 20,
                   ),
                 ],
               ),
@@ -1064,11 +1006,88 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      'Azonosító: ${waterer.id}',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // VILLOGÓ PIROS VÉSZLEÁLLÍTÁS / FAGYVESZÉLY BANNER
+                    if (waterer.isInterlocked || isBlinking) ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withAlpha(45),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.redAccent, width: 2),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  isFreeze ? Icons.ac_unit : Icons.gpp_bad,
+                                  color: Colors.redAccent,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    isFreeze
+                                        ? 'FAGYVESZÉLY (VILLOGÓ PIROS): Vízhő <= 1.0°C!'
+                                        : 'VÉSZLEÁLLÍTÁS (VILLOGÓ PIROS): Itató leállítva!',
+                                    style: const TextStyle(
+                                      color: Colors.redAccent,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              waterer.emergencyStopReason ??
+                                  (isFreeze
+                                      ? 'A vízhőmérséklet ${waterer.waterTemp.toStringAsFixed(1)}°C-ra süllyedt! Jégképződés veszélye miatt vészleállás!'
+                                      : 'Kézi vagy automatikus védelmi retesz aktív.'),
+                              style: const TextStyle(color: Colors.white, fontSize: 11),
+                            ),
+                            const SizedBox(height: 10),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.redAccent,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size(double.infinity, 36),
+                              ),
+                              onPressed: () {
+                                _repository.resetWatererEmergency();
+                                setDialogState(() {});
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text(
+                                'Vészretesz feloldása & Normál üzem',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     _buildStationRow(
-                      'Központi Tartály Szint',
-                      '${remainingLiters.toStringAsFixed(1)} L (${levelPct.toStringAsFixed(0)}%)',
-                      Icons.opacity,
-                      Colors.orangeAccent,
+                      'Folyadékszint (Vízszint)',
+                      '${levelPct.toStringAsFixed(1)}%',
+                      Icons.waves,
+                      waterColor,
+                      customIcon: WatererIcon(size: 20, status: waterer.status),
                     ),
                     const SizedBox(height: 8),
                     ClipRRect(
@@ -1077,7 +1096,314 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         value: (levelPct / 100.0).clamp(0.0, 1.0),
                         minHeight: 10,
                         backgroundColor: Colors.white12,
-                        color: Colors.orangeAccent,
+                        valueColor: AlwaysStoppedAnimation<Color>(waterColor),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    buildWatererStatusBadge(waterer.status),
+                    const SizedBox(height: 12),
+                    _buildStationRow(
+                      'Vízhőmérséklet',
+                      '${waterer.waterTemp.toStringAsFixed(1)} °C${isFreeze ? " ❄️ (FAGY!)" : ""}',
+                      Icons.thermostat,
+                      isFreeze ? Colors.cyanAccent : Colors.amber,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildStationRow(
+                      'Akkumulátor',
+                      '${waterer.batteryVoltage.toStringAsFixed(2)} V',
+                      Icons.battery_full,
+                      Colors.greenAccent,
+                    ),
+
+                    const Divider(color: Colors.white24, height: 24),
+
+                    // --- VÍZSZINT & STÁTUSZ SZIMULÁLÁS ---
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF242C38),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.tune, size: 16, color: Colors.amberAccent),
+                              SizedBox(width: 6),
+                              Text(
+                                'Vízszint beállítása & 5 állapot teszt:',
+                                style: TextStyle(
+                                  color: Colors.amberAccent,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Slider(
+                            value: levelPct,
+                            min: 0.0,
+                            max: 100.0,
+                            divisions: 20,
+                            activeColor: waterColor,
+                            label: '${levelPct.toStringAsFixed(0)}%',
+                            onChanged: (val) {
+                              _repository.updateWatererLevel(val);
+                              setDialogState(() {});
+                              setState(() {});
+                            },
+                          ),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              ActionChip(
+                                label: const Text('Üres (3% Piros)'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white),
+                                backgroundColor: const Color(0xFFFF1744).withAlpha(160),
+                                onPressed: () {
+                                  _repository.updateWatererLevel(3.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('Kevés (15% Narancs)'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white),
+                                backgroundColor: const Color(0xFFFF9100).withAlpha(160),
+                                onPressed: () {
+                                  _repository.updateWatererLevel(15.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('Közepes (35% Sárga)'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.black, fontWeight: FontWeight.bold),
+                                backgroundColor: const Color(0xFFFFD600),
+                                onPressed: () {
+                                  _repository.updateWatererLevel(35.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('Tele (85% Zöld)'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.black, fontWeight: FontWeight.bold),
+                                backgroundColor: const Color(0xFF00E676),
+                                onPressed: () {
+                                  _repository.updateWatererLevel(85.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              ActionChip(
+                                label: const Text('❄️ -1.5°C Fagy teszt'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                                backgroundColor: Colors.cyan.shade900,
+                                onPressed: () {
+                                  _repository.updateWatererTemp(-1.5);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('🚨 Kézi vészleállítás'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                                backgroundColor: Colors.red.shade900,
+                                onPressed: () {
+                                  _repository.setWatererEmergency(true, reason: 'Kézi vészleállítás teszt: Szivárgás észlelve!');
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('21.0°C Normál hő'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white),
+                                backgroundColor: Colors.blueGrey.shade800,
+                                onPressed: () {
+                                  _repository.updateWatererTemp(21.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber,
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Bezárás'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showSyrupPumpDetails(SyrupPumpData pump) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final double levelPct = pump.tankLevelPercent.clamp(0.0, 100.0);
+            final double remainingLiters = (pump.tankCapacityLiters * levelPct) / 100.0;
+            final Color pumpColor = getSyrupStatusColor(pump.status);
+            final String statusLabel = getSyrupStatusLabel(pump.status);
+
+            final hivesWithFeeder = _repository.hives
+                .where((h) => h.hasFeeder)
+                .toList();
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: pumpColor.withAlpha(120), width: 1.5),
+              ),
+              title: Row(
+                children: [
+                  CandyIcon(
+                    size: 32,
+                    status: pump.status,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          pump.name,
+                          style: const TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          statusLabel,
+                          style: TextStyle(
+                            color: pumpColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  HelpBubbleButton(
+                    title: 'Szirup Rendszer Súgó',
+                    message: 'Szirupadagoló 5-fokozatú állapotai:\n\n'
+                        '• Zöld: Normál üzemkész állapot (Tartályszint > 50%)\n'
+                        '• Sárga: Figyelmeztető szint (20-50%)\n'
+                        '• Narancs: Adagolás alatt / SZTOJ ütközésvédelem aktív\n'
+                        '• Piros: Üres etető / tartály (töltésre kész)\n'
+                        '• Villogó Piros: Szivattyú TILTVA (szintemelkedési timeout vagy fagyveszély).',
+                    iconColor: pumpColor,
+                    size: 20,
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // VILLOGÓ PIROS VÉSZLEÁLLÍTÁS BANNER ÉS RETESZ FELOLDÁS
+                    if (pump.isPumpInterlocked || pump.status == 'blinking_red') ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withAlpha(45),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.redAccent, width: 2),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.gpp_bad, color: Colors.redAccent, size: 22),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'VÉSZLEÁLLÍTÁS (VILLOGÓ PIROS): Szivattyú TILTVA!',
+                                    style: TextStyle(
+                                      color: Colors.redAccent,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              pump.emergencyStopReason ??
+                                  'Szintemelkedési timeout: a szivattyú járt, de a folyadékszint nem emelkedett!',
+                              style: const TextStyle(color: Colors.white, fontSize: 11),
+                            ),
+                            const SizedBox(height: 10),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.redAccent,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size(double.infinity, 36),
+                              ),
+                              onPressed: () {
+                                _repository.resetPumpEmergencyInterlock(pump);
+                                setDialogState(() {});
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text(
+                                'Vészretesz feloldása & Szivattyú engedélyezése',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    _buildStationRow(
+                      'Központi Tartály Szint',
+                      '${remainingLiters.toStringAsFixed(1)} L (${levelPct.toStringAsFixed(0)}%)',
+                      Icons.opacity,
+                      pumpColor,
+                      customIcon: CandyIcon(size: 20, status: pump.status),
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: (levelPct / 100.0).clamp(0.0, 1.0),
+                        minHeight: 10,
+                        backgroundColor: Colors.white12,
+                        valueColor: AlwaysStoppedAnimation<Color>(pumpColor),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -1090,9 +1416,117 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     ),
                     Text(
                       'Rendszerállapot: ${pump.lastOperationStatus}',
-                      style: const TextStyle(
-                        color: Colors.greenAccent,
+                      style: TextStyle(
+                        color: pumpColor,
                         fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+
+                    const Divider(color: Colors.white24, height: 20),
+
+                    // --- SZINTVEZÉRLÉS ÉS STÁTUSZ SZIMULÁLÁS ---
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF242C38),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Tartály szint kézi állítása:',
+                                style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                '${levelPct.toInt()}%',
+                                style: TextStyle(color: pumpColor, fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          Slider(
+                            value: levelPct,
+                            min: 0.0,
+                            max: 100.0,
+                            activeColor: pumpColor,
+                            inactiveColor: Colors.white12,
+                            onChanged: (val) {
+                              _repository.updateSyrupTankLevel(val);
+                              setDialogState(() {});
+                              setState(() {});
+                            },
+                          ),
+                          const Text(
+                            '5-állapotú gyors tesztelés:',
+                            style: TextStyle(color: Colors.white54, fontSize: 11),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              ActionChip(
+                                label: const Text('🟢 90% (Zöld)'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                                backgroundColor: const Color(0xFF1B5E20),
+                                onPressed: () {
+                                  _repository.setSyrupPumpEmergency(false);
+                                  _repository.updateSyrupTankLevel(90.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('🟡 35% (Sárga)'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                                backgroundColor: const Color(0xFF7F6000),
+                                onPressed: () {
+                                  _repository.setSyrupPumpEmergency(false);
+                                  _repository.updateSyrupTankLevel(35.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('🟠 15% (Narancs)'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                                backgroundColor: const Color(0xFFBF360C),
+                                onPressed: () {
+                                  _repository.setSyrupPumpEmergency(false);
+                                  _repository.updateSyrupTankLevel(15.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('🔴 3% (Piros)'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                                backgroundColor: const Color(0xFF880E4F),
+                                onPressed: () {
+                                  _repository.setSyrupPumpEmergency(false);
+                                  _repository.updateSyrupTankLevel(3.0);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              ActionChip(
+                                label: const Text('🚨 Vészleállítás'),
+                                labelStyle: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                                backgroundColor: Colors.red.shade900,
+                                onPressed: () {
+                                  _repository.setSyrupPumpEmergency(true, reason: 'Kézi vészleállítás teszt: Szintemelkedési timeout');
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                     const Divider(color: Colors.white24, height: 24),
@@ -1197,24 +1631,6 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                 ),
               ),
               actions: [
-                OutlinedButton(
-                  onPressed: () {
-                    _repository.refillSyrupTank(pump, maxTankCapacity);
-                    setDialogState(() {});
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Központi sziruptartály szintje visszaállítva (100 L).',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  },
-                  child: const Text(
-                    'Tartály Utántöltve',
-                    style: TextStyle(color: Colors.orangeAccent),
-                  ),
-                ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.amber,
@@ -1232,6 +1648,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
   }
 
   IconData _getHiveIcon(HiveData hive) {
+    if (hive.isQueenReplacementActive) {
+      return Icons.warning_amber_rounded;
+    }
+    if (hive.isLocked) {
+      return Icons.lock;
+    }
     if (hive.protocol == 'oxalsav' ||
         hive.protocol == 'oxalsav_egyszeri' ||
         hive.protocol == 'oxalsav_sorozat') {
@@ -1292,14 +1714,15 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     String label,
     String value,
     IconData icon,
-    Color color,
-  ) {
+    Color color, {
+    Widget? customIcon,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Row(
           children: [
-            Icon(icon, color: color, size: 18),
+            customIcon ?? Icon(icon, color: color, size: 18),
             const SizedBox(width: 8),
             Text(
               label,
@@ -1376,18 +1799,29 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
         (_locationService.accuracy == null ||
         _locationService.accuracy! > 40.0);
 
-    const double maxTankCapacity = 100.0;
     final double remainingSyrupPct =
-        ((maxTankCapacity - _repository.syrupPump.totalPumpedLiters).clamp(
-              0.0,
-              maxTankCapacity,
-            ) /
-            maxTankCapacity) *
-        100.0;
+        _repository.syrupPump.tankLevelPercent.clamp(0.0, 100.0);
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
+    return PopScope(
+      canPop: !_isCameraActive && !_isEditMode && !_isAdvancedMode,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_isCameraActive) {
+          setState(() => _isCameraActive = false);
+          return;
+        }
+        if (_isEditMode) {
+          setState(() => _isEditMode = false);
+          return;
+        }
+        if (_isAdvancedMode) {
+          setState(() => _isAdvancedMode = false);
+          return;
+        }
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
         if (!_isCameraActive && _isAdvancedMode)
           Positioned.fill(
             child: GestureDetector(
@@ -1451,7 +1885,23 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                       child: GestureDetector(
                         onTap: () {
                           if (!_isEditMode) {
-                            _showHiveDetails(hive);
+                            if (hive.isQueenReplacementActive) {
+                              showQueenReplacementFlowDialog(
+                                context: context,
+                                hive: hive,
+                                repository: _repository,
+                                onOpenDetails: () => _showHiveDetails(hive),
+                              );
+                            } else if (hive.isLocked) {
+                              showLockedHiveWarningDialog(
+                                context: context,
+                                hive: hive,
+                                repository: _repository,
+                                onOpenDetails: () => _showHiveDetails(hive),
+                              );
+                            } else {
+                              _showHiveDetails(hive);
+                            }
                           }
                         },
                         onLongPress: _toggleEditMode,
@@ -1477,20 +1927,19 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                           );
 
                           final now = DateTime.now();
-                          final oneWeekLater = now.add(const Duration(days: 7));
-                          final bool hasUpcomingTaskSoon = _repository
+                          final bool hasOverdueTask = _repository
                               .scheduledTasks
                               .any((t) {
                                 if (t.hiveId != hive.id || t.isCompleted) {
                                   return false;
                                 }
-                                return t.scheduledDate.isAfter(
-                                      now.subtract(const Duration(days: 1)),
-                                    ) &&
-                                    t.scheduledDate.isBefore(oneWeekLater);
+                                if (t.id.contains('ESCAPEMENT') || t.title.contains('Méhszöktetés')) {
+                                  return false;
+                                }
+                                return t.scheduledDate.isBefore(now);
                               });
 
-                          final worstStatus = hasUpcomingTaskSoon
+                          final worstStatus = hasOverdueTask
                               ? (hive.worstStatus == 'green'
                                   ? 'yellow'
                                   : hive.worstStatus)
@@ -1504,14 +1953,34 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
                           final IconData hiveIcon = _getHiveIcon(hive);
 
-                          if (hasActiveEscapement ||
-                              hasActiveBottomBoard ||
-                              isPollenTrapActive) {
+                          final bool isEscapementOverdue = hive.boxes.any(
+                            (b) =>
+                                (b.type == 'escapement' ||
+                                    b.name.toLowerCase().contains('szöktet')) &&
+                                b.isActive &&
+                                b.statusUpdatedAt != null &&
+                                DateTime.now().difference(b.statusUpdatedAt!).inHours >= 24,
+                          );
+
+                          final bool isImmediateIntervention = hive.isQueenReplacementActive ||
+                              isEscapementOverdue ||
+                              worstStatus == 'flashing_red' ||
+                              worstStatus == 'red' ||
+                              hive.status == 'red';
+
+                          Widget markerWidget;
+
+                          // Ha azonnali beavatkozásra van szükség (Anyacsere / 24h szöktetés lejárat / piros riasztás),
+                          // az elsőbbséget élvez az egyéb fiók (pl. pollengyűjtő / aljdeszka) jelzésekkel szemben!
+                          if (!isImmediateIntervention &&
+                              (hasActiveEscapement ||
+                                  hasActiveBottomBoard ||
+                                  isPollenTrapActive)) {
                             Color badgeColor;
                             IconData badgeIcon;
                             if (hasActiveEscapement) {
                               badgeColor = Colors.amber[800]!;
-                              badgeIcon = Icons.transit_enterexit;
+                              badgeIcon = Icons.filter_alt;
                             } else if (isPollenTrapActive) {
                               badgeColor = Colors.orange;
                               badgeIcon = Icons.local_florist;
@@ -1520,49 +1989,53 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                               badgeIcon = Icons.bug_report;
                             }
 
-                            return FadeTransition(
-                              opacity: _redFlashOpacityAnim,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: badgeColor,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: _isEditMode
-                                        ? Colors.amberAccent
-                                        : Colors.white,
-                                    width: _isEditMode ? 3 : 2,
-                                  ),
+                            markerWidget = Container(
+                              decoration: BoxDecoration(
+                                color: badgeColor,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: _isEditMode
+                                      ? Colors.amberAccent
+                                      : Colors.white,
+                                  width: _isEditMode ? 3 : 2,
                                 ),
-                                child: Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    Center(
-                                      child: Icon(
-                                        badgeIcon,
-                                        color: Colors.white,
-                                        size: 18,
-                                      ),
+                              ),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Center(
+                                    child: Icon(
+                                      badgeIcon,
+                                      color: Colors.white,
+                                      size: 18,
                                     ),
-                                    if (hasTartorHordozo)
-                                      Positioned(
-                                        child: Container(
-                                          width: 28,
-                                          height: 4,
-                                          decoration: BoxDecoration(
-                                            color: Colors.white,
-                                            borderRadius: BorderRadius.circular(
-                                              2,
-                                            ),
+                                  ),
+                                  if (hasTartorHordozo)
+                                    Positioned(
+                                      child: Container(
+                                        width: 28,
+                                        height: 4,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            2,
                                           ),
                                         ),
                                       ),
-                                  ],
-                                ),
+                                    ),
+                                ],
                               ),
                             );
                           } else {
-                            return Stack(
+                            final Color markerBorderColor = _isEditMode
+                                ? Colors.amberAccent
+                                : (isImmediateIntervention
+                                    ? Colors.redAccent
+                                    : (hive.isLocked ? Colors.amberAccent : Colors.white));
+
+                            markerWidget = Stack(
                               alignment: Alignment.center,
+                              clipBehavior: Clip.none,
                               children: [
                                 Container(
                                   width: 42,
@@ -1571,11 +2044,23 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                     color: _getStatusColor(worstStatus),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color: _isEditMode
-                                          ? Colors.amberAccent
-                                          : Colors.white,
-                                      width: _isEditMode ? 3 : 2,
+                                      color: markerBorderColor,
+                                      width: (isImmediateIntervention || _isEditMode) ? 3 : 2,
                                     ),
+                                    boxShadow: [
+                                      if (isImmediateIntervention)
+                                        BoxShadow(
+                                          color: Colors.redAccent.withAlpha(200),
+                                          blurRadius: 12,
+                                          spreadRadius: 3,
+                                        )
+                                      else if (hive.isLocked)
+                                        BoxShadow(
+                                          color: Colors.amberAccent.withAlpha(120),
+                                          blurRadius: 8,
+                                          spreadRadius: 1,
+                                        ),
+                                    ],
                                   ),
                                   child: Stack(
                                     alignment: Alignment.center,
@@ -1602,7 +2087,49 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                     ],
                                   ),
                                 ),
-                                if (hasUpcomingTaskSoon)
+                                if (hive.isQueenReplacementActive)
+                                  Positioned(
+                                    top: -5,
+                                    right: -5,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2.5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 1.5),
+                                        boxShadow: const [
+                                          BoxShadow(color: Colors.black54, blurRadius: 4),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.female, // NŐ-JEL (♀), nem virág!
+                                        color: Colors.white,
+                                        size: 13,
+                                      ),
+                                    ),
+                                  ),
+                                if (hive.isLocked)
+                                  Positioned(
+                                    top: -4,
+                                    right: -4,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2.5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF0F172A),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.amberAccent, width: 1.5),
+                                        boxShadow: const [
+                                          BoxShadow(color: Colors.black87, blurRadius: 4),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.lock,
+                                        color: Colors.amberAccent,
+                                        size: 11,
+                                      ),
+                                    ),
+                                  ),
+                                if (hasOverdueTask && !isImmediateIntervention && !hive.isLocked)
                                   Positioned(
                                     top: 0,
                                     right: 0,
@@ -1639,6 +2166,19 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                               ],
                             );
                           }
+
+                          // Azonnali beavatkozást igénylő kaptár villogjon (FadeTransition), ne csak világítson!
+                          if (isImmediateIntervention ||
+                              hasActiveEscapement ||
+                              hasActiveBottomBoard ||
+                              isPollenTrapActive) {
+                            return FadeTransition(
+                              opacity: _redFlashOpacityAnim,
+                              child: markerWidget,
+                            );
+                          }
+
+                          return markerWidget;
                         }(),
                       ),
                     ),
@@ -1727,84 +2267,91 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     ),
                   ),
 
-                  // 3. Itató marker
+                  // 3. Itató marker 5-fokozatú színkódolással és animált villogással
                   Marker(
                     point: _repository.waterer.location,
-                    width: 58,
-                    height: 58,
-                    child: GestureDetector(
-                      onTap: () {
-                        if (!_isEditMode) {
-                          _showWatererDetails(_repository.waterer);
-                        }
+                    width: 62,
+                    height: 62,
+                    child: ListenableBuilder(
+                      listenable: _repository,
+                      builder: (context, _) {
+                        final waterer = _repository.waterer;
+                        final wStatus = waterer.status;
+                        final Color wColor = getWatererStatusColor(wStatus);
+                        final bool isBlinking = (wStatus == 'blinking_red');
+
+                        return GestureDetector(
+                          onTap: () {
+                            if (!_isEditMode) {
+                              _showWatererDetails(waterer);
+                            }
+                          },
+                          onLongPress: _toggleEditMode,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: _isEditMode ? Colors.amberAccent : wColor,
+                                    width: _isEditMode ? 3.0 : (isBlinking ? 3.5 : 2.5),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: wColor.withAlpha(isBlinking ? 190 : 120),
+                                      blurRadius: isBlinking ? 12 : 6,
+                                      spreadRadius: isBlinking ? 3 : 1,
+                                    ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: WatererIcon(
+                                    size: 24,
+                                    status: wStatus,
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black87,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: wColor,
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${waterer.waterLevel.toInt()}%',
+                                    style: TextStyle(
+                                      color: wColor,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
                       },
-                      onLongPress: _toggleEditMode,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: Colors.lightBlue.shade700,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: _isEditMode
-                                    ? Colors.amberAccent
-                                    : Colors.white,
-                                width: _isEditMode ? 3 : 2,
-                              ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Colors.black45,
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: const Center(
-                              child: Icon(
-                                Icons.water,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black87,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: Colors.lightBlueAccent,
-                                  width: 1,
-                                ),
-                              ),
-                              child: Text(
-                                '${_repository.waterer.waterLevel.toInt()}%',
-                                style: const TextStyle(
-                                  color: Colors.lightBlueAccent,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                   ),
 
-                  // 4. Szirupszivattyú marker
+                  // 4. Szirupszivattyú / Központi Sziruptartály marker
                   Marker(
                     point: _repository.syrupPump.location,
-                    width: 58,
-                    height: 58,
+                    width: 60,
+                    height: 60,
                     child: GestureDetector(
                       onTap: () {
                         if (!_isEditMode) {
@@ -1812,63 +2359,83 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         }
                       },
                       onLongPress: _toggleEditMode,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: Colors.orange.shade800,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: _isEditMode
-                                    ? Colors.amberAccent
-                                    : Colors.white,
-                                width: _isEditMode ? 3 : 2,
-                              ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Colors.black45,
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
+                      child: ListenableBuilder(
+                        listenable: _repository,
+                        builder: (context, _) {
+                          final pump = _repository.syrupPump;
+                          final String pStatus = pump.status;
+                          final Color pColor = getSyrupStatusColor(pStatus);
+                          final double remPct =
+                              pump.tankLevelPercent.clamp(0.0, 100.0);
+
+                          return Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E293B),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: _isEditMode
+                                        ? Colors.amberAccent
+                                        : pColor,
+                                    width: (pStatus == 'blinking_red' ||
+                                            _isEditMode)
+                                        ? 3.5
+                                        : 2.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: pColor.withAlpha(140),
+                                      blurRadius: 10,
+                                      spreadRadius: 2,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                            child: const Center(
-                              child: Icon(
-                                Icons.settings_input_component,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black87,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: Colors.orangeAccent,
-                                  width: 1,
+                                child: Center(
+                                  child: CandyIcon(
+                                    size: 28,
+                                    status: pStatus,
+                                  ),
                                 ),
                               ),
-                              child: Text(
-                                '${remainingSyrupPct.toInt()}%',
-                                style: const TextStyle(
-                                  color: Colors.orangeAccent,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
+                              Positioned(
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 1.5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: pColor,
+                                      width: 1.5,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: pColor.withAlpha(70),
+                                        blurRadius: 4,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Text(
+                                    '${remPct.toInt()}%',
+                                    style: TextStyle(
+                                      color: pColor,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                        ],
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -2132,6 +2699,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             }),
           ),
       ],
-    );
-  }
+    ),
+  );
+}
 }

@@ -1094,7 +1094,10 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
           },
         );
       },
-    );
+    ).then((_) {
+      reprintScannerCtrl.dispose();
+      searchCtrl.dispose();
+    });
   }
 
   Future<void> _openRegistrationPage() async {
@@ -1878,8 +1881,15 @@ class _ItemRegistrationScreenState extends State<ItemRegistrationScreen> {
         .where((c) => c.category == _detectedCategory)
         .toList();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+    return PopScope(
+      canPop: !_isCameraScanning,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _isCameraScanning) {
+          setState(() => _isCameraScanning = false);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF141428),
         foregroundColor: Colors.tealAccent,
@@ -1945,11 +1955,15 @@ class _ItemRegistrationScreenState extends State<ItemRegistrationScreen> {
                     const SizedBox(height: 16),
 
                     if (_isCameraScanning) ...[
-                      SizedBox(
-                        height: 260,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Stack(
+                      GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onSecondaryTap: () =>
+                            setState(() => _isCameraScanning = false),
+                        child: SizedBox(
+                          height: 260,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Stack(
                             children: [
                               MobileScanner(
                                 controller: _officeScannerCtrl,
@@ -2006,7 +2020,8 @@ class _ItemRegistrationScreenState extends State<ItemRegistrationScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                    ),
+                    const SizedBox(height: 12),
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white70,
@@ -2271,6 +2286,7 @@ class _ItemRegistrationScreenState extends State<ItemRegistrationScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

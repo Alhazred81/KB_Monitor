@@ -25,6 +25,7 @@
 #include "wifi_sta.h"
 #include "web_diag.h"
 #include "web_config.h"
+#include "syrup_manager.h"
 
 // Ha be van kapcsolva a vezetékes CAN mód, beemeljük a CAN kommunikációs modult is
 #if IS_WIRED_CAN
@@ -353,6 +354,7 @@ void setup() {
     modemPowerOn(); 
     initSupabaseSync();
     initBleServer();
+    syrupManagerInit();
   #elif CURRENT_DEVICE_ROLE == ROLE_WEATHER_STATION
     // Ha különálló időjárás-állomás vezetékes módban
     Serial.println("[ROLE] Különálló időjárás-állomás indítva.");
@@ -457,6 +459,7 @@ void loop() {
   sensorsLoop();
   knockLoop();
   bleLoop();
+  syrupManagerLoop();
 
   if (isSecretKnockUnlocked()) {
     clearSecretKnock();

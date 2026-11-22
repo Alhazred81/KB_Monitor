@@ -4,6 +4,8 @@ import '../hive_model.dart';
 import '../services/hive_repository.dart';
 import '../services/treatment_adviser.dart';
 import 'weak_colony_warning_dialog.dart';
+import 'candy_icon.dart';
+import 'help_bubble.dart';
 
 typedef HiveSetupDialog = HiveConfigDialog;
 
@@ -36,10 +38,12 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
 
   bool get _activeHiveHasRoof =>
       _activeHive != null &&
-      _activeHive!.boxes.any((b) =>
-          b.type == 'roof' ||
-          b.name.toLowerCase().contains('tető') ||
-          b.name.toLowerCase().contains('teto'));
+      _activeHive!.boxes.any((b) {
+        final t = b.type.toLowerCase();
+        final n = b.name.toLowerCase();
+        if (t == 'escapement' || n.contains('szöktet') || n.contains('szoktet') || n.contains('etet')) return false;
+        return t == 'roof' || n.contains('tető') || n.contains('teto');
+      });
 
   bool _isRealBox(String type) {
     return type == 'brood_box' || type == 'nest' || type == 'honey';
@@ -503,6 +507,11 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
 
   void _startSelectedPlan() {
     if (_activeHive == null) return;
+    if (_selectedFunction == 'anyacsere') {
+      _activeHive!.queenReplacementState = 'needs_replacement';
+      _activeHive!.status = 'red';
+      if (_activeHive!.queen != null) _activeHive!.queen!.needsReplacement = true;
+    }
     if (_selectedCategory == 'Tenyész') {
       _repository.schedulePlanForHive(
         _activeHive!.id,
@@ -517,9 +526,11 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          _selectedCategory == 'Tenyész'
-              ? 'Funkció rögzítve: $_selectedFunction | Mesterterv elindítva!'
-              : 'Család funkció rögzítve: $_selectedFunction',
+          _selectedFunction == 'anyacsere'
+              ? 'Anyacsere megjelölve! A kaptár pirossal jelenik meg.'
+              : (_selectedCategory == 'Tenyész'
+                  ? 'Funkció rögzítve: $_selectedFunction | Mesterterv elindítva!'
+                  : 'Család funkció rögzítve: $_selectedFunction'),
         ),
         backgroundColor: Colors.green,
       ),
@@ -803,6 +814,9 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                     if (val == 'selejt') {
                                       _selectedPlanType = 'felerosites_mesterterv';
                                     }
+                                    if (val == 'anyacsere') {
+                                      _selectedPlanType = 'anyacsere_folyamat';
+                                    }
                                     if (val == 'szezon végén') {
                                       _selectedPlanType = 'oxalsav_egyszeri';
                                     }
@@ -892,21 +906,38 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                     final bool isRoof = box.type == 'roof' ||
                                         box.name.toLowerCase().contains('tető') ||
                                         box.name.toLowerCase().contains('teto');
+                                    final bool isPollen = box.type == 'pollen_trap' ||
+                                        box.name.toLowerCase().contains('pollen') ||
+                                        box.name.toLowerCase().contains('virágpor');
+                                    final bool isFeeder = box.type == 'feeder' ||
+                                        box.type == 'roof_feeder' ||
+                                        box.name.toLowerCase().contains('etető') ||
+                                        box.name.toLowerCase().contains('eteto');
                                     final int rawIdx = _activeHive != null
                                         ? _activeHive!.boxes.indexOf(box)
                                         : -1;
                                     final bool canMoveUp = _activeHive != null &&
                                         !isBottom &&
                                         !isRoof &&
+                                        !isPollen &&
+                                        !isFeeder &&
                                         rawIdx != -1 &&
                                         rawIdx + 1 < _activeHive!.boxes.length &&
-                                        _activeHive!.boxes[rawIdx + 1].type != 'roof';
+                                        _activeHive!.boxes[rawIdx + 1].type != 'roof' &&
+                                        _activeHive!.boxes[rawIdx + 1].type != 'feeder' &&
+                                        _activeHive!.boxes[rawIdx + 1].type != 'roof_feeder' &&
+                                        !_activeHive!.boxes[rawIdx + 1].name.toLowerCase().contains('etet');
                                     final bool canMoveDown = _activeHive != null &&
                                         !isBottom &&
                                         !isRoof &&
+                                        !isPollen &&
+                                        !isFeeder &&
                                         rawIdx != -1 &&
                                         rawIdx - 1 >= 0 &&
-                                        _activeHive!.boxes[rawIdx - 1].type != 'bottom';
+                                        _activeHive!.boxes[rawIdx - 1].type != 'bottom' &&
+                                        _activeHive!.boxes[rawIdx - 1].type != 'pollen_trap' &&
+                                        !_activeHive!.boxes[rawIdx - 1].name.toLowerCase().contains('pollen') &&
+                                        !_activeHive!.boxes[rawIdx - 1].name.toLowerCase().contains('virágpor');
 
                                     return Padding(
                                       padding:
@@ -925,25 +956,59 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                         ),
                                         child: Row(
                                           children: [
-                                            Icon(
-                                              _getBoxIcon(box),
-                                              size: 18,
-                                              color: _getBoxColor(box),
-                                            ),
+                                            if (box.type == 'feeder' ||
+                                                box.type == 'roof_feeder' ||
+                                                box.name.toLowerCase().contains('etető') ||
+                                                box.name.toLowerCase().contains('eteto'))
+                                              CandyIcon(
+                                                size: 18,
+                                                status: _activeHive?.feederStatus ?? 'green',
+                                              )
+                                            else
+                                              Icon(
+                                                _getBoxIcon(box),
+                                                size: 18,
+                                                color: _getBoxColor(box),
+                                              ),
                                             const SizedBox(width: 10),
                                             Expanded(
-                                              child: Text(
-                                                _formatBoxTitle(box),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 13,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
+                                              child: Row(
+                                                children: [
+                                                  Flexible(
+                                                    child: Text(
+                                                      _formatBoxTitle(box),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 13,
+                                                        fontWeight: FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  BoxInfoButton(box: box, size: 14),
+                                                  const SizedBox(width: 2),
+                                                  BoxHelpButton(box: box, size: 14),
+                                                ],
                                               ),
                                             ),
-                                            if (!isBottom && !isRoof) ...[
+                                            if (box.type == 'pollen_trap' ||
+                                                box.name.toLowerCase().contains('pollen'))
+                                              Switch(
+                                                value: box.isActive,
+                                                activeThumbColor: Colors.orange,
+                                                activeTrackColor: Colors.orange.withAlpha(120),
+                                                onChanged: (val) {
+                                                  _repository.toggleBoxActiveState(
+                                                    _activeHive!,
+                                                    box,
+                                                    val,
+                                                  );
+                                                  setState(() {});
+                                                },
+                                              ),
+                                            if (!isBottom && !isRoof && !isPollen && !isFeeder) ...[
                                               IconButton(
                                                 icon: const Icon(
                                                   Icons.arrow_upward,
@@ -1218,6 +1283,7 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
     } else {
       return const [
         DropdownMenuItem(value: 'selejt', child: Text('Selejt (Felerősítéshez)')),
+        DropdownMenuItem(value: 'anyacsere', child: Text('Anyacsere (Sürgős csere)')),
         DropdownMenuItem(value: 'szezon végén', child: Text('Szezon végén')),
         DropdownMenuItem(value: 'Hans', child: Text('Hans (Azonnali elpusztítás)')),
       ];

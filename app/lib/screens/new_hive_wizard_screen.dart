@@ -1098,12 +1098,16 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (_activeScannerTarget != null) ...[
-          Container(
-            height: 220,
-            margin: const EdgeInsets.only(bottom: 16),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: Stack(
+          GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onSecondaryTap: () =>
+                setState(() => _activeScannerTarget = null),
+            child: Container(
+              height: 220,
+              margin: const EdgeInsets.only(bottom: 16),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Stack(
                 children: [
                   MobileScanner(
                     controller: _scannerController,
@@ -1188,7 +1192,8 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
               ),
             ),
           ),
-        ],
+        ),
+      ],
 
         _buildBoxInputCard(
           title: '1. Aljdeszka',

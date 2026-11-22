@@ -230,9 +230,12 @@ class _FrameArInspectionScreenState extends State<FrameArInspectionScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onSecondaryTap: () => Navigator.pop(context),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
         fit: StackFit.expand,
         children: [
           // ─── 1. SIMA KAMERA KÉP ──────────────────────────────────────
@@ -612,8 +615,9 @@ class _FrameArInspectionScreenState extends State<FrameArInspectionScreen>
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ─── EGYIK FŐ KAPCSOLÓ ÉPÍTŐJE ───────────────────────────────────────
   Widget _buildMainToggle({

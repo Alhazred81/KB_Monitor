@@ -21,11 +21,22 @@ class ScannerOverlay extends StatefulWidget {
 
 class _ScannerOverlayState extends State<ScannerOverlay> {
   bool _isTorchOn = false;
+  bool _hasDetected = false;
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          widget.onClose();
+        }
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onSecondaryTap: widget.onClose,
+        child: Stack(
+          children: [
         MobileScanner(
           controller: widget.cameraController,
           errorBuilder: (context, error) {
@@ -61,9 +72,11 @@ class _ScannerOverlayState extends State<ScannerOverlay> {
             );
           },
           onDetect: (capture) {
+            if (_hasDetected) return;
             final List<Barcode> barcodes = capture.barcodes;
             for (final barcode in barcodes) {
-              if (barcode.rawValue != null) {
+              if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
+                _hasDetected = true;
                 widget.onDetect(barcode.rawValue!);
                 break;
               }
@@ -84,10 +97,12 @@ class _ScannerOverlayState extends State<ScannerOverlay> {
                 // Vaku (Zseblámpa) kapcsoló
                 IconButton(
                   onPressed: () async {
-                    await widget.cameraController.toggleTorch();
-                    setState(() {
-                      _isTorchOn = !_isTorchOn;
-                    });
+                    await widget.cameraController.safeToggleTorch();
+                    if (mounted) {
+                      setState(() {
+                        _isTorchOn = !_isTorchOn;
+                      });
+                    }
                   },
                   icon: Icon(
                     _isTorchOn ? Icons.flash_on : Icons.flash_off,
@@ -149,7 +164,9 @@ class _ScannerOverlayState extends State<ScannerOverlay> {
             ),
           ),
         ),
-      ],
+          ],
+        ),
+      ),
     );
   }
 }

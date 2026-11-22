@@ -3,16 +3,26 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 /// Biztonságos MobileScannerController kiegészítés boxkesztyűbarát és külső USB kamerákhoz
 extension SafeMobileScannerController on MobileScannerController {
-  /// Biztonságos kamera váltás - ha nincs inicializálva, NEM dob kivételt, hanem elindítja a kamerát!
+  /// Biztonságos kamera váltás - ha nincs inicializálva vagy már indul, NEM dob kivételt!
   Future<void> safeSwitchCamera() async {
     try {
-      // 1. Ha még nincs inicializálva, a start()-ot hívjuk meg switchCamera() helyett (utóbbi kivételt dobna)
-      if (!value.isInitialized) {
+      // 1. Ha már éppen indul a kamera, ne indítsuk újra párhuzamosan
+      if (value.isStarting) {
+        return;
+      }
+
+      // 2. Ha még nincs inicializálva vagy le van állítva, indítsuk el
+      if (!value.isInitialized || !value.isRunning) {
         await start();
         return;
       }
 
-      // 2. Váltás előlapi és hátlapi kamera között
+      // 3. Ha 1 vagy kevesebb kamera érhető el, nincs hova váltani
+      if (value.availableCameras != null && value.availableCameras! < 2) {
+        return;
+      }
+
+      // 4. Váltás előlapi és hátlapi kamera között
       if (value.cameraDirection == CameraFacing.front) {
         await stop();
         await start(cameraDirection: CameraFacing.back);
@@ -20,26 +30,21 @@ extension SafeMobileScannerController on MobileScannerController {
         await stop();
         await start(cameraDirection: CameraFacing.front);
       } else {
-        // Unknown / External USB kamera esetén
+        // Unknown / External USB kamera esetén biztonságos újraindítás
         try {
-          await switchCamera();
-        } catch (_) {
           await stop();
           await start();
-        }
+        } catch (_) {}
       }
     } catch (e) {
       debugPrint('Kamera váltás hiba: $e');
-      try {
-        await start();
-      } catch (_) {}
     }
   }
 
-  /// Biztonságos vaku kapcsolás
+  /// Biztonságos vaku kapcsolás - csak futó és inicializált kameránál hívható
   Future<void> safeToggleTorch() async {
     try {
-      if (value.isInitialized) {
+      if (value.isInitialized && value.isRunning && !value.isStarting) {
         await toggleTorch();
       }
     } catch (e) {

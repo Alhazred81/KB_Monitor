@@ -5,6 +5,7 @@ import '../hive_model.dart';
 import '../services/hive_repository.dart';
 import '../widgets/hive_config_dialog.dart';
 import '../widgets/safe_camera_controller.dart';
+import '../widgets/candy_icon.dart';
 import 'frame_ar_inspection_screen.dart';
 import 'varroa_counter_screen.dart';
 
@@ -131,10 +132,28 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
   }
 
   void _showInvestigationsScreen(BuildContext context) {
+    if (widget.hive.hasExtraBoxes) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Családot csak akkor vizsgálunk, ha nincs fenn egyetlen extra fiók sem!'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     InvestigationsScreen.open(context, widget.hive, _repository);
   }
 
   void _showTreatmentsScreen(BuildContext context) {
+    if (widget.hive.hasExtraBoxes) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Családot csak akkor kezelünk, ha nincs fenn egyetlen extra fiók sem!'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     TreatmentsScreen.open(context, widget.hive, _repository, confirmAction: _confirmTreatmentAction);
   }
 
@@ -169,16 +188,112 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white12),
-              ),
+        child: () {
+          BoxElement? bottomBroodBox;
+          for (var b in widget.hive.boxes) {
+            final name = b.name.toLowerCase();
+            if (b.type == 'brood_box' ||
+                b.type == 'nest' ||
+                name.contains('fészek') ||
+                name.contains('feszek')) {
+              bottomBroodBox = b;
+              break;
+            }
+          }
+          final bool isBottomBroodBox =
+              (bottomBroodBox != null && widget.broodBox.code == bottomBroodBox.code);
+
+          final int escapementIndex = widget.hive.boxes.indexWhere(
+            (b) => b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
+          );
+          final int currentBoxIndex = widget.hive.boxes.indexOf(widget.broodBox);
+          final bool isDirectlyAboveEscapement =
+              (escapementIndex != -1 && currentBoxIndex == escapementIndex + 1);
+          final bool isEscapedByBoard =
+              (escapementIndex != -1 && currentBoxIndex > escapementIndex);
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!isBottomBroodBox) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isEscapedByBoard
+                        ? Colors.orange.withAlpha(50)
+                        : const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.orangeAccent,
+                      width: isDirectlyAboveEscapement ? 2 : 1.2,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.filter_alt_outlined, color: Colors.orangeAccent, size: 24),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isDirectlyAboveEscapement
+                                  ? 'Szöktető közvetlenül e fiók alatt ✓'
+                                  : (isEscapedByBoard
+                                      ? 'Leszöktetés alatt (Méhtelenítés)'
+                                      : 'Felső fészekfiók leszöktetése'),
+                              style: const TextStyle(
+                                color: Colors.orangeAccent,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              isEscapedByBoard
+                                  ? 'A fiók és a felette lévő elemek leürítése folyamatban (24 óra).'
+                                  : 'Szöktető behelyezése e fiók alá a méhek leürítéséhez.',
+                              style: const TextStyle(color: Colors.white70, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orangeAccent,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () {
+                          _repository.insertEscapeBoardUnderBox(widget.hive, widget.broodBox);
+                          setState(() {});
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Leszöktetés elindítva: Szöktető behelyezve a(z) "${widget.broodBox.name}" alá!\n'
+                                'A felette levő összes fiók méhtelenítése folyamatban.',
+                              ),
+                              backgroundColor: Colors.teal,
+                            ),
+                          );
+                        },
+                        child: Text(
+                          isDirectlyAboveEscapement ? 'Aktív ✓' : 'Szöktetés',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white12),
+                ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -292,9 +407,10 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
             ),
             const SizedBox(height: 20),
           ],
-        ),
-      ),
-    );
+        );
+      }(),
+    ),
+  );
   }
 
   Widget _buildStatusButton(String label, String statusKey, Color color) {
@@ -651,18 +767,28 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
-        foregroundColor: Colors.amberAccent,
-        title: const Text(
-          'Vizsgálatok',
-          style: TextStyle(fontWeight: FontWeight.bold),
+    return PopScope(
+      canPop: !_isCameraActive,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _isCameraActive) {
+          setState(() => _isCameraActive = false);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0F172A),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1E293B),
+          foregroundColor: Colors.amberAccent,
+          title: const Text(
+            'Vizsgálatok',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
-      ),
-      body: _isCameraActive
-          ? Stack(
+        body: _isCameraActive
+            ? GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onSecondaryTap: () => setState(() => _isCameraActive = false),
+                child: Stack(
               children: [
                 MobileScanner(
                   controller: _scannerController,
@@ -734,7 +860,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
                   ),
                 ),
               ],
-            )
+            ),
+          )
           : Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
@@ -785,6 +912,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
                 ],
               ),
             ),
+      ),
     );
   }
 
@@ -1014,6 +1142,7 @@ class TreatmentsScreen extends StatelessWidget {
   Widget _buildTile(
     BuildContext context, {
     required IconData icon,
+    Widget? customIcon,
     required Color color,
     required String label,
     required VoidCallback onPressed,
@@ -1030,7 +1159,7 @@ class TreatmentsScreen extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 42, color: color),
+          customIcon ?? Icon(icon, size: 42, color: color),
           const SizedBox(height: 10),
           Text(
             label,
@@ -1167,6 +1296,7 @@ class _OxalicScreen extends StatelessWidget {
   Widget _buildTile(
     BuildContext context, {
     required IconData icon,
+    Widget? customIcon,
     required Color color,
     required String label,
     required VoidCallback onPressed,
@@ -1183,7 +1313,7 @@ class _OxalicScreen extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 42, color: color),
+          customIcon ?? Icon(icon, size: 42, color: color),
           const SizedBox(height: 10),
           Text(
             label,
@@ -1231,8 +1361,12 @@ class _FeedingScreen extends StatelessWidget {
                 children: [
                   _buildTile(
                     context,
+                    customIcon: CandyIcon(
+                      size: 42,
+                      status: hive.feederStatus,
+                    ),
                     icon: Icons.water_drop,
-                    color: Colors.tealAccent,
+                    color: getSyrupStatusColor(hive.feederStatus),
                     label: 'Szirup\n(+1 L)',
                     onPressed: () {
                       repository.pumpSyrup(
@@ -1302,6 +1436,7 @@ class _FeedingScreen extends StatelessWidget {
   Widget _buildTile(
     BuildContext context, {
     required IconData icon,
+    Widget? customIcon,
     required Color color,
     required String label,
     required VoidCallback onPressed,
@@ -1318,7 +1453,7 @@ class _FeedingScreen extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 42, color: color),
+          customIcon ?? Icon(icon, size: 42, color: color),
           const SizedBox(height: 10),
           Text(
             label,
@@ -1436,6 +1571,12 @@ class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
           'plan': 'felerosites_mesterterv',
         },
         {
+          'id': 'anyacsere',
+          'label': 'Anyacsere',
+          'icon': Icons.emergency,
+          'plan': 'anyacsere_folyamat',
+        },
+        {
           'id': 'szezon végén',
           'label': 'Szezon végén',
           'icon': Icons.timer_off,
@@ -1456,6 +1597,12 @@ class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
       _selectedSubFunction = item['id'];
       _selectedPlanType = item['plan'];
     });
+
+    if (item['id'] == 'anyacsere') {
+      widget.hive.queenReplacementState = 'needs_replacement';
+      widget.hive.status = 'red';
+      if (widget.hive.queen != null) widget.hive.queen!.needsReplacement = true;
+    }
 
     widget.hive.familyFunction = _selectedSubFunction;
 
