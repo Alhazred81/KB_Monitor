@@ -1010,8 +1010,8 @@ Future<void> showQueenReplacementFlowDialog({
                           SnackBar(
                             content: Text(
                               'Új anya (${queenToAssign.id}) kirágósra beadva! Tiszta lap indult.\n'
-                              '📅 3 nap múlva: Kirágás-ellenőrzés\n'
-                              '📅 14 nap múlva: Anyásítás vizsgálat (${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')})',
+                              '🔒 14 napos LAKAT aktív (Tilos bolygatni, a monitor hallgatózik)!\n'
+                              '📅 Vizsgálat a lakat lejáratakor: ${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')} (10:00)',
                             ),
                             backgroundColor: Colors.teal,
                             duration: const Duration(seconds: 5),
@@ -1089,8 +1089,7 @@ Future<void> showQueenReplacementFlowDialog({
                           SnackBar(
                             content: Text(
                               'Kirágósra állítva! Kaptár 14 napra zárolva (🔒 Lakat: Tilos bolygatni)!\n'
-                              '📅 3 nap múlva: Kirágás-ellenőrzés\n'
-                              '📅 14 nap múlva: Anyásítás vizsgálat (${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')})',
+                              '📅 Vizsgálat a lakat lejáratakor: ${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')} (10:00)',
                             ),
                             backgroundColor: Colors.teal,
                             duration: const Duration(seconds: 5),

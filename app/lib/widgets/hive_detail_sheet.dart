@@ -1459,7 +1459,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
       }
     }
 
-    // 1/B. Anyacsere 3 napos és 14 napos vizsgálatainak garantált megjelenítése
+    // 1/B. Anyacsere: Szoktatós (zárt kalitka) esetén 3 napos kirágósra állítási feladat
     if (hive.queenReplacementState == 'introduced_cage') {
       final cageStart = hive.queenIntroducedAt ?? now;
       final dueDate = cageStart.add(const Duration(days: 3));
@@ -1472,23 +1472,6 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
               'A 3 napos beszoktatási idő letelt. Nyisd meg a cukorlepényes kirágónyílást a kalitkán, hogy a méhek ki tudják rágni az anyát!',
           'date': dueDate,
           'type': 'queen_cage_switch',
-        });
-      }
-    } else if (hive.queenReplacementState == 'introduced_chewout') {
-      final chewStart = hive.queenIntroducedAt ?? now;
-      final dueDate3 = chewStart.add(const Duration(days: 3));
-      final bool isChewCompleted = repository.scheduledTasks.any(
-        (t) => t.hiveId == hive.id && t.title.contains('kirágás ellenőrzése') && t.isCompleted,
-      );
-      final bool alreadyInTasks = allTasks.any((t) => (t['title'] as String).contains('kirágás ellenőrzése'));
-      if (!isChewCompleted && !alreadyInTasks) {
-        allTasks.add({
-          'id': 'QUEEN_CHEW_${hive.id}',
-          'title': 'Anya elfogadás & kirágás ellenőrzése (3 nap)',
-          'description':
-              'Rövid, kíméletes ellenőrzés a fészek bolygatása nélkül: megnézni, hogy a méhek kirágták-e az anyát a kalitkából.',
-          'date': dueDate3,
-          'type': 'queen_chew_check',
         });
       }
     }
@@ -1625,7 +1608,13 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
     final String timeStr =
         '${targetDate.hour.toString().padLeft(2, '0')}:${targetDate.minute.toString().padLeft(2, '0')}';
 
-    if (next['type'] == 'escapement_harvest') {
+    if (hive.isLocked && (next['title'] as String).contains('Anyásítás vizsgálata')) {
+      dueBadgeText = '🔒 ${hive.lockedDaysRemaining} NAP NYUGALOM (TILOS BOLYGATNI)';
+      badgeColor = Colors.tealAccent;
+      borderColor = Colors.tealAccent.withAlpha(180);
+      cardBg = const Color(0xFF0F766E).withAlpha(120);
+      taskIcon = Icons.lock_clock;
+    } else if (next['type'] == 'escapement_harvest') {
       final escapementBox = next['box'] as BoxElement;
       final startTime = escapementBox.statusUpdatedAt ?? now;
       final elapsedSec = now.difference(startTime).inSeconds;
@@ -1759,7 +1748,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                   final type = next['type'] as String;
                   final String title = next['title'] as String;
                   final bool isCageSwitch = type == 'queen_cage_switch' || title.contains('kirágósra állítása');
-                  final bool isChewCheck = type == 'queen_chew_check' || title.contains('kirágás ellenőrzése');
+                  final bool isQueenInspection = title.contains('Anyásítás vizsgálata');
 
                   IconData btnIcon = Icons.check_circle_outline;
                   String btnLabel = 'Feladat készre jelentése';
@@ -1771,11 +1760,11 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                     btnLabel = 'Anyakalitka átállítása kirágósra';
                     btnBg = Colors.amberAccent;
                     btnFg = Colors.black;
-                  } else if (isChewCheck) {
-                    btnIcon = Icons.verified_outlined;
-                    btnLabel = 'Kirágás rendben (Anya kint van)';
-                    btnBg = Colors.tealAccent;
-                    btnFg = Colors.black;
+                  } else if (isQueenInspection && hive.isLocked) {
+                    btnIcon = Icons.lock;
+                    btnLabel = '🔒 Lakat aktív (Még ${hive.lockedDaysRemaining} nap nyugalmi idő)';
+                    btnBg = const Color(0xFF0F766E);
+                    btnFg = Colors.tealAccent;
                   }
 
                   return ElevatedButton.icon(
@@ -1786,20 +1775,11 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                           hive: hive,
                           repository: repository,
                         );
-                      } else if (isChewCheck) {
-                        setState(() {
-                          for (var t in repository.scheduledTasks) {
-                            if (t.hiveId == hive.id &&
-                                (t.id.contains('QUEEN_CHEW') || t.title.contains('kirágás ellenőrzése'))) {
-                              t.isCompleted = true;
-                            }
-                          }
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Anya kirágás ellenőrzése kész! A 14 napos vizsgálat aktív marad.'),
-                            backgroundColor: Colors.teal,
-                          ),
+                      } else if (isQueenInspection && hive.isLocked) {
+                        showLockedHiveWarningDialog(
+                          context: context,
+                          hive: hive,
+                          repository: repository,
                         );
                       } else if (type == 'scheduled') {
                         final task = next['task'] as ScheduledTask;
@@ -2320,15 +2300,6 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
       });
     }
 
-    if (hive.isLocked) {
-      diagnosticIssues.add({
-        'icon': Icons.lock,
-        'title':
-            '🔒 Kaptár Zárolva (${hive.lockedDaysRemaining} napig: Kirágós anya, Ne nyúlj hozzá!)',
-        'isManualStatus': false,
-      });
-    }
-
     if (hive.protocol != null && hive.protocol!.isNotEmpty) {
       diagnosticIssues.add({
         'icon': Icons.healing,
@@ -2337,11 +2308,21 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
       });
     }
 
+    // A 14 napos lakat önmagában NEM hiba vagy probléma, hanem védett nyugalmi állapot!
     final bool isAllGreen =
         diagnosticIssues.isEmpty && hive.worstStatus == 'green';
 
-    // Ha teljesen zöld és nincs semmilyen probléma
+    // Ha zöld és nincs valódi diagnosztikai probléma
     if (isAllGreen) {
+      final bool isQuietLock = hive.isLocked;
+      final String cardTitle = isQuietLock
+          ? 'Család állapota: Védett nyugalmi időszak (Zöld • 🔒 Lakat)'
+          : 'Család állapota: Egészséges & Optimális (Zöld)';
+      final String helpMsg = isQuietLock
+          ? 'Új anya kirágósra adva (${hive.lockedDaysRemaining} nap nyugalmi idő van hátra).\n\nKét hétig nem piszkáljuk a családot, a monitor akusztikusan felügyeli a békés méhzúgást (${hive.zcr.toStringAsFixed(0)} Hz).'
+          : 'Minden mért szenzor, kaptárelem és betervezett teendő optimális rendben van.\n\nAkusztikai monitor: Nyugodt méhzúgás (${hive.zcr.toStringAsFixed(0)} Hz).';
+      final IconData statusIcon = isQuietLock ? Icons.lock : Icons.check_circle_rounded;
+
       return Material(
         color: Colors.transparent,
         child: InkWell(
@@ -2353,15 +2334,21 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF064E3B).withAlpha(120),
+              color: isQuietLock
+                  ? const Color(0xFF0F766E).withAlpha(120)
+                  : const Color(0xFF064E3B).withAlpha(120),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.greenAccent.withAlpha(160)),
+              border: Border.all(
+                color: isQuietLock
+                    ? Colors.tealAccent.withAlpha(180)
+                    : Colors.greenAccent.withAlpha(160),
+              ),
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.check_circle_rounded,
-                  color: Colors.greenAccent,
+                Icon(
+                  statusIcon,
+                  color: isQuietLock ? Colors.tealAccent : Colors.greenAccent,
                   size: 26,
                 ),
                 const SizedBox(width: 12),
@@ -2371,20 +2358,20 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                     children: [
                       Row(
                         children: [
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              'Család állapota: Egészséges & Optimális (Zöld)',
+                              cardTitle,
                               style: TextStyle(
-                                color: Colors.greenAccent,
+                                color: isQuietLock ? Colors.tealAccent : Colors.greenAccent,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,
                               ),
                             ),
                           ),
                           HelpBubbleButton(
-                            title: 'Egészséges kaptárállapot',
-                            message: 'Minden mért szenzor, kaptárelem és betervezett teendő optimális rendben van.\n\nAkusztikai monitor: Nyugodt méhzúgás (${hive.zcr.toStringAsFixed(0)} Hz).',
-                            iconColor: Colors.greenAccent,
+                            title: isQuietLock ? 'Védett lakat időszak' : 'Egészséges kaptárállapot',
+                            message: helpMsg,
+                            iconColor: isQuietLock ? Colors.tealAccent : Colors.greenAccent,
                             size: 15,
                           ),
                           if (!hive.hasExtraBoxes) ...[

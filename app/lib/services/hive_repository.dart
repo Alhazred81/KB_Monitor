@@ -1299,28 +1299,17 @@ class HiveRepository extends ChangeNotifier {
       );
       addScheduledTask(cageTask);
     } else {
-      // Kirágós mód: 3 nap múlva kirágás ellenőrzése + 14 nap múlva fiasítás vizsgálat
-      final chewCheckTask = ScheduledTask(
-        id: 'TASK_${hive.id}_QUEEN_CHEW_${now.millisecondsSinceEpoch}',
-        hiveId: hive.id,
-        category: 'inspection',
-        title: 'Anya elfogadás & kirágás ellenőrzése (3 nap)',
-        description:
-            'Rövid, kíméletes ellenőrzés a(z) ${hive.name} kaptárban a fészek bolygatása nélkül: megnézni, hogy a méhek kirágták-e az anyát a kalitkából.',
-        scheduledDate: inspection3Day,
-        isCompleted: false,
-      );
-      addScheduledTask(chewCheckTask);
-
+      // Kirágós mód: 2 hétig (14 napig) teljes nyugalom (lakat: tilos bolygatni)!
+      // Kizárólag a 14 napos lakat lejárata napjára ütemezünk vizsgálatot.
       final lockEnd = custom14DayDate ?? (hive.lockedUntil ?? now.add(const Duration(days: 14)));
       final inspection14Day = DateTime(lockEnd.year, lockEnd.month, lockEnd.day, 10, 0);
       final inspectionTask = ScheduledTask(
-        id: 'TASK_${hive.id}_QUEEN_INSP_${now.millisecondsSinceEpoch + 1}',
+        id: 'TASK_${hive.id}_QUEEN_INSP_${now.millisecondsSinceEpoch}',
         hiveId: hive.id,
         category: 'inspection',
         title: 'Anyásítás vizsgálata: Petézés & Fiasítás (14 nap)',
         description:
-            'Lejárt a 14 napos nyugalmi időszak ("ne nyúlj hozzá") a(z) ${hive.name} kaptárban. Vizsgáld meg az új anya elfogadását, a kirágást, az új petéket és a fiasításképet!',
+            'Lejárt a 14 napos nyugalmi időszak ("ne nyúlj hozzá") a(z) ${hive.name} kaptárban. Vizsgáld meg az új anya elfogadását, a petézést és a fiasításképet!',
         scheduledDate: inspection14Day,
         isCompleted: false,
       );
