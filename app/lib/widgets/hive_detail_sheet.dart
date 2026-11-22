@@ -925,7 +925,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                           width: (isDirectlyAboveEscapement ||
                                   isEscapement ||
                                   isEscapedByBoard ||
-                                  boxBorderColor != Colors.greenAccent.withAlpha(160))
+                                  boxBorderColor != Colors.greenAccent)
                               ? 2.0
                               : 1.5,
                         ),
@@ -1331,7 +1331,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
     // 1. Aljdeszka
     if (isBottomBox(box)) {
       if (!box.isActive) {
-        return Colors.greenAccent.withAlpha(160);
+        return Colors.greenAccent;
       }
       final bool isDue = box.isVarroaCheckDue ||
           (box.statusUpdatedAt != null &&
@@ -1341,7 +1341,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
 
     // 2. Pollengyűjtő
     if (isPollenBox(box)) {
-      return box.isActive ? Colors.orangeAccent : Colors.greenAccent.withAlpha(160);
+      return box.isActive ? Colors.orangeAccent : Colors.greenAccent;
     }
 
     // 3. Méhszöktető
@@ -1365,22 +1365,47 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
           widget.hive.feedingMode != 'off') {
         return Colors.orangeAccent;
       }
-      return Colors.greenAccent.withAlpha(160);
+      return Colors.greenAccent;
     }
 
-    // 6. Tető
+    // 6. Tető (ha nincs zárolva az anyacsere miatt, nincs teendő -> zöld)
     if (isRoofBox(box)) {
-      return widget.hive.isLocked ? Colors.amberAccent : Colors.greenAccent.withAlpha(160);
+      return widget.hive.isLocked ? Colors.amberAccent : Colors.greenAccent;
     }
 
-    // 7. Fészekfiók és egyéb normál fiókok
+    // 7. Fészekfiók (ha a fészekhőmérséklet és akusztika rendben, nincs teendő -> zöld)
+    final bool isBrood = (lowerType == 'brood_box' ||
+        lowerType == 'broodbox' ||
+        lowerType == 'nest' ||
+        lowerType == '8' ||
+        lowerName.contains('fészek') ||
+        lowerName.contains('feszek'));
+    if (isBrood) {
+      if (box.status == 'red' ||
+          box.status == 'flashing_red' ||
+          widget.hive.tempStatus == 'flashing_red' ||
+          widget.hive.tempStatus == 'red') {
+        return Colors.redAccent;
+      }
+      if (box.status == 'orange') {
+        return Colors.orangeAccent;
+      }
+      if (box.status == 'yellow' ||
+          widget.hive.tempStatus == 'yellow' ||
+          widget.hive.acousticColonyStatus == 'yellow') {
+        return Colors.amberAccent;
+      }
+      return Colors.greenAccent;
+    }
+
+    // 8. Egyéb normál fiókok (méztér stb.)
     if (box.status == 'red' || box.status == 'flashing_red') return Colors.redAccent;
     if (box.status == 'orange') return Colors.orangeAccent;
     if (box.status == 'yellow') return Colors.amberAccent;
     if (box.status == 'purple') return Colors.purpleAccent;
 
     // Nincs teendő -> Zöld keret
-    return Colors.greenAccent.withAlpha(160);
+    return Colors.greenAccent;
   }
 
   Widget _buildNextTaskCard(
