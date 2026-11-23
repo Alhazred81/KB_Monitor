@@ -349,6 +349,10 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
     final HiveRepository repository = HiveRepository.instance;
     sortHiveBoxes(widget.hive.boxes);
     final displayedBoxes = widget.hive.boxes.reversed.toList();
+    final int escapementIndex = widget.hive.boxes.indexWhere(
+      (b) => b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
+    );
+    final DateTime now = DateTime.now();
 
     // Megkeressük a legalsó fészekfiókot
     BoxElement? bottomBroodBox;
@@ -623,9 +627,6 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                   box.type != 'bottom' &&
                   box.type != 'pollen_trap');
 
-              final int escapementIndex = widget.hive.boxes.indexWhere(
-                (b) => b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
-              );
               final int currentBoxIndex = widget.hive.boxes.indexOf(box);
               final bool isDirectlyAboveEscapement =
                   (escapementIndex != -1 && currentBoxIndex == escapementIndex + 1);
@@ -633,7 +634,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                   (escapementIndex != -1 && currentBoxIndex > escapementIndex && canBeEscaped);
               final bool isEscapementOverdue = isEscapement &&
                   box.statusUpdatedAt != null &&
-                  DateTime.now().difference(box.statusUpdatedAt!).inMinutes >= 24 * 60;
+                  now.difference(box.statusUpdatedAt!).inMinutes >= 24 * 60;
 
               final Color boxBorderColor = _getBoxBorderColor(
                 box: box,

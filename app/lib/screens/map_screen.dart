@@ -123,13 +123,17 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     LatLng? pos = await _locationService.updatePosition();
     if (pos != null && mounted) {
       setState(() {});
-      _mapController.move(pos, 17.0);
+      try {
+        _mapController.move(pos, 17.0);
+      } catch (_) {}
     }
 
     _locationService.initCompass((heading, accuracy) {
       if (mounted) {
         if (_isMapFreeRotate && !_isEditMode && heading != null) {
-          _mapController.rotate(-heading);
+          try {
+            _mapController.rotate(-heading);
+          } catch (_) {}
         }
       }
     });
@@ -171,6 +175,20 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
           duration: const Duration(seconds: 2),
         ),
       );
+    }
+  }
+
+  void _setCameraActive(bool active) {
+    if (_isCameraActive == active) return;
+    setState(() {
+      _isCameraActive = active;
+    });
+    if (active) {
+      _redFlashingAnimController.stop();
+      _compassRedAnimController.stop();
+    } else {
+      _redFlashingAnimController.repeat(reverse: true);
+      _compassRedAnimController.repeat(reverse: true);
     }
   }
 
@@ -1810,6 +1828,16 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   @override
   Widget build(BuildContext context) {
+    final DateTime now = DateTime.now();
+    final Set<String> hivesWithOverdueTasks = _repository.scheduledTasks
+        .where((t) =>
+            !t.isCompleted &&
+            t.scheduledDate.isBefore(now) &&
+            !t.id.contains('ESCAPEMENT') &&
+            !t.title.contains('Méhszöktetés'))
+        .map((t) => t.hiveId)
+        .toSet();
+
     double headingRad = (_locationService.heading ?? 0) * (math.pi / 180.0);
     Color compassColor =
         (_locationService.accuracy == null || _locationService.accuracy! > 40.0)
@@ -1829,7 +1857,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         if (_isCameraActive) {
-          setState(() => _isCameraActive = false);
+          _setCameraActive(false);
           return;
         }
         if (_isEditMode) {
@@ -1948,18 +1976,8 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                             (b) => b.type == 'escapement' && b.isActive,
                           );
 
-                          final now = DateTime.now();
-                          final bool hasOverdueTask = _repository
-                              .scheduledTasks
-                              .any((t) {
-                                if (t.hiveId != hive.id || t.isCompleted) {
-                                  return false;
-                                }
-                                if (t.id.contains('ESCAPEMENT') || t.title.contains('Méhszöktetés')) {
-                                  return false;
-                                }
-                                return t.scheduledDate.isBefore(now);
-                              });
+                          final bool hasOverdueTask =
+                              hivesWithOverdueTasks.contains(hive.id);
 
                           final worstStatus = hasOverdueTask
                               ? (hive.worstStatus == 'green'
@@ -1981,7 +1999,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                     b.name.toLowerCase().contains('szöktet')) &&
                                 b.isActive &&
                                 b.statusUpdatedAt != null &&
-                                DateTime.now().difference(b.statusUpdatedAt!).inHours >= 24,
+                                now.difference(b.statusUpdatedAt!).inHours >= 24,
                           );
 
                           final bool isImmediateIntervention = hive.isQueenReplacementActive ||
@@ -2469,13 +2487,11 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
           ScannerOverlay(
             cameraController: _mapScannerCtrl,
             onDetect: (code) {
-              setState(() {
-                _idController.text = code;
-                _isCameraActive = false;
-              });
+              _setCameraActive(false);
+              _idController.text = code;
               _findAndShowHive(code);
             },
-            onClose: () => setState(() => _isCameraActive = false),
+            onClose: () => _setCameraActive(false),
           ),
 
         // --- ÁTRENDEZŐ MÓD FIGYELMEZTETŐ ÉS MENTŐ SÁV ---
@@ -2707,7 +2723,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             isNfcScanning: _isNfcScanning,
             nfcColorAnim: _nfcColorAnim,
             onSubmitted: (val) => _findAndShowHive(val),
-            onCameraPressed: () => setState(() => _isCameraActive = true),
+            onCameraPressed: () => _setCameraActive(true),
             onNfcPressed: () {
               _startNfcScan();
               Future.delayed(const Duration(seconds: 2), () {

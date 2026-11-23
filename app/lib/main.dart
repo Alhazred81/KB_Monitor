@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 
-import 'screens/map_screen.dart'; // Ez most már helyes, mert benne van a MapAndScannerScreen
+import 'screens/map_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Térképi csempék (OpenStreetMap) és képek memória-optimalizálása memóriaszivárgás ellen
+  PaintingBinding.instance.imageCache.maximumSize = 100;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 30 * 1024 * 1024; // 30 MB
   runApp(const HiveMonitorApp());
 }
 
@@ -19,9 +23,9 @@ class HiveMonitorApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: const Color(0xFF111827),
       ),
-      home: Scaffold(
+      home: const Scaffold(
         body: SafeArea(
-          child: MapAndScannerScreen(), // <-- Itt volt a néveltérés (MapScreen helyett ez kell)
+          child: MapAndScannerScreen(),
         ),
       ),
     );
