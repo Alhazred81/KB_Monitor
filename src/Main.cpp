@@ -467,4 +467,7 @@ void loop() {
     Serial.println("KOPOGÁS ÉRZÉKELVE! AP indul.");
     startAP();
   }
+
+  // CPU tehermentesítés & FreeRTOS IDLE hook engedélyezése (alacsonyabb fogyasztás, melegedésgátlás)
+  delay(2);
 }
