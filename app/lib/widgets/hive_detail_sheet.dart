@@ -65,11 +65,10 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
         content: Text(
           'Biztosan befejezted a méhszöktetést?\n\n'
           '• A méhszöktető eltávolításra kerül.\n'
-          '• A felette lévő $superCount db fiók elvételre kerül (a tető megmarad a kaptáron).\n'
-          '• A kapcsolódó feladat automatikusan lezárul.',
+          '• A felette lévő $superCount db fiók elvételre kerül.',
           style: const TextStyle(
             color: Colors.white70,
-            fontSize: 13,
+            fontSize: 14,
             height: 1.4,
           ),
         ),
@@ -77,9 +76,8 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
         actions: [
           Row(
             children: [
-              // 1. Boxkesztyű-barát MÉGSE gomb
+              // 1. Nagy MÉGSE gomb
               Expanded(
-                flex: 4,
                 child: SizedBox(
                   height: 52,
                   child: OutlinedButton.icon(
@@ -93,25 +91,21 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                     ),
                     onPressed: () => Navigator.pop(dialogCtx),
-                    icon: const Icon(Icons.close, size: 20, color: Colors.white60),
-                    label: const FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        'Mégse',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
+                    icon: const Icon(Icons.close, size: 20, color: Colors.white70),
+                    label: const Text(
+                      'Mégse',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              // 2. Boxkesztyű-barát IGEN, FIÓKOK ELVÉTELE gomb
+              const SizedBox(width: 12),
+              // 2. Nagy OK gomb
               Expanded(
-                flex: 6,
                 child: SizedBox(
                   height: 52,
                   child: ElevatedButton.icon(
@@ -143,15 +137,12 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                       size: 22,
                       color: Color(0xFF0F172A),
                     ),
-                    label: const FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        'Igen, fiókok elvétele',
-                        style: TextStyle(
-                          color: Color(0xFF0F172A),
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
+                    label: const Text(
+                      'OK',
+                      style: TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
