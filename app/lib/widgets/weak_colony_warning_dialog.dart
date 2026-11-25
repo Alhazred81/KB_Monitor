@@ -9,6 +9,7 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
   final String biologicalExplanation;
   final String targetHiveInfo;
   final String confirmationQuestion;
+  final String confirmButtonLabel;
   final Color badgeColor;
 
   const _LargeBeekeepingWarningDialog({
@@ -18,6 +19,7 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
     required this.biologicalExplanation,
     required this.targetHiveInfo,
     this.confirmationQuestion = 'Biztosan végrehajtod ezt a műveletet?',
+    this.confirmButtonLabel = 'FELÜLBÍRÁLÁS',
     this.badgeColor = const Color(0xFFEF4444),
   });
 
@@ -217,11 +219,11 @@ class _LargeBeekeepingWarningDialog extends StatelessWidget {
                         ),
                         onPressed: () => Navigator.pop(context, true),
                         icon: const Icon(Icons.priority_high, size: 18),
-                        label: const FittedBox(
+                        label: FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text(
-                            'FELÜLBÍRÁLÁS',
-                            style: TextStyle(
+                            confirmButtonLabel,
+                            style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 0.5,
@@ -294,7 +296,7 @@ Future<bool> showFeederHoneyConflictDialog({
   return false;
 }
 
-/// 2. FIGYELMEZTETÉS: GYENGE / BETEG CSALÁDOK MEGCSAPOLÁSA
+/// 2. FIGYELMEZTETÉS: GYENGE / BETEG CSALÁDOK BŐVÍTÉSE VAGY MEGCSAPOLÁSA
 Future<bool> showWeakColonyWarningDialog({
   required BuildContext context,
   required HiveData hive,
@@ -302,35 +304,68 @@ Future<bool> showWeakColonyWarningDialog({
   String? customWarningMessage,
   VoidCallback? onConfirm,
 }) async {
-  final bool isHoneySuper = actionTitle.toLowerCase().contains('méztér');
-  final bool isPollenTrap = actionTitle.toLowerCase().contains('pollen') ||
-      actionTitle.toLowerCase().contains('virágpor');
+  final String lower = actionTitle.toLowerCase();
+  final bool isCombBuilder = lower.contains('lépépít');
+  final bool isDemaree = lower.contains('szaporít') || lower.contains('demaree');
+  final bool isExtraBrood = lower.contains('fészek');
+  final bool isHoneySuper = lower.contains('méztér');
+  final bool isExtraFrames =
+      isCombBuilder || isDemaree || isExtraBrood || isHoneySuper || lower.contains('fiók');
+  final bool isPollenTrap =
+      lower.contains('pollen') || lower.contains('virágpor');
 
-  String badgeText = 'Gyenge vagy beteg család (${hive.weakOrSickReason})';
-  String primaryMessage = isPollenTrap
-      ? 'A virágpor elvonása a család összeomlásához vezethet!'
-      : isHoneySuper
-          ? 'A megnövelt légtér kihűléshez vezethet!'
-          : 'A megcsapolás veszélyezteti a családot!';
+  final String dialogTitle = isExtraFrames
+      ? 'Gyenge Család Bővítése!'
+      : 'Megcsapolási Figyelmeztetés';
+  final String badgeText = 'Gyenge vagy beteg család (${hive.weakOrSickReason})';
 
-  String biologicalExplanation = customWarningMessage ??
-      (isPollenTrap
-          ? 'A virágpor a család egyetlen fehérjeforrása az álcák és dajkák számára. Elvonása leállítja a fiasítást.'
-          : isHoneySuper
-              ? 'A gyenge család nem tudja kifűteni a mézteret, a fiasítás megfázhat és elvész a tartalék méz.'
-              : 'A veszélyeztetett családok megcsapolása súlyos stresszt okoz.');
+  String primaryMessage;
+  if (isPollenTrap) {
+    primaryMessage = 'A virágpor elvonása a család összeomlásához vezethet!';
+  } else if (isCombBuilder) {
+    primaryMessage = 'Gyenge családot plusz műlépes keretekkel terhelni veszélyes!';
+  } else if (isDemaree) {
+    primaryMessage = 'Gyenge családon a fészekmegosztás (Demaree) összeomlást okozhat!';
+  } else if (isExtraFrames) {
+    primaryMessage = 'A plusz keretek és megnövelt légtér kihűléshez vezethetnek!';
+  } else {
+    primaryMessage = 'A megcsapolás veszélyezteti a családot!';
+  }
+
+  String defaultExplanation;
+  if (isPollenTrap) {
+    defaultExplanation =
+        'A virágpor a család egyetlen fehérjeforrása az álcák és dajkák számára. Elvonása leállítja a fiasítást.';
+  } else if (isCombBuilder) {
+    defaultExplanation =
+        'A gyenge családnak nincs elég viasztermelő méhe és fűtőereje a lépépítő keretek kihúzásához és takarásához.';
+  } else if (isDemaree) {
+    defaultExplanation =
+        'A gyenge család nem bírja el a fészek kettéosztását és a plusz fiókot: a fiasítás megfázhat és leáll a fejlődés.';
+  } else if (isExtraFrames) {
+    defaultExplanation =
+        'A gyenge család nem tudja kifűteni és takarni a plusz fiók kereteit, a fiasítás megfázhat és elvész a tartalék élelem.';
+  } else {
+    defaultExplanation =
+        'A veszélyeztetett családok megcsapolása súlyos stresszt okoz.';
+  }
+
+  final String confirmationQuestion = isExtraFrames
+      ? 'Tényleg meg akarod büntizni plusz keretekkel ezt a gyenge családot?'
+      : 'Biztosan megcsapolod ezt a családot?';
 
   final result = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => _LargeBeekeepingWarningDialog(
-      title: 'Megcsapolási Figyelmeztetés',
+      title: dialogTitle,
       badgeText: badgeText,
       primaryMessage: primaryMessage,
-      biologicalExplanation: biologicalExplanation,
+      biologicalExplanation: customWarningMessage ?? defaultExplanation,
       targetHiveInfo: 'Kaptár: ${hive.name} (${hive.id}) - $actionTitle',
       badgeColor: const Color(0xFFEF4444),
-      confirmationQuestion: 'Biztosan megcsapolod ezt a családot?',
+      confirmationQuestion: confirmationQuestion,
+      confirmButtonLabel: 'CSAKAZÉRTIS!',
     ),
   );
 

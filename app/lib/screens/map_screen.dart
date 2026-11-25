@@ -13,9 +13,6 @@ import '../services/location_compass_service.dart';
 import '../widgets/hive_config_dialog.dart';
 import '../widgets/hive_detail_sheet.dart';
 import '../widgets/weak_colony_warning_dialog.dart';
-import '../widgets/scanner_controls.dart';
-import '../widgets/scanner_overlay.dart';
-import '../widgets/top_gps_bar.dart';
 import '../widgets/candy_icon.dart';
 import '../widgets/waterer_icon.dart';
 import '../widgets/queen_replacement_dialog.dart';
@@ -36,8 +33,9 @@ class MapAndScannerScreen extends StatefulWidget {
 }
 
 class _MapAndScannerScreenState extends State<MapAndScannerScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final MapController _mapController = MapController();
+  bool _isMapReady = false;
   final LocationCompassService _locationService = LocationCompassService();
   final HiveRepository _repository = HiveRepository.instance;
 
@@ -48,6 +46,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   bool _isAdvancedMode = false;
   bool _isMapFreeRotate = true;
+  double _currentMapRotationRad = 0.0;
 
   // --- IKON ÁTRENDEZŐ (SZERKESZTŐ) MÓD ---
   bool _isEditMode = false;
@@ -68,22 +67,38 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
   late AnimationController _compassRedAnimController;
   late Animation<double> _compassRedOpacityAnim;
 
-  final MobileScannerController _mapScannerCtrl = MobileScannerController(
-    formats: const [
-      BarcodeFormat.qrCode,
-      BarcodeFormat.dataMatrix,
-      BarcodeFormat.code128,
-    ],
-  );
+  MobileScannerController? _mapScannerCtrl;
   bool _isCameraActive = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _serverUrl = _repository.supabaseUrl;
     _anonKey = _repository.supabaseAnonKey;
     _repository.addListener(_onRepositoryChanged);
     _initSensors();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _repository.setAppLifecycleActive(true);
+      if (!_isCameraActive) {
+        _locationService.resumeCompass();
+      }
+      if (mounted) setState(() {});
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _locationService.pauseCompass();
+      _repository.setAppLifecycleActive(false);
+      _redFlashingAnimController.stop();
+      _compassRedAnimController.stop();
+      if (_isCameraActive) {
+        _setCameraActive(false);
+      }
+    }
   }
 
   void _onRepositoryChanged() {
@@ -103,18 +118,18 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     ).animate(_nfcAnimController);
 
     _redFlashingAnimController = AnimationController(
-      duration: const Duration(milliseconds: 350),
+      duration: const Duration(milliseconds: 600),
       vsync: this,
-    )..repeat(reverse: true);
+    );
     _redFlashOpacityAnim = Tween<double>(
-      begin: 0.2,
+      begin: 0.25,
       end: 1.0,
     ).animate(_redFlashingAnimController);
 
     _compassRedAnimController = AnimationController(
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 600),
       vsync: this,
-    )..repeat(reverse: true);
+    );
     _compassRedOpacityAnim = Tween<double>(
       begin: 0.3,
       end: 1.0,
@@ -123,14 +138,16 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     LatLng? pos = await _locationService.updatePosition();
     if (pos != null && mounted) {
       setState(() {});
-      try {
-        _mapController.move(pos, 17.0);
-      } catch (_) {}
+      if (_isMapReady && !_isCameraActive) {
+        try {
+          _mapController.move(pos, 17.0);
+        } catch (_) {}
+      }
     }
 
     _locationService.initCompass((heading, accuracy) {
       if (mounted) {
-        if (_isMapFreeRotate && !_isEditMode && heading != null) {
+        if (_isMapFreeRotate && !_isEditMode && !_isCameraActive && heading != null && _isMapReady) {
           try {
             _mapController.rotate(-heading);
           } catch (_) {}
@@ -141,7 +158,9 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   @override
   void dispose() {
-    _mapScannerCtrl.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _mapScannerCtrl?.dispose();
+    _mapScannerCtrl = null;
     _locationService.dispose();
     _localOtaServer?.close(force: true);
     _repository.removeListener(_onRepositoryChanged);
@@ -153,7 +172,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
   }
 
   LatLng _applyDragDelta(LatLng currentLatLng, Offset pixelDelta) {
-    final double zoom = _mapController.camera.zoom;
+    double zoom = 17.0;
+    if (_isMapReady && !_isCameraActive) {
+      try {
+        zoom = _mapController.camera.zoom;
+      } catch (_) {}
+    }
     final double scale = 0.000009 * math.pow(2, 17 - zoom);
     return LatLng(
       currentLatLng.latitude - (pixelDelta.dy * scale),
@@ -180,14 +204,45 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   void _setCameraActive(bool active) {
     if (_isCameraActive == active) return;
-    setState(() {
-      _isCameraActive = active;
-    });
     if (active) {
+      _locationService.pauseCompass();
+      _mapScannerCtrl?.dispose();
+      _mapScannerCtrl = MobileScannerController(
+        formats: const [
+          BarcodeFormat.qrCode,
+          BarcodeFormat.dataMatrix,
+          BarcodeFormat.code128,
+        ],
+      );
       _redFlashingAnimController.stop();
       _compassRedAnimController.stop();
     } else {
+      _mapScannerCtrl?.dispose();
+      _mapScannerCtrl = null;
+      _locationService.resumeCompass();
+    }
+    setState(() {
+      _isCameraActive = active;
+    });
+  }
+
+  void _syncBlinkControllers({
+    required bool anyHiveFlashing,
+    required bool shouldFlashCompass,
+  }) {
+    if (_isCameraActive || !anyHiveFlashing) {
+      if (_redFlashingAnimController.isAnimating) {
+        _redFlashingAnimController.stop();
+      }
+    } else if (!_redFlashingAnimController.isAnimating) {
       _redFlashingAnimController.repeat(reverse: true);
+    }
+
+    if (_isCameraActive || !shouldFlashCompass) {
+      if (_compassRedAnimController.isAnimating) {
+        _compassRedAnimController.stop();
+      }
+    } else if (!_compassRedAnimController.isAnimating) {
       _compassRedAnimController.repeat(reverse: true);
     }
   }
@@ -229,11 +284,19 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
   Future<void> _refreshPosition() async {
     HapticFeedback.lightImpact();
-    _mapController.move(_locationService.currentPosition, 17.0);
+    if (_isMapReady && !_isCameraActive) {
+      try {
+        _mapController.move(_locationService.currentPosition, 17.0);
+      } catch (_) {}
+    }
     LatLng? pos = await _locationService.updatePosition();
     if (pos != null && mounted) {
       setState(() {});
-      _mapController.move(pos, 17.0);
+      if (_isMapReady && !_isCameraActive) {
+        try {
+          _mapController.move(pos, 17.0);
+        } catch (_) {}
+      }
     }
   }
 
@@ -712,17 +775,20 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: const Color(0xFF1f2937),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (BuildContext sheetContext) {
-        return Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20.0, 20.0, 20.0, 36.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -753,10 +819,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
               const Divider(color: Colors.white24, height: 20),
 
               // Szerver / Supabase kapcsolat státusz kártya (Zöld / Piros) - rábökve azonnal a beállításokhoz ugrik
-              Builder(
-                builder: (context) {
+              ListenableBuilder(
+                listenable: _repository,
+                builder: (context, _) {
+                  final stationLive = _repository.weatherStation;
                   final bool isConnected =
-                      station.isOnline && _repository.isOnline;
+                      stationLive.isOnline && _repository.isOnline;
                   final Color statusColor =
                       isConnected ? Colors.greenAccent : Colors.redAccent;
 
@@ -974,10 +1042,11 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
               ),
             ],
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   void _showWatererDetails(WatererData waterer) {
     HapticFeedback.lightImpact();
@@ -1688,6 +1757,11 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
   }
 
   IconData _getHiveIcon(HiveData hive) {
+    if (hive.isQuarantined ||
+        hive.protocol?.toLowerCase() == 'hans' ||
+        hive.familyFunction.toLowerCase() == 'hans') {
+      return Icons.local_fire_department;
+    }
     if (hive.isQueenReplacementActive) {
       return Icons.warning_amber_rounded;
     }
@@ -1849,8 +1923,35 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
         (_locationService.accuracy == null ||
         _locationService.accuracy! > 40.0);
 
-    final double remainingSyrupPct =
-        _repository.syrupPump.tankLevelPercent.clamp(0.0, 100.0);
+    bool anyHiveNeedsFlash = false;
+    final Map<String, String> hiveWorstStatusCache = {};
+    for (final h in _repository.hives) {
+      final rawWorst = h.worstStatus;
+      final effectiveWorst = hivesWithOverdueTasks.contains(h.id) && rawWorst == 'green'
+          ? 'yellow'
+          : rawWorst;
+      hiveWorstStatusCache[h.id] = effectiveWorst;
+      if (!anyHiveNeedsFlash) {
+        final hasSpecialBox = h.boxes.any(
+          (b) =>
+              b.isActive &&
+              (b.type == 'bottom' ||
+                  b.type == 'pollen_trap' ||
+                  b.type == 'escapement'),
+        );
+        if (hasSpecialBox ||
+            h.isQueenReplacementActive ||
+            effectiveWorst == 'flashing_red' ||
+            effectiveWorst == 'red' ||
+            h.status == 'red') {
+          anyHiveNeedsFlash = true;
+        }
+      }
+    }
+    _syncBlinkControllers(
+      anyHiveFlashing: anyHiveNeedsFlash,
+      shouldFlashCompass: _isAdvancedMode && isRedFlashing,
+    );
 
     return PopScope(
       canPop: !_isCameraActive && !_isEditMode && !_isAdvancedMode,
@@ -1883,23 +1984,34 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
             ),
           ),
 
-        if (!_isCameraActive)
-          FlutterMap(
+        RepaintBoundary(
+          child: FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _locationService.currentPosition,
               initialZoom: 17.0,
+              onMapReady: () {
+                _isMapReady = true;
+              },
               interactionOptions: InteractionOptions(
-                flags: _isEditMode ? InteractiveFlag.none : InteractiveFlag.all,
+                flags: (_isEditMode || _isCameraActive) ? InteractiveFlag.none : InteractiveFlag.all,
               ),
+              onPositionChanged: (camera, hasGesture) {
+                _currentMapRotationRad = camera.rotationRad;
+              },
               onLongPress: (tapPosition, point) {
-                _toggleEditMode();
+                if (!_isCameraActive) {
+                  _toggleEditMode();
+                }
               },
             ),
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.balazs.hive_monitor',
+                maxNativeZoom: 19,
+                keepBuffer: 2,
+                panBuffer: 1,
               ),
               MarkerLayer(
                 markers: [
@@ -1907,22 +2019,15 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     point: _locationService.currentPosition,
                     width: 70,
                     height: 70,
-                    child: Transform.rotate(
-                      angle: headingRad,
-                      child: isRedFlashing
-                          ? FadeTransition(
-                              opacity: _compassRedOpacityAnim,
-                              child: const Icon(
-                                Icons.navigation,
-                                color: Colors.redAccent,
-                                size: 46,
-                              ),
-                            )
-                          : Icon(
-                              Icons.navigation,
-                              color: compassColor,
-                              size: 46,
-                            ),
+                    child: RepaintBoundary(
+                      child: Transform.rotate(
+                        angle: headingRad,
+                        child: Icon(
+                          Icons.navigation,
+                          color: compassColor,
+                          size: 46,
+                        ),
+                      ),
                     ),
                   ),
 
@@ -1930,8 +2035,8 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   for (var hive in _repository.hives)
                     Marker(
                       point: hive.location,
-                      width: 48,
-                      height: 48,
+                      width: 54,
+                      height: 54,
                       child: GestureDetector(
                         onTap: () {
                           if (!_isEditMode) {
@@ -1979,11 +2084,8 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                           final bool hasOverdueTask =
                               hivesWithOverdueTasks.contains(hive.id);
 
-                          final worstStatus = hasOverdueTask
-                              ? (hive.worstStatus == 'green'
-                                  ? 'yellow'
-                                  : hive.worstStatus)
-                              : hive.worstStatus;
+                          final worstStatus =
+                              hiveWorstStatusCache[hive.id] ?? hive.worstStatus;
 
                           final bool hasTartorHordozo =
                               hive.protocol == 'tarto_hordozo' ||
@@ -2127,6 +2229,61 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                     ],
                                   ),
                                 ),
+                                // Teljesítmény jelző: Csillag (jól teljesítő) vagy Piros lefelé nyíl (rosszul teljesítő)
+                                if (hive.isTopPerformer)
+                                  Positioned(
+                                    top: -4,
+                                    left: -4,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2.5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF0F172A),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.amberAccent,
+                                          width: 1.5,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                            color: Colors.black87,
+                                            blurRadius: 4,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.star,
+                                        color: Colors.amberAccent,
+                                        size: 11,
+                                      ),
+                                    ),
+                                  )
+                                else if (hive.isPoorPerformer)
+                                  Positioned(
+                                    top: -4,
+                                    left: -4,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2.5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF7F1D1D),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.redAccent,
+                                          width: 1.5,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                            color: Colors.black87,
+                                            blurRadius: 4,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.arrow_downward,
+                                        color: Colors.white,
+                                        size: 11,
+                                      ),
+                                    ),
+                                  ),
                                 if (hive.isQueenReplacementActive)
                                   Positioned(
                                     top: -5,
@@ -2207,18 +2364,68 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                             );
                           }
 
-                          // Azonnali beavatkozást igénylő kaptár villogjon (FadeTransition), ne csak világítson!
+                          // Kaptár kijáró / repülőnyílás tájolási kis nyila
+                          final double headingDeg = hive.entranceHeading ?? 180.0;
+                          final double headingRad = (headingDeg * math.pi / 180.0) - _currentMapRotationRad;
+
+                          final entranceArrow = Positioned.fill(
+                            child: Transform.rotate(
+                              angle: headingRad,
+                              child: Align(
+                                alignment: Alignment.topCenter,
+                                child: Transform.translate(
+                                  offset: const Offset(0, -6),
+                                  child: Container(
+                                    width: 14,
+                                    height: 14,
+                                    decoration: BoxDecoration(
+                                      color: Colors.amberAccent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.black87, width: 1.5),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Colors.black54,
+                                          blurRadius: 3,
+                                          offset: Offset(0, 1),
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Center(
+                                      child: Icon(
+                                        Icons.navigation,
+                                        size: 9,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+
+                          final completeMarker = Stack(
+                            alignment: Alignment.center,
+                            clipBehavior: Clip.none,
+                            children: [
+                              markerWidget,
+                              entranceArrow,
+                            ],
+                          );
+
+                          // Azonnali beavatkozást igénylő kaptár villogjon (FadeTransition), RepaintBoundary-vel izolálva
                           if (isImmediateIntervention ||
                               hasActiveEscapement ||
                               hasActiveBottomBoard ||
                               isPollenTrapActive) {
-                            return FadeTransition(
-                              opacity: _redFlashOpacityAnim,
-                              child: markerWidget,
+                            return RepaintBoundary(
+                              child: FadeTransition(
+                                opacity: _redFlashOpacityAnim,
+                                child: completeMarker,
+                              ),
                             );
                           }
 
-                          return markerWidget;
+                          return completeMarker;
                         }(),
                       ),
                     ),
@@ -2235,75 +2442,89 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         }
                       },
                       onLongPress: _toggleEditMode,
-                      child: Builder(
-                        builder: (context) {
-                          final bool isConnected =
-                              _repository.weatherStation.status == 'green' &&
-                              _repository.isOnline;
-                          final Color stationColor = isConnected
-                              ? const Color(0xFF10b981) // Zöld: kapcsolat rendben
-                              : const Color(0xFFef4444); // Piros: nincs kapcsolat
+                      child: () {
+                        final station = _repository.weatherStation;
+                        final bool isConnected =
+                            station.status == 'green' &&
+                            _repository.isOnline;
+                        final bool isBatteryLow =
+                            station.batteryVoltage > 0 && station.batteryVoltage < 3.4;
 
-                          return Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
+                        // Az időjárás-állomás marker színe:
+                        // - Zöld: ha van kapcsolat, vagy az állomás szenzorai/akkumulátora épek
+                        // - Narancs: helyi offline mód (ha nincs felhő szinkron, de az állomás él)
+                        // - Piros: kizárólag kritikus hardverhiba (pl. lemerült akku < 3.4V)
+                        final Color stationColor = isBatteryLow
+                            ? const Color(0xFFef4444)
+                            : (isConnected || station.status == 'green'
+                                ? const Color(0xFF10b981)
+                                : const Color(0xFFF59E0B));
+
+                        return Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: stationColor,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: _isEditMode
+                                      ? Colors.amberAccent
+                                      : Colors.white,
+                                  width: _isEditMode ? 3 : 2,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: stationColor.withAlpha(150),
+                                    blurRadius: 8,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  isBatteryLow
+                                      ? Icons.battery_alert
+                                      : Icons.wb_sunny,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              right: 2,
+                              child: Container(
+                                width: 16,
+                                height: 16,
                                 decoration: BoxDecoration(
-                                  color: stationColor,
+                                  color: isBatteryLow
+                                      ? Colors.redAccent
+                                      : (isConnected
+                                          ? Colors.greenAccent
+                                          : Colors.amberAccent),
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: _isEditMode
-                                        ? Colors.amberAccent
-                                        : Colors.white,
-                                    width: _isEditMode ? 3 : 2,
+                                    color: Colors.black87,
+                                    width: 2,
                                   ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: stationColor.withAlpha(150),
-                                      blurRadius: 8,
-                                      spreadRadius: 2,
-                                    ),
-                                  ],
                                 ),
-                                child: Center(
-                                  child: Icon(
-                                    isConnected
-                                        ? Icons.wb_sunny
-                                        : Icons.cloud_off,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
+                                child: Icon(
+                                  isBatteryLow
+                                      ? Icons.close
+                                      : (isConnected
+                                          ? Icons.check
+                                          : Icons.cloud_off),
+                                  size: 10,
+                                  color: Colors.black,
                                 ),
                               ),
-                              Positioned(
-                                bottom: 0,
-                                right: 2,
-                                child: Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: BoxDecoration(
-                                    color: isConnected
-                                        ? Colors.greenAccent
-                                        : Colors.redAccent,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.black87,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    isConnected ? Icons.check : Icons.close,
-                                    size: 10,
-                                    color: Colors.black,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
+                            ),
+                          ],
+                        );
+                      }(),
                     ),
                   ),
 
@@ -2312,79 +2533,76 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                     point: _repository.waterer.location,
                     width: 62,
                     height: 62,
-                    child: ListenableBuilder(
-                      listenable: _repository,
-                      builder: (context, _) {
-                        final waterer = _repository.waterer;
-                        final wStatus = waterer.status;
-                        final Color wColor = getWatererStatusColor(wStatus);
-                        final bool isBlinking = (wStatus == 'blinking_red');
+                    child: () {
+                      final waterer = _repository.waterer;
+                      final wStatus = waterer.status;
+                      final Color wColor = getWatererStatusColor(wStatus);
+                      final bool isBlinking = (wStatus == 'blinking_red');
 
-                        return GestureDetector(
-                          onTap: () {
-                            if (!_isEditMode) {
-                              _showWatererDetails(waterer);
-                            }
-                          },
-                          onLongPress: _toggleEditMode,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
+                      return GestureDetector(
+                        onTap: () {
+                          if (!_isEditMode) {
+                            _showWatererDetails(waterer);
+                          }
+                        },
+                        onLongPress: _toggleEditMode,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0F172A),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: _isEditMode ? Colors.amberAccent : wColor,
+                                  width: _isEditMode ? 3.0 : (isBlinking ? 3.5 : 2.5),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: wColor.withAlpha(isBlinking ? 190 : 120),
+                                    blurRadius: isBlinking ? 12 : 6,
+                                    spreadRadius: isBlinking ? 3 : 1,
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: WatererIcon(
+                                  size: 24,
+                                  status: wStatus,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF0F172A),
-                                  shape: BoxShape.circle,
+                                  color: Colors.black87,
+                                  borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                    color: _isEditMode ? Colors.amberAccent : wColor,
-                                    width: _isEditMode ? 3.0 : (isBlinking ? 3.5 : 2.5),
+                                    color: wColor,
+                                    width: 1,
                                   ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: wColor.withAlpha(isBlinking ? 190 : 120),
-                                      blurRadius: isBlinking ? 12 : 6,
-                                      spreadRadius: isBlinking ? 3 : 1,
-                                    ),
-                                  ],
                                 ),
-                                child: Center(
-                                  child: WatererIcon(
-                                    size: 24,
-                                    status: wStatus,
+                                child: Text(
+                                  '${waterer.waterLevel.toInt()}%',
+                                  style: TextStyle(
+                                    color: wColor,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
-                              Positioned(
-                                bottom: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 5,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black87,
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(
-                                      color: wColor,
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '${waterer.waterLevel.toInt()}%',
-                                    style: TextStyle(
-                                      color: wColor,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }(),
                   ),
 
                   // 4. Szirupszivattyú / Központi Sziruptartály marker
@@ -2399,93 +2617,91 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         }
                       },
                       onLongPress: _toggleEditMode,
-                      child: ListenableBuilder(
-                        listenable: _repository,
-                        builder: (context, _) {
-                          final pump = _repository.syrupPump;
-                          final String pStatus = pump.status;
-                          final Color pColor = getSyrupStatusColor(pStatus);
-                          final double remPct =
-                              pump.tankLevelPercent.clamp(0.0, 100.0);
+                      child: () {
+                        final pump = _repository.syrupPump;
+                        final String pStatus = pump.status;
+                        final Color pColor = getSyrupStatusColor(pStatus);
+                        final double remPct =
+                            pump.tankLevelPercent.clamp(0.0, 100.0);
 
-                          return Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
+                        return Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E293B),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: _isEditMode
+                                      ? Colors.amberAccent
+                                      : pColor,
+                                  width: (pStatus == 'blinking_red' ||
+                                          _isEditMode)
+                                      ? 3.5
+                                      : 2.5,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: pColor.withAlpha(140),
+                                    blurRadius: 10,
+                                    spreadRadius: 2,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: CandyIcon(
+                                  size: 28,
+                                  status: pStatus,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1.5,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF1E293B),
-                                  shape: BoxShape.circle,
+                                  color: Colors.black,
+                                  borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                    color: _isEditMode
-                                        ? Colors.amberAccent
-                                        : pColor,
-                                    width: (pStatus == 'blinking_red' ||
-                                            _isEditMode)
-                                        ? 3.5
-                                        : 2.5,
+                                    color: pColor,
+                                    width: 1.5,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: pColor.withAlpha(140),
-                                      blurRadius: 10,
-                                      spreadRadius: 2,
-                                      offset: const Offset(0, 2),
+                                      color: pColor.withAlpha(70),
+                                      blurRadius: 4,
                                     ),
                                   ],
                                 ),
-                                child: Center(
-                                  child: CandyIcon(
-                                    size: 28,
-                                    status: pStatus,
+                                child: Text(
+                                  '${remPct.toInt()}%',
+                                  style: TextStyle(
+                                    color: pColor,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
-                              Positioned(
-                                bottom: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 1.5,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black,
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(
-                                      color: pColor,
-                                      width: 1.5,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: pColor.withAlpha(70),
-                                        blurRadius: 4,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Text(
-                                    '${remPct.toInt()}%',
-                                    style: TextStyle(
-                                      color: pColor,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
+                            ),
+                          ],
+                        );
+                      }(),
                     ),
                   ),
                 ],
               ),
             ],
-          )
-        else
+          ),
+        ),
+        if (_isCameraActive && _mapScannerCtrl != null)
           ScannerOverlay(
-            cameraController: _mapScannerCtrl,
+            cameraController: _mapScannerCtrl!,
             onDetect: (code) {
               _setCameraActive(false);
               _idController.text = code;
@@ -2620,8 +2836,10 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   onPressed: () {
                     setState(() {
                       _isMapFreeRotate = !_isMapFreeRotate;
-                      if (!_isMapFreeRotate) {
-                        _mapController.rotate(0);
+                      if (!_isMapFreeRotate && _isMapReady && !_isCameraActive) {
+                        try {
+                          _mapController.rotate(0);
+                        } catch (_) {}
                       }
                     });
                   },
@@ -2647,8 +2865,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   tooltip: 'Közelítés (Nagyítás)',
                   onPressed: () {
                     HapticFeedback.lightImpact();
-                    final zoom = _mapController.camera.zoom;
-                    _mapController.move(_mapController.camera.center, zoom + 1);
+                    if (_isMapReady && !_isCameraActive) {
+                      try {
+                        final zoom = _mapController.camera.zoom;
+                        _mapController.move(_mapController.camera.center, zoom + 1);
+                      } catch (_) {}
+                    }
                   },
                   child: const Icon(Icons.zoom_in, size: 32),
                 ),
@@ -2660,8 +2882,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   tooltip: 'Távolítás (Kicsinyítés)',
                   onPressed: () {
                     HapticFeedback.lightImpact();
-                    final zoom = _mapController.camera.zoom;
-                    _mapController.move(_mapController.camera.center, zoom - 1);
+                    if (_isMapReady && !_isCameraActive) {
+                      try {
+                        final zoom = _mapController.camera.zoom;
+                        _mapController.move(_mapController.camera.center, zoom - 1);
+                      } catch (_) {}
+                    }
                   },
                   child: const Icon(Icons.zoom_out, size: 32),
                 ),

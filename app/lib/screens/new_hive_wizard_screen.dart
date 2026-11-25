@@ -29,14 +29,34 @@ class NewHiveWizardScreen extends StatefulWidget {
 }
 
 class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
-  final MobileScannerController _scannerController = MobileScannerController(
-    formats: const [
-      BarcodeFormat.qrCode,
-      BarcodeFormat.dataMatrix,
-      BarcodeFormat.code128,
-    ],
-  );
+  MobileScannerController? _scannerController;
   int _currentStep = 0;
+
+  void _setScannerTarget(String? target) {
+    if (_activeScannerTarget == target) return;
+    if (target != null) {
+      _scannerController?.dispose();
+      _scannerController = MobileScannerController(
+        formats: const [
+          BarcodeFormat.qrCode,
+          BarcodeFormat.dataMatrix,
+          BarcodeFormat.code128,
+        ],
+      );
+    } else {
+      _scannerController?.dispose();
+      _scannerController = null;
+    }
+    setState(() => _activeScannerTarget = target);
+  }
+
+  void _onWizardCompassUpdate(double? heading, double? accuracy) {
+    _liveHeading = heading;
+    // Csak a 3. lépésben (pozíció és kijáró mérése) építjük újra a képernyőt iránytű-változásra!
+    if (mounted && _currentStep == 2 && _capturedHeading == null) {
+      setState(() {});
+    }
+  }
 
   // --- ESZKÖZ SZEREPKÖR ÉS HIBRID WI-FI PROVISIONING ---
   String _selectedDeviceRole = 'hive_monitor';
@@ -77,6 +97,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
   // 3. lépés: Pozíció és Kijáró iránya (Telefon a deklin)
   LatLng? _capturedPosition;
   double? _capturedHeading;
+  double? _liveHeading;
   String _capturedHeadingText = '---°';
   bool _isCalibrating = false;
 
@@ -108,7 +129,12 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
       _donorHive = widget.repository.hives.first;
     }
 
+    _initCompassListener();
     _simulateApDiscovery();
+  }
+
+  void _initCompassListener() {
+    widget.locationService.addCompassListener(_onWizardCompassUpdate);
   }
 
   void _simulateApDiscovery() {
@@ -128,7 +154,9 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
 
   @override
   void dispose() {
-    _scannerController.dispose();
+    widget.locationService.removeCompassListener(_onWizardCompassUpdate);
+    _scannerController?.dispose();
+    _scannerController = null;
     _macController.dispose();
     _wifiSsidCtrl.dispose();
     _wifiPassCtrl.dispose();
@@ -256,6 +284,8 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
 
   void _assignScannedCode(String target, String code) {
     HapticFeedback.mediumImpact();
+    _scannerController?.dispose();
+    _scannerController = null;
     setState(() {
       if (target == 'bottom') _bottomCodeCtrl.text = code;
       if (target == 'brood') _broodCodeCtrl.text = code;
@@ -275,7 +305,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
     if (mounted) {
       setState(() {
         _capturedPosition = pos ?? widget.locationService.currentPosition;
-        _capturedHeading = widget.locationService.heading ?? 135.0;
+        _capturedHeading = _liveHeading ?? widget.locationService.heading ?? 180.0;
         _capturedHeadingText = widget.locationService.getHeadingText(
           _capturedHeading,
         );
@@ -382,6 +412,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
       name: 'Kaptár (${assignedQueen.id})',
       location: finalPos,
       status: 'green',
+      entranceHeading: _capturedHeading ?? 180.0,
       temp: 34.5,
       humidity: 60.0,
       extTemp: widget.repository.weatherStation.temp,
@@ -1097,11 +1128,10 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_activeScannerTarget != null) ...[
+        if (_activeScannerTarget != null && _scannerController != null) ...[
           GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onSecondaryTap: () =>
-                setState(() => _activeScannerTarget = null),
+            onSecondaryTap: () => _setScannerTarget(null),
             child: Container(
               height: 220,
               margin: const EdgeInsets.only(bottom: 16),
@@ -1110,7 +1140,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                 child: Stack(
                 children: [
                   MobileScanner(
-                    controller: _scannerController,
+                    controller: _scannerController!,
                     errorBuilder: (context, error) {
                       return Container(
                         color: const Color(0xFF1E293B),
@@ -1131,7 +1161,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                                 ),
                                 icon: const Icon(Icons.cameraswitch),
                                 label: const Text('Kamera váltása'),
-                                onPressed: () => _scannerController.safeSwitchCamera(),
+                                onPressed: () => _scannerController?.safeSwitchCamera(),
                               ),
                             ],
                           ),
@@ -1141,7 +1171,8 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                     onDetect: (capture) {
                       final barcodes = capture.barcodes;
                       if (barcodes.isNotEmpty &&
-                          barcodes.first.rawValue != null) {
+                          barcodes.first.rawValue != null &&
+                          _activeScannerTarget != null) {
                         _assignScannedCode(
                           _activeScannerTarget!,
                           barcodes.first.rawValue!,
@@ -1163,7 +1194,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         elevation: 5,
                       ),
-                      onPressed: () => _scannerController.safeSwitchCamera(),
+                      onPressed: () => _scannerController?.safeSwitchCamera(),
                       icon: const Icon(Icons.cameraswitch, size: 24, color: Colors.amberAccent),
                       label: const Text(
                         'Kamera',
@@ -1184,8 +1215,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                         color: Colors.white,
                         size: 28,
                       ),
-                      onPressed: () =>
-                          setState(() => _activeScannerTarget = null),
+                      onPressed: () => _setScannerTarget(null),
                     ),
                   ),
                 ],
@@ -1390,7 +1420,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                     ),
                   ),
                   onPressed: () {
-                    setState(() => _activeScannerTarget = targetKey);
+                    _setScannerTarget(targetKey);
                   },
                   icon: const Icon(Icons.qr_code_scanner, size: 24),
                   label: const Text(
@@ -1433,6 +1463,11 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
 
   // --- 3. LÉPÉS: POZÍCIÓ ÉS KIJÁRÓ IRÁNYA ---
   Widget _buildStep3PositionAndOrientation() {
+    final double currentHeadingDeg =
+        _capturedHeading ?? _liveHeading ?? widget.locationService.heading ?? 180.0;
+    final String currentHeadingLabel =
+        widget.locationService.getHeadingText(currentHeadingDeg);
+
     return Column(
       children: [
         Container(
@@ -1442,34 +1477,128 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
             color: const Color(0xFF1E293B),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: Colors.amberAccent, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.amber.withAlpha(30),
+                blurRadius: 16,
+                spreadRadius: 2,
+              ),
+            ],
           ),
           child: Column(
             children: [
-              const Icon(
-                Icons.screen_rotation_alt,
-                color: Colors.amberAccent,
-                size: 56,
-              ),
-              const SizedBox(height: 12),
+              // FŐSZÖVEG A FELHASZNÁLÓ KÉRÉSÉRE
               const Text(
-                'Helyezd a telefont a fedőre (deklire)!',
+                'Rakd a telefont a kaptár tetejére!',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.amberAccent,
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Miután a dekli a helyére került, fektesd rá a telefont a kaptár tetejére úgy, hogy a telefon felső éle a kijáró irányába mutasson, majd nyomd meg a lenti gombot.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white70, fontSize: 14),
+              const SizedBox(height: 16),
+
+              // A NAGY NYÍL A KÉPERNYŐ TETEJE FELÉ
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Colors.tealAccent.withAlpha(180),
+                    width: 2.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.tealAccent.withAlpha(35),
+                      blurRadius: 14,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    // Nagy nyíl ikon felfelé
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.tealAccent.withAlpha(30),
+                        border: Border.all(color: Colors.tealAccent, width: 3),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.tealAccent.withAlpha(90),
+                            blurRadius: 18,
+                            spreadRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.arrow_upward_rounded,
+                        size: 68,
+                        color: Colors.tealAccent,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      '⬆️ EZ A NYÍL A KIJÁRAT FELÉ NÉZZEN!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.tealAccent,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'A telefont fektesd rá lapjával a tetőre (deklire), úgy hogy a felső széle pontosan a kaptár kijárata (repülőnyílása) felé mutasson.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Élő tájolás / iránytű kijelző
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.explore, color: Colors.amberAccent, size: 22),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Érzékelt irány: $currentHeadingLabel',
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
-                height: 80,
+                height: 72,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.teal.shade600,
@@ -1490,13 +1619,13 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                             strokeWidth: 3,
                           ),
                         )
-                      : const Icon(Icons.explore, size: 36),
+                      : const Icon(Icons.my_location, size: 32),
                   label: Text(
                     _isCalibrating
                         ? 'MÉRÉS FOLYAMATBAN...'
                         : 'POZÍCIÓ ÉS KIJÁRÓ RÖGZÍTÉSE',
                     style: const TextStyle(
-                      fontSize: 17,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1534,7 +1663,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'GPS Koordináta: ${_capturedPosition!.latitude.toStringAsFixed(5)}, ${_capturedPosition!.longitude.toStringAsFixed(5)}',
+                  'GPS Koordináta: ${_capturedPosition!.latitude.toStringAsFixed(6)}, ${_capturedPosition!.longitude.toStringAsFixed(6)}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -1543,7 +1672,7 @@ class _NewHiveWizardScreenState extends State<NewHiveWizardScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Kijáró tájolása: $_capturedHeadingText',
+                  'Kijáró tájolása: $_capturedHeadingText (⬆️)',
                   style: const TextStyle(
                     color: Colors.amberAccent,
                     fontSize: 16,

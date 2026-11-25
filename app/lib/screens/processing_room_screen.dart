@@ -248,6 +248,56 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
       if (foundBox != null) break;
     }
 
+    if (foundHive != null && (foundHive.isQuarantined || foundBox?.isQuarantined == true)) {
+      final HiveData quarantinedHive = foundHive;
+      final String quarantinedBoxName = foundBox?.name ?? clean;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Colors.redAccent, width: 2),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.warning, color: Colors.redAccent, size: 28),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'ZÁRLAT / FERTŐZÖTT FIÓK!',
+                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'FIGYELEM! A(z) "$quarantinedBoxName" fiók a(z) "${quarantinedHive.name}" kaptárból származik, '
+            'amely NYÚLÓS KÖLTÉSROTHADÁS miatt hatósági zárlat alatt áll!\n\n'
+            'A TELJES TORONY fertőzöttnek minősül. SZIGORÚAN TILOS a feldolgozóban megnyitni vagy kipergetni, '
+            'mert a baktériumspórák az egész méhészet eszközeit és mézkészletét megfertőzik!',
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Megértettem (Zárolva)', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+      setState(() {
+        _boxCodeCtrl.clear();
+        _selectedBox = null;
+        _parentHive = null;
+      });
+      return;
+    }
+
     setState(() {
       _boxCodeCtrl.text = clean;
       _selectedBox =
@@ -343,6 +393,16 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
     final double net = (gross - tare).clamp(0.0, 999.0);
 
     if (net <= 0) return;
+
+    if (_parentHive?.isQuarantined == true || _selectedBox?.isQuarantined == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Hiba: Nyúlós költésrothadás zárlat alatti toronyból tilos mézet pergetni!'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     final record = ExtractionRecord(
       timestamp: DateTime.now(),
@@ -636,7 +696,12 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
           },
         );
       },
-    );
+    ).whenComplete(() {
+      idCtrl.dispose();
+      tareCtrl.dispose();
+      maxCapCtrl.dispose();
+      batchCtrl.dispose();
+    });
   }
 
   void _recordBottling() {

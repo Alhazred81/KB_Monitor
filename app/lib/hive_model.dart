@@ -6,6 +6,9 @@ class QueenData {
   final String vintage;
   final bool isAlive;
   bool needsReplacement;
+  final String? breeder;
+  final String? motherLine;
+  final String? fatherLine;
 
   QueenData({
     required this.id,
@@ -13,6 +16,9 @@ class QueenData {
     required this.vintage,
     this.isAlive = true,
     this.needsReplacement = false,
+    this.breeder,
+    this.motherLine,
+    this.fatherLine,
   });
 }
 
@@ -61,6 +67,8 @@ class BoxElement {
   bool isActive; // Aljdeszka bent/kint, vagy pollengyűjtő be/ki
   DateTime? statusUpdatedAt;
   int? positionIndex;
+  DateTime updatedAt; // Utolsó módosítás időbélyege (UTC) a Last-Write-Wins szinkronhoz
+  bool isQuarantined; // Nyúlós költésrothadás / Hans-protokoll zárlat
 
   BoxElement({
     this.dbId,
@@ -71,9 +79,11 @@ class BoxElement {
     this.size = 'dadant',
     this.status = 'green',
     this.isActive = false,
+    this.isQuarantined = false,
     this.statusUpdatedAt,
     this.positionIndex,
-  });
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? DateTime.now().toUtc();
 
   @override
   bool operator ==(Object other) {
@@ -93,6 +103,41 @@ class BoxElement {
     }
     return DateTime.now().difference(statusUpdatedAt!).inDays >= 3;
   }
+
+  Map<String, dynamic> toJson() => {
+    'dbId': dbId,
+    'name': name,
+    'code': code,
+    'secondaryCode': secondaryCode,
+    'type': type,
+    'size': size,
+    'status': status,
+    'isActive': isActive,
+    'isQuarantined': isQuarantined,
+    'statusUpdatedAt': statusUpdatedAt?.toIso8601String(),
+    'positionIndex': positionIndex,
+    'updated_at': updatedAt.toIso8601String(),
+  };
+
+  factory BoxElement.fromJson(Map<String, dynamic> json) => BoxElement(
+    dbId: (json['dbId'] as num?)?.toInt(),
+    name: json['name'] as String? ?? 'Kaptárelem',
+    code: json['code'] as String? ?? '',
+    secondaryCode: json['secondaryCode'] as String?,
+    type: json['type'] as String? ?? 'honey',
+    size: json['size'] as String? ?? 'dadant',
+    status: json['status'] as String? ?? 'green',
+    isActive: json['isActive'] as bool? ?? false,
+    isQuarantined: json['isQuarantined'] as bool? ??
+        (json['status'] == 'quarantine' || json['status'] == 'flashing_red'),
+    statusUpdatedAt: json['statusUpdatedAt'] != null
+        ? DateTime.tryParse(json['statusUpdatedAt'] as String)?.toLocal()
+        : null,
+    positionIndex: (json['positionIndex'] as num?)?.toInt(),
+    updatedAt: json['updated_at'] != null
+        ? DateTime.tryParse(json['updated_at'] as String)
+        : null,
+  );
 }
 
 int getBoxRank(BoxElement b) {
@@ -103,8 +148,11 @@ int getBoxRank(BoxElement b) {
   if (t == 'bottom' || n.contains('alj')) return 0;
   if (t == 'pollen_trap' || n.contains('pollen') || n.contains('virágpor')) return 10;
   if (t == 'brood_box' || t == 'nest' || n.contains('fészek') || n.contains('feszek')) return 20;
+  if (t == 'comb_builder' || n.contains('lépépít') || n.contains('lepepit')) return 22;
+  if (t == 'queen_excluder' || n.contains('anyarács') || n.contains('anyaracs')) return 24;
   if (t == 'escapement' || n.contains('szöktet') || n.contains('szoktet')) return 25; // Alapértelmezetten a fészek felett / méztér alatt
   if (t == 'honey' || n.contains('méz') || n.contains('mez')) return 30;
+  if (t == 'demaree' || n.contains('szaporít') || n.contains('szaporit') || n.contains('demaree')) return 35;
   if (t == 'vent' || n.contains('szellőz') || n.contains('szelloz')) return 50;
   if (t == 'feeder' || t == 'roof_feeder' || n.contains('etető') || n.contains('eteto')) return 60; // Közvetlenül a tető alatt
   if (t == 'roof' ||
@@ -340,6 +388,24 @@ class ScheduledTask {
   });
 }
 
+const Map<String, String> kHiveDiseaseLabels = {
+  'nyulos': 'Nyúlós költésrothadás',
+  'varroa': 'Varroatózis',
+  'alanyassag': 'Álanyásság',
+  'nozema': 'Nozematózis',
+  'enyhe': 'Enyhe költésrothadás',
+  'meszesedes': 'Költésmeszesedés',
+  // Egyéb, kevésbé jellemző betegségek:
+  'kovi': 'Kövi költés',
+  'kronikus_benulas': 'Krónikus méhbénulás',
+  'tomlos': 'Tömlős költésrothadás',
+  'legcsoatka': 'Légcsőatka-kór',
+  'dwv': 'Deformált szárny vírus',
+  'szeptikemia': 'Szeptikémia / Paratífusz',
+  'amoba': 'Amőbás kór',
+  'teli_hasmenes': 'Téli hasmenés',
+};
+
 class HiveData {
   final String id;
   String name;
@@ -361,6 +427,25 @@ class HiveData {
   List<BoxElement> boxes;
   String serverConnection;
   String? protocol;
+  List<String> reportedDiseases; // Lejelentett aktív betegségek azonosítói
+  DateTime updatedAt; // Kaptár beállítások utolsó módosítása (UTC) a Last-Write-Wins szinkronhoz
+  DateTime towerUpdatedAt; // Toronyszerkezet / fiókok utolsó módosítása (UTC) a Last-Write-Wins szinkronhoz
+
+  double? entranceHeading; // Kaptár kijáró / repülőnyílás tájolása fokban (0 - 360°, Észak = 0°)
+
+  String get entranceHeadingText {
+    if (entranceHeading == null) return 'Nincs megadva';
+    int h = entranceHeading!.round() % 360;
+    if (h >= 338 || h < 23) return 'Észak ($h°)';
+    if (h >= 23 && h < 68) return 'Északkelet ($h°)';
+    if (h >= 68 && h < 113) return 'Kelet ($h°)';
+    if (h >= 113 && h < 158) return 'Délkelet ($h°)';
+    if (h >= 158 && h < 203) return 'Dél ($h°)';
+    if (h >= 203 && h < 248) return 'Délnyugat ($h°)';
+    if (h >= 248 && h < 293) return 'Nyugat ($h°)';
+    if (h >= 293 && h < 338) return 'Északnyugat ($h°)';
+    return '$h°';
+  }
 
   // --- ETETŐ & SZIRUPADAGOLÁS BEÁLLÍTÁSOK (Csak ha van felhelyezett etető) ---
   String feedingMode; // 'off', 'manual', 'auto_stim', 'smart_sensor'
@@ -396,6 +481,8 @@ class HiveData {
   DateTime? queenIntroducedAt; // Anyabehelyezés időpontja (3 napos vizsgálathoz)
   DateTime? lockedUntil; // Zárolás lejárati ideje (kirágós anyabeadás esetén kb. 2 hét)
   String? lockReason; // Zárolás oka (pl. 'Új anya kirágósra adva')
+  bool isAcousticSentinelActive; // Fokozott akusztikai felügyelet (kirágós lakat alatt sűrített hallgatózás)
+  int acousticSampleIntervalMinutes; // Mintavételezési időköz (alapesetben 60 perc, lakat alatt 15 perc)
 
   void resetEvaluation({String? newQueenId, String? reason}) {
     evaluation = EvaluationData(
@@ -504,6 +591,18 @@ class HiveData {
       b.name.toLowerCase().contains('méz') ||
       b.name.toLowerCase().contains('mez'));
 
+  /// Nyúlós költésrothadás / Hans-protokoll miatti szigorú hatósági zárlat.
+  /// SZIGORÚ SZABÁLY: A TELJES TORONY (minden fiók, keret, mézkészlet, aljdeszka, etető)
+  /// KARANTÉN ZÁRLAT ALATT ÁLL: semmi nem vihető át belőle másik kaptárba vagy a feldolgozóba!
+  bool get isQuarantined =>
+      reportedDiseases.contains('nyulos') ||
+      protocol?.toLowerCase() == 'hans' ||
+      familyFunction.toLowerCase() == 'hans' ||
+      (status == 'flashing_red' && familyFunction.toLowerCase().contains('hans')) ||
+      boxes.any((b) => b.isQuarantined);
+
+  bool get isTowerQuarantined => isQuarantined;
+
   bool get hasActivePollenTrap => boxes.any((b) =>
       (b.type == 'pollen_trap' ||
           b.type == '11' ||
@@ -538,8 +637,9 @@ class HiveData {
     EvaluationData? evaluation,
     this.familyFunction = 'gyujto_mez',
     required this.boxes,
-    required this.serverConnection,
+    this.serverConnection = '',
     this.protocol,
+    this.entranceHeading = 180.0,
     this.feedingMode = 'off',
     this.feedingMaxLiters = 1.0,
     this.feedingIntervalHours = 6,
@@ -560,7 +660,15 @@ class HiveData {
     this.queenIntroducedAt,
     this.lockedUntil,
     this.lockReason,
+    this.isAcousticSentinelActive = false,
+    this.acousticSampleIntervalMinutes = 60,
+    List<String>? reportedDiseases,
+    DateTime? updatedAt,
+    DateTime? towerUpdatedAt,
   })  : _customFeederStatus = feederStatus,
+        reportedDiseases = reportedDiseases != null ? List<String>.from(reportedDiseases) : <String>[],
+        updatedAt = updatedAt ?? DateTime.now().toUtc(),
+        towerUpdatedAt = towerUpdatedAt ?? DateTime.now().toUtc(),
         evaluation = evaluation ?? EvaluationData();
 
   @override
@@ -658,11 +766,28 @@ class HiveData {
   }
 
   String get worstStatus {
+    if (isQuarantined) return 'flashing_red'; // Teljes torony karantén (Nyúlós költésrothadás / Hans)
     if (isQueenReplacementActive) return 'red'; // Anyacsere esetén azonnali sürgős piros kaptár
+    if (reportedDiseases.contains('varroa') ||
+        reportedDiseases.contains('alanyassag') ||
+        reportedDiseases.contains('nozema') ||
+        reportedDiseases.contains('kovi') ||
+        reportedDiseases.contains('kronikus_benulas') ||
+        reportedDiseases.contains('szeptikemia')) {
+      return 'red';
+    }
+    if (isLocked && acousticColonyStatus != 'green') {
+      // Kirágós lakat alatt azonnali riasztás, ha az akusztikai monitor rendellenes zúgást észlel
+      return acousticColonyStatus == 'flashing_red' ? 'flashing_red' : 'red';
+    }
     if (status == 'flashing_red' || protocol == 'hans') return 'flashing_red';
     if (status == 'purple' || swarmIndex >= 70.0) return 'purple';
     if (status == 'red') return 'red';
-    if (boxes.any((b) => b.type == 'pollen_trap' && b.isActive)) {
+    if (reportedDiseases.contains('enyhe') ||
+        reportedDiseases.contains('tomlos') ||
+        reportedDiseases.contains('legcsoatka') ||
+        reportedDiseases.contains('dwv') ||
+        boxes.any((b) => b.type == 'pollen_trap' && b.isActive)) {
       return 'orange';
     }
 
@@ -670,7 +795,7 @@ class HiveData {
       status,
       nestCalculatedStatus,
       extTempStatus,
-      if (isWeakOrSick) 'yellow',
+      if (isWeakOrSick || reportedDiseases.isNotEmpty) 'yellow',
       for (var box in boxes) box.status,
     ];
     if (statuses.contains('flashing_red')) return 'flashing_red';
@@ -680,61 +805,170 @@ class HiveData {
     return 'green';
   }
 
-  // --- GYENGE / BETEG CSALÁD DETEKTÁLÁSA (MEGCSAPOLÁS VÉDELEM) ---
+  /// Folyamatosan jól teljesítő (Top Performer) család:
+  /// A kaptár sarkába aranysárga csillag (⭐) kerül
+  bool get isTopPerformer {
+    if (isQuarantined || reportedDiseases.isNotEmpty) return false;
+    if (status != 'green' && status != 'optimal') return false;
+    if (worstStatus != 'green') return false;
+    if (isWeakOrSick) return false;
+    if (queen?.needsReplacement == true) return false;
+    if (dailyVarroaDrop >= 2.0) return false;
+    if (swarmIndex >= 40.0) return false;
+    if (temp < 33.0 || temp > 36.5) return false;
+    if (weight < 25.0) return false;
+
+    // Értékelési szempontok összegzése
+    int plusCount = 0;
+    int minusCount = 0;
+    final ev = evaluation;
+    for (var val in [
+      ev.gathering,
+      ev.temperament,
+      ev.hygiene,
+      ev.pollenCollection,
+      ev.building,
+      ev.diseaseResistance,
+      ev.miteResistance,
+      ev.reproduction,
+      ev.winterSurvival,
+    ]) {
+      if (val.contains('+')) plusCount++;
+      if (val.contains('-')) minusCount++;
+    }
+
+    if (minusCount > 0) return false;
+    return plusCount >= 4;
+  }
+
+  /// Rosszul teljesítő (Poor Performer) család:
+  /// A kaptár sarkába piros lefelé nyíl (🔻) kerül
+  bool get isPoorPerformer {
+    if (isQuarantined || reportedDiseases.isNotEmpty) return true;
+    if (isWeakOrSick) return true;
+    if (status == 'red' || status == 'flashing_red') return true;
+    if (worstStatus == 'red' || worstStatus == 'flashing_red') return true;
+    if (familyFunction.toLowerCase().contains('selejt') ||
+        familyFunction.toLowerCase().contains('hans')) {
+      return true;
+    }
+    if (dailyVarroaDrop >= 3.0) return true;
+    if (weight > 0 && weight < 20.0) return true;
+    if (temp > 0 && temp < 32.0) return true;
+    if (queen?.needsReplacement == true) return true;
+
+    // Értékelési szempontok negatívjai
+    int minusCount = 0;
+    final ev = evaluation;
+    for (var val in [
+      ev.gathering,
+      ev.temperament,
+      ev.hygiene,
+      ev.pollenCollection,
+      ev.building,
+      ev.diseaseResistance,
+      ev.miteResistance,
+      ev.reproduction,
+      ev.winterSurvival,
+    ]) {
+      if (val.contains('-')) minusCount++;
+    }
+    return minusCount >= 2;
+  }
+
+  // --- GYENGE / BETEG CSALÁD DETEKTÁLÁSA (BŐVÍTÉS ÉS MEGCSAPOLÁS VÉDELEM) ---
+  static bool _containsWeakKeyword(String text) {
+    final t = text.toLowerCase();
+    return t.contains('beteg') ||
+        t.contains('gyenge') ||
+        t.contains('gyengélked') ||
+        t.contains('gyengelked') ||
+        t.contains('selejt') ||
+        t.contains('felszámol') ||
+        t.contains('felszamol') ||
+        t.contains('karantén') ||
+        t.contains('karanten') ||
+        t.contains('mentés') ||
+        t.contains('mentes') ||
+        t.contains('szezon végén') ||
+        t.contains('szezon vegen') ||
+        t.contains('hans') ||
+        t.contains('anyacsere') ||
+        t.contains('anyátlan') ||
+        t.contains('anyatlan') ||
+        t.contains('álanyás') ||
+        t.contains('alanyas') ||
+        t.contains('atkás') ||
+        t.contains('atkas') ||
+        t.contains('nozém') ||
+        t.contains('nozem') ||
+        t.contains('pótcsalád') ||
+        t.contains('potcsalad');
+  }
+
+  int get _negativeEvaluationCount {
+    int minusCount = 0;
+    final ev = evaluation;
+    for (final val in [
+      ev.gathering,
+      ev.temperament,
+      ev.hygiene,
+      ev.pollenCollection,
+      ev.building,
+      ev.diseaseResistance,
+      ev.miteResistance,
+      ev.reproduction,
+      ev.winterSurvival,
+    ]) {
+      if (val.contains('-')) minusCount++;
+    }
+    return minusCount;
+  }
+
   bool get isWeakOrSick {
-    // 1. Státuszkódok (Piros, Villogó piros, Sárga gyenge állapot)
-    if (status == 'red' || status == 'flashing_red' || status == 'yellow') {
+    if (isQuarantined || reportedDiseases.isNotEmpty) return true;
+
+    // 1. Státuszkódok (Piros, Villogó piros, Narancs, Sárga gyenge állapot)
+    if (status == 'red' ||
+        status == 'flashing_red' ||
+        status == 'orange' ||
+        status == 'yellow') {
       return true;
     }
     if (nestCalculatedStatus == 'red' ||
         nestCalculatedStatus == 'flashing_red' ||
+        nestCalculatedStatus == 'orange' ||
         nestCalculatedStatus == 'yellow') {
       return true;
     }
 
-    // 2. Mentési protokoll
+    // 2. Mentési / megsemmisítési protokoll és anyaprobléma
     if (protocol == 'hans' ||
         protocol?.toLowerCase().contains('hans') == true) {
       return true;
     }
-
-    // 3. Kaptár neve / száma (ha tartalmazza a "beteg", "gyenge", "felszámol" szavakat)
-    final nm = name.toLowerCase();
-    if (nm.contains('beteg') ||
-        nm.contains('gyenge') ||
-        nm.contains('felszamol') ||
-        nm.contains('karanten') ||
-        nm.contains('mentes')) {
+    if (isQueenReplacementActive ||
+        queen?.needsReplacement == true ||
+        queen?.isAlive == false) {
       return true;
     }
 
-    // 4. Családfunkció
-    final fn = familyFunction.toLowerCase();
-    if (fn.contains('felszamol') ||
-        fn.contains('beteg') ||
-        fn.contains('gyenge') ||
-        fn.contains('mentes') ||
-        fn.contains('karanten') ||
-        fn.contains('szezon végén') ||
-        fn.contains('hans')) {
+    // 3. Kaptár neve, családfunkció és értékelési megjegyzések (ékezettel és anélkül is)
+    if (_containsWeakKeyword(name) ||
+        _containsWeakKeyword(familyFunction) ||
+        _containsWeakKeyword(evaluation.notes)) {
       return true;
     }
 
-    // 5. Értékelési megjegyzések
-    final evNotes = evaluation.notes.toLowerCase();
-    if (evNotes.contains('beteg') ||
-        evNotes.contains('gyenge') ||
-        evNotes.contains('felszamol') ||
-        evNotes.contains('karanten')) {
-      return true;
-    }
+    // 4. Kedvezőtlen egyedi elbírálás (legalább 2 negatív tulajdonság)
+    if (_negativeEvaluationCount >= 2) return true;
 
-    // 6. Szenzormérések és biológiai paraméterek
+    // 5. Szenzormérések és biológiai paraméterek
     if (dailyVarroaDrop >= 3.0) return true;
     if (temp > 0.0 && temp < 32.0) return true;
     if (weight > 0.0 && weight < 20.0) return true;
 
-    // 7. Család toronyszerkezete: ha nincs valódi fészekfiókja
+    // 6. Család toronyszerkezete: ha nincs valódi fészekfiókja
     final broodBoxes =
         boxes.where((b) => b.type == 'brood_box' || b.type == 'nest');
     if (broodBoxes.isEmpty) return true;
@@ -744,10 +978,18 @@ class HiveData {
 
   String get weakOrSickReason {
     final reasons = <String>[];
+    if (reportedDiseases.isNotEmpty) {
+      final names = reportedDiseases
+          .map((id) => kHiveDiseaseLabels[id] ?? id)
+          .join(', ');
+      reasons.add('Lejelentett betegség: $names');
+    }
     if (status == 'flashing_red' || nestCalculatedStatus == 'flashing_red') {
       reasons.add('Kritikus riasztás / vészhelyzet');
     } else if (status == 'red' || nestCalculatedStatus == 'red') {
       reasons.add('Veszélyeztetett állapot (piros riasztás)');
+    } else if (status == 'orange' || nestCalculatedStatus == 'orange') {
+      reasons.add('Narancs (gyengült / kezelést igénylő) státusz');
     } else if (status == 'yellow' || nestCalculatedStatus == 'yellow') {
       reasons.add('Sárga (gyenge / beavatkozást igénylő) státusz');
     }
@@ -756,15 +998,18 @@ class HiveData {
         familyFunction.toLowerCase() == 'hans') {
       reasons.add('Hans-protokoll: Azonnali teljes megsemmisítés / elpusztítás!');
     }
+    if (isQueenReplacementActive ||
+        queen?.needsReplacement == true ||
+        queen?.isAlive == false) {
+      reasons.add('Anyaprobléma / anyacsere folyamatban');
+    }
     if (familyFunction.toLowerCase().contains('selejt')) {
       reasons.add('Selejt család (Szezon végén más családok felerősítésére használható)');
     }
     final nm = name.toLowerCase();
-    if (nm.contains('beteg')) {
+    if (nm.contains('beteg') || nm.contains('gyenge') || nm.contains('pótcsalád') || nm.contains('potcsalad')) {
       reasons.add('Megnevezés: Gyenge család');
-    } else if (nm.contains('gyenge')) {
-      reasons.add('Megnevezés: Gyenge család');
-    } else if (nm.contains('felszamol')) {
+    } else if (nm.contains('felszámol') || nm.contains('felszamol')) {
       reasons.add('Megnevezés: Felszámolás alatt álló család');
     }
     final fn = familyFunction.toLowerCase();
@@ -772,12 +1017,18 @@ class HiveData {
       reasons.add('Gyenge kondíciójú család');
     } else if (fn.contains('gyenge')) {
       reasons.add('Gyenge termelőképességű család');
-    } else if (fn.contains('felszamol') || fn.contains('szezon végén')) {
+    } else if (fn.contains('felszámol') ||
+        fn.contains('felszamol') ||
+        fn.contains('szezon végén') ||
+        fn.contains('szezon vegen')) {
       reasons.add('Felszámolás alatt áll');
     }
     final evNotes = evaluation.notes.toLowerCase();
-    if (evNotes.contains('beteg') || evNotes.contains('gyenge')) {
+    if (_containsWeakKeyword(evNotes)) {
       reasons.add('Értékelési megjegyzés: Gyenge család');
+    }
+    if (_negativeEvaluationCount >= 2) {
+      reasons.add('Kedvezőtlen egyedi elbírálás ($_negativeEvaluationCount negatív jegy)');
     }
     if (dailyVarroaDrop >= 3.0) {
       reasons.add(
@@ -786,7 +1037,7 @@ class HiveData {
     }
     if (temp > 0.0 && temp < 32.0) {
       reasons.add(
-        'Alacsony fészakhőmérséklet (${temp.toStringAsFixed(1)} °C, fiasítás kihűlés veszélye)',
+        'Alacsony fészekhőmérséklet (${temp.toStringAsFixed(1)} °C, fiasítás kihűlés veszélye)',
       );
     }
     if (weight > 0.0 && weight < 20.0) {
@@ -807,6 +1058,15 @@ class HiveData {
 
   /// Értelmezhető, konkrét egészségi / állapot leírás (kerüli az általános "beteg/gyenge" kifejezést)
   String get specificHealthDescription {
+    if (isQuarantined) {
+      return '⚠️ TELJES TORONY KARANTÉN (Nyúlós költésrothadás / Hans-protokoll)! Szigorúan tilos bármilyen elemet átvinni máshova!';
+    }
+    if (reportedDiseases.isNotEmpty) {
+      final names = reportedDiseases
+          .map((id) => kHiveDiseaseLabels[id] ?? id)
+          .join(', ');
+      return 'Lejelentett betegség: $names';
+    }
     if (protocol == 'hans' ||
         protocol?.toLowerCase().contains('hans') == true ||
         familyFunction.toLowerCase() == 'hans') {

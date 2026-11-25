@@ -6,6 +6,8 @@ import '../services/hive_repository.dart';
 import '../widgets/hive_config_dialog.dart';
 import '../widgets/safe_camera_controller.dart';
 import '../widgets/candy_icon.dart';
+import '../widgets/hive_tower_icon.dart';
+import '../widgets/queen_replacement_dialog.dart';
 import 'frame_ar_inspection_screen.dart';
 import 'varroa_counter_screen.dart';
 
@@ -25,6 +27,22 @@ class BroodBoxControlScreen extends StatefulWidget {
 
 class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
   final HiveRepository _repository = HiveRepository.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository.addListener(_onRepoChanged);
+  }
+
+  @override
+  void dispose() {
+    _repository.removeListener(_onRepoChanged);
+    super.dispose();
+  }
+
+  void _onRepoChanged() {
+    if (mounted) setState(() {});
+  }
 
   bool _hasHoneySuper() {
     return widget.hive.boxes.any((b) => b.type == 'honey');
@@ -349,7 +367,10 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: _buildBigIconButton(
-                      icon: Icons.tune,
+                      customIcon: const HiveTowerIcon(
+                        size: 48,
+                        color: Colors.amberAccent,
+                      ),
                       color: Colors.amberAccent,
                       label: 'Konfiguráció',
                       onPressed: () => _showConfigOptionsScreen(context),
@@ -437,7 +458,8 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
   }
 
   Widget _buildBigIconButton({
-    required IconData icon,
+    IconData? icon,
+    Widget? customIcon,
     required Color color,
     required String label,
     required VoidCallback onPressed,
@@ -454,7 +476,7 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 48, color: color),
+          customIcon ?? Icon(icon, size: 48, color: color),
           const SizedBox(height: 12),
           Text(
             label,
@@ -614,9 +636,15 @@ class _ConfigOptionsScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E293B),
         foregroundColor: Colors.amberAccent,
-        title: const Text(
-          'Konfiguráció',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: const Row(
+          children: [
+            HiveTowerIcon(size: 24, color: Colors.amberAccent),
+            SizedBox(width: 10),
+            Text(
+              'Konfiguráció',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
       ),
       body: Padding(
@@ -727,19 +755,32 @@ class InvestigationsScreen extends StatefulWidget {
 }
 
 class _InvestigationsScreenState extends State<InvestigationsScreen> {
-  final MobileScannerController _scannerController = MobileScannerController(
-    formats: const [
-      BarcodeFormat.qrCode,
-      BarcodeFormat.dataMatrix,
-      BarcodeFormat.code128,
-    ],
-  );
+  MobileScannerController? _scannerController;
   bool _isCameraActive = false;
   final bool _pullOutBoard = true;
 
+  void _setInvestigationsCamera(bool active) {
+    if (_isCameraActive == active) return;
+    if (active) {
+      _scannerController?.dispose();
+      _scannerController = MobileScannerController(
+        formats: const [
+          BarcodeFormat.qrCode,
+          BarcodeFormat.dataMatrix,
+          BarcodeFormat.code128,
+        ],
+      );
+    } else {
+      _scannerController?.dispose();
+      _scannerController = null;
+    }
+    setState(() => _isCameraActive = active);
+  }
+
   @override
   void dispose() {
-    _scannerController.dispose();
+    _scannerController?.dispose();
+    _scannerController = null;
     super.dispose();
   }
 
@@ -756,7 +797,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
       ),
       pullOutBoard: _pullOutBoard,
     );
-    setState(() => _isCameraActive = false);
+    _setInvestigationsCamera(false);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Varroa vizsgálat rögzítve.'),
@@ -771,7 +812,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
       canPop: !_isCameraActive,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop && _isCameraActive) {
-          setState(() => _isCameraActive = false);
+          _setInvestigationsCamera(false);
         }
       },
       child: Scaffold(
@@ -784,14 +825,14 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
         ),
-        body: _isCameraActive
+        body: (_isCameraActive && _scannerController != null)
             ? GestureDetector(
                 behavior: HitTestBehavior.translucent,
-                onSecondaryTap: () => setState(() => _isCameraActive = false),
+                onSecondaryTap: () => _setInvestigationsCamera(false),
                 child: Stack(
               children: [
                 MobileScanner(
-                  controller: _scannerController,
+                  controller: _scannerController!,
                   errorBuilder: (context, error) {
                     return Container(
                       color: const Color(0xFF1E293B),
@@ -807,7 +848,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
                               icon: const Icon(Icons.cameraswitch),
                               label: const Text('Kamera váltása'),
-                              onPressed: () => _scannerController.safeSwitchCamera(),
+                              onPressed: () => _scannerController?.safeSwitchCamera(),
                             ),
                           ],
                         ),
@@ -838,13 +879,12 @@ class _InvestigationsScreenState extends State<InvestigationsScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             elevation: 5,
                           ),
-                          onPressed: () => _scannerController.safeSwitchCamera(),
+                          onPressed: () => _scannerController?.safeSwitchCamera(),
                           icon: const Icon(Icons.cameraswitch, size: 24, color: Colors.amberAccent),
                           label: const Text('Kamera', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                         ),
                         IconButton(
-                          onPressed: () =>
-                              setState(() => _isCameraActive = false),
+                          onPressed: () => _setInvestigationsCamera(false),
                           icon: const Icon(
                             Icons.close,
                             color: Colors.white,
@@ -1065,46 +1105,32 @@ class TreatmentsScreen extends StatelessWidget {
                 children: [
                   _buildTile(
                     context,
-                    icon: Icons.layers,
-                    color: Colors.brown.shade300,
-                    label: 'Tartós hordozó',
-                    onPressed: () {
-                      _executeConfirm(context, 'Tartós hordozó', () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Tartós hordozós kezelés naplózva.'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      });
-                    },
-                  ),
-                  _buildTile(
-                    context,
-                    icon: Icons.warning_amber,
-                    color: Colors.redAccent,
-                    label: 'Hangyasavazás',
-                    onPressed: () {
-                      _executeConfirm(context, 'Hangyasavazás', () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Hangyasavas kezelés naplózva.'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      });
-                    },
-                  ),
-                  _buildTile(
-                    context,
-                    icon: Icons.science,
-                    color: Colors.orangeAccent,
-                    label: 'Oxálsavas\nKezelések',
+                    icon: Icons.pest_control,
+                    color: Colors.deepOrangeAccent,
+                    label: 'Atkairtás',
                     onPressed: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => _OxalicScreen(
+                          builder: (context) => _MiteTreatmentScreen(
+                            hive: hive,
+                            repository: repository,
+                            confirmAction: _executeConfirm,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildTile(
+                    context,
+                    icon: Icons.medication,
+                    color: Colors.purpleAccent,
+                    label: 'Gyógyszerezés',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => _MedicationScreen(
                             hive: hive,
                             repository: repository,
                             confirmAction: _executeConfirm,
@@ -1127,6 +1153,19 @@ class TreatmentsScreen extends StatelessWidget {
                             repository: repository,
                           ),
                         ),
+                      );
+                    },
+                  ),
+                  _buildTile(
+                    context,
+                    icon: Icons.workspace_premium,
+                    color: Colors.amberAccent,
+                    label: 'Anyacsere',
+                    onPressed: () {
+                      showQueenReplacementFlowDialog(
+                        context: context,
+                        hive: hive,
+                        repository: repository,
                       );
                     },
                   ),
@@ -1166,6 +1205,306 @@ class TreatmentsScreen extends StatelessWidget {
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiteTreatmentScreen extends StatelessWidget {
+  final HiveData hive;
+  final HiveRepository repository;
+  final Function(BuildContext, String, VoidCallback) confirmAction;
+
+  const _MiteTreatmentScreen({
+    required this.hive,
+    required this.repository,
+    required this.confirmAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E293B),
+        foregroundColor: Colors.amberAccent,
+        title: const Text(
+          'Atkairtás Almenü',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          children: [
+            Expanded(
+              child: GridView.count(
+                crossAxisCount: 2,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 1.1,
+                children: [
+                  _buildTile(
+                    context,
+                    icon: Icons.layers,
+                    color: Colors.brown.shade300,
+                    label: 'Tartós hordozó',
+                    onPressed: () {
+                      confirmAction(context, 'Tartós hordozó', () {
+                        repository.schedulePlanForHive(
+                          hive.id,
+                          'tarto_hordozo',
+                          DateTime.now(),
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Tartós hordozós kezelés naplózva.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      });
+                    },
+                  ),
+                  _buildTile(
+                    context,
+                    icon: Icons.warning_amber,
+                    color: Colors.redAccent,
+                    label: 'Hangyasavas\nkezelés',
+                    onPressed: () {
+                      confirmAction(context, 'Hangyasavazás', () {
+                        repository.schedulePlanForHive(
+                          hive.id,
+                          'hangyasav',
+                          DateTime.now(),
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Hangyasavas kezelés naplózva.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      });
+                    },
+                  ),
+                  _buildTile(
+                    context,
+                    icon: Icons.science,
+                    color: Colors.orangeAccent,
+                    label: 'Oxálsavas\nKezelések',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => _OxalicScreen(
+                            hive: hive,
+                            repository: repository,
+                            confirmAction: confirmAction,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildTile(
+                    context,
+                    icon: Icons.bubble_chart,
+                    color: Colors.cyanAccent,
+                    label: 'Tejsavazás /\nIllóolajok',
+                    onPressed: () {
+                      confirmAction(context, 'Tejsavas permetezés', () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Tejsavas permetezés naplózva.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTile(
+    BuildContext context, {
+    required IconData icon,
+    Widget? customIcon,
+    required Color color,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF1E293B),
+        foregroundColor: color,
+        side: BorderSide(color: color.withAlpha(120), width: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        elevation: 4,
+      ),
+      onPressed: onPressed,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          customIcon ?? Icon(icon, size: 40, color: color),
+          const SizedBox(height: 10),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MedicationScreen extends StatelessWidget {
+  final HiveData hive;
+  final HiveRepository repository;
+  final Function(BuildContext, String, VoidCallback) confirmAction;
+
+  const _MedicationScreen({
+    required this.hive,
+    required this.repository,
+    required this.confirmAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E293B),
+        foregroundColor: Colors.amberAccent,
+        title: const Text(
+          'Gyógyszerezés Almenü',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          children: [
+            Expanded(
+              child: GridView.count(
+                crossAxisCount: 2,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 1.1,
+                children: [
+                  _buildTile(
+                    context,
+                    icon: Icons.shield,
+                    color: Colors.purpleAccent,
+                    label: 'Nozemózis\n(Nozevit / Ecet)',
+                    onPressed: () {
+                      confirmAction(context, 'Nozemózis kezelés', () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Nozemózis elleni kezelés naplózva.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      });
+                    },
+                  ),
+                  _buildTile(
+                    context,
+                    icon: Icons.healing,
+                    color: Colors.pinkAccent,
+                    label: 'Költésmeszesedés\nkezelése',
+                    onPressed: () {
+                      confirmAction(context, 'Költésmeszesedés kezelés', () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Költésmeszesedés kezelése naplózva.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      });
+                    },
+                  ),
+                  _buildTile(
+                    context,
+                    icon: Icons.eco,
+                    color: Colors.lightGreenAccent,
+                    label: 'Vitaminok &\nImmunerősítés',
+                    onPressed: () {
+                      confirmAction(context, 'Vitaminos immunerősítés', () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Vitaminos immunerősítés naplózva.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      });
+                    },
+                  ),
+                  _buildTile(
+                    context,
+                    icon: Icons.cleaning_services,
+                    color: Colors.blueAccent,
+                    label: 'Fertőtlenítés &\nHigiénia',
+                    onPressed: () {
+                      confirmAction(context, 'Kaptárhigiéniai beavatkozás', () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Kaptárhigiéniai beavatkozás naplózva.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTile(
+    BuildContext context, {
+    required IconData icon,
+    Widget? customIcon,
+    required Color color,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF1E293B),
+        foregroundColor: color,
+        side: BorderSide(color: color.withAlpha(120), width: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        elevation: 4,
+      ),
+      onPressed: onPressed,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          customIcon ?? Icon(icon, size: 40, color: color),
+          const SizedBox(height: 10),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14.5,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
@@ -1555,8 +1894,8 @@ class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
           'plan': 'alcas_mesterterv',
         },
         {
-          'id': 'anya',
-          'label': 'Anya',
+          'id': 'törzscsalád',
+          'label': 'Törzscsalád',
           'icon': Icons.workspace_premium,
           'plan': 'oxalsav_sorozat',
         },
@@ -1593,6 +1932,45 @@ class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
   }
 
   void _executeFunctionSelection(Map<String, dynamic> item) {
+    if (widget.hive.isQuarantined && item['id'] != 'Hans') {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Colors.redAccent, width: 2),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.warning, color: Colors.redAccent, size: 24),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Karantén Zárlat!',
+                  style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Ez a kaptár nyúlós költésrothadás miatti szigorú hatósági zárlat alatt áll!\n\n'
+            'A TELJES TORONY fertőzöttnek minősül: sem fiók, sem keret nem kerülhet át máshova, '
+            'és nem használható donor-, dajka- vagy gyűjtőcsaládként!',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Megértettem', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _selectedSubFunction = item['id'];
       _selectedPlanType = item['plan'];
@@ -1602,9 +1980,14 @@ class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
       widget.hive.queenReplacementState = 'needs_replacement';
       widget.hive.status = 'red';
       if (widget.hive.queen != null) widget.hive.queen!.needsReplacement = true;
+      widget.hive.familyFunction = _selectedSubFunction;
+      widget.repository.updateHive(widget.hive);
+    } else if (item['id'] == 'Hans') {
+      widget.repository.activateHansProtocol(widget.hive);
+    } else {
+      widget.hive.familyFunction = _selectedSubFunction;
+      widget.repository.updateHive(widget.hive);
     }
-
-    widget.hive.familyFunction = _selectedSubFunction;
 
     if (_isBreedingCategory) {
       // Tenyész esetén csak eltároljuk, a tervet a lenti gomb indítja
@@ -1646,7 +2029,11 @@ class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
             ],
           ),
           content: const Text(
-            'A Hans nem egy selejt család, hanem AZONNALI ÉS TELJES ELPUSZTÍTÁST jelent!\n\nAlkalmazása: Súlyos fertőzés (pl. nyúlós költésrothadás), agresszivitás vagy kénlapos megsemmisítés esetén.\n\nEbből a kaptárból szigorúan TILOS fiasítást, keretet vagy népet átadni más családoknak (egy selejt családdal ellentétben, amivel szezon végén felerősíthetsz másokat)!\n\nBiztosan elpusztításra ítéled ezt a családot?',
+            'A Hans nem egy selejt család, hanem AZONNALI ÉS TELJES ELPUSZTÍTÁST jelent!\n\n'
+            'Alkalmazása: Nyúlós költésrothadás miatti hatósági karantén és kénlapos megsemmisítés.\n\n'
+            '⚠️ SZIGORÚ SZABÁLY: A NYÚLÓS KÖLTÉSROTHADÁSNÁL A TELJES TORONY (minden fészek- és méztéri fiók, aljdeszka, etető, keretek, mézkészlet) KARANTÉN ZÁRLAT ALÁ KERÜL!\n\n'
+            'Ebből a kaptárból szigorúan TILOS bármilyen fiókot, keretet, fiasítást, mézet vagy népet átadni más családoknak vagy a pergetőbe!\n\n'
+            'Biztosan elpusztításra és zárlatra ítéled ezt a családot?',
             style: TextStyle(color: Colors.white70, fontSize: 13),
           ),
           actions: [
@@ -1771,7 +2158,9 @@ class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
                   itemCount: _getSubFunctions().length,
                   itemBuilder: (context, index) {
                     final item = _getSubFunctions()[index];
-                    final isSelected = _selectedSubFunction == item['id'];
+                    final isSelected = _selectedSubFunction == item['id'] ||
+                        (item['id'] == 'törzscsalád' &&
+                            _selectedSubFunction == 'anya');
                     return ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isSelected
@@ -1834,6 +2223,7 @@ class _FamilyFunctionScreenState extends State<FamilyFunctionScreen> {
                     ),
                     onPressed: () {
                       widget.hive.familyFunction = _selectedSubFunction;
+    widget.repository.updateHive(widget.hive);
                       widget.repository.schedulePlanForHive(
                         widget.hive.id,
                         _selectedPlanType,

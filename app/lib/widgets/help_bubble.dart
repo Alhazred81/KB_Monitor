@@ -330,6 +330,15 @@ class BoxHelpButton extends StatelessWidget {
     if (t == 'brood_box' || t == 'nest' || n.contains('fészek') || n.contains('feszek')) {
       return 'Fészekfiók: a méhcsalád központi része, ahol az anya petézik és a fiasítás nevelése zajlik. Ide kerülnek a fedett és nyitott fiasításos keretek.';
     }
+    if (t == 'comb_builder' || n.contains('lépépít') || n.contains('lepepit')) {
+      return 'Lépépítő fiók: műlépes keretek gyors kiépíttetésére erős hordásban vagy serkentés mellett, a viasztermelő fiatal méhek munkára fogásához és a rajzási hajlam csökkentéséhez.';
+    }
+    if (t == 'demaree' || n.contains('szaporít') || n.contains('szaporit') || n.contains('demaree')) {
+      return 'Szaporító (Demaree) fiók: rajzásgátló és szaporító eljáráshoz. Az anyarács fölé (gyakran méztér közbeiktatásával) emelt fiasításos fiók dajkaméheket vonz fel, tehermentesíti az alsó fészket, és kölyökcsalád képzésére is kiváló.';
+    }
+    if (t == 'queen_excluder' || n.contains('anyarács') || n.contains('anyaracs')) {
+      return 'Anyarács: megakadályozza, hogy a méhanya felmenjen a méztérbe vagy a Demaree-fiókba petézni, miközben a dolgozók szabadon átjárhatnak rajta.';
+    }
     if (t == 'honey' || n.contains('méz') || n.contains('mez')) {
       return 'Méztéri fiók: a méhek ide hordják be a tiszta felesleges nektárt és érlelik mézzé. Pergetés előtt alá helyezett méhszöktetővel kíméletesen, méhmentesen elvehető.';
     }

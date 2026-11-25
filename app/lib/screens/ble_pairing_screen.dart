@@ -55,6 +55,7 @@ class _BlePairingScreenState extends State<BlePairingScreen> {
 
     // STEALTH VISSZAJELZÉS: A telefon vibrál egy erőset a kézben!
     HapticFeedback.heavyImpact();
+    _scannerController.stop();
 
     setState(() {
       _isScanning = false;

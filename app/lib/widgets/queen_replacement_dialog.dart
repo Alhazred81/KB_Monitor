@@ -47,7 +47,25 @@ Future<void> showQueenReplacementFlowDialog({
   String wizardQueenId = 'HU-${DateTime.now().year}-${100 + random.nextInt(900)}';
   final TextEditingController idController = TextEditingController(text: wizardQueenId);
   String wizardVintage = '${DateTime.now().year} (Fehér)';
-  String wizardOrigin = 'Pannon méh (Apis m. carnica)';
+
+  // Származás és Tenyésztői adatok (Kizárólag Pannon Krajnai méh!)
+  String motherBreeder = 'Keszthelyi Génmegőrző';
+  final TextEditingController motherBreederController = TextEditingController(text: motherBreeder);
+  String motherSeries = 'P24-01';
+  final TextEditingController motherSeriesController = TextEditingController(text: motherSeries);
+
+  String fatherBreeder = 'Szemerits József';
+  final TextEditingController fatherBreederController = TextEditingController(text: fatherBreeder);
+  String fatherSeries = 'SZ24-03';
+  final TextEditingController fatherSeriesController = TextEditingController(text: fatherSeries);
+
+  final List<String> commonBreeders = [
+    'Keszthelyi Génmegőrző',
+    'Szemerits József',
+    'Bross Péter',
+    'Hegedűs Dénes',
+    'Saját tenyészet',
+  ];
 
   final List<String> vintageOptions = [
     '${DateTime.now().year} (Fehér)',
@@ -55,13 +73,6 @@ Future<void> showQueenReplacementFlowDialog({
     '${DateTime.now().year - 2} (Zöld)',
     '${DateTime.now().year - 3} (Piros)',
     '${DateTime.now().year - 4} (Sárga)',
-  ];
-
-  final List<String> originOptions = [
-    'Pannon méh (Apis m. carnica)',
-    'Krajnai F1 (Termékenyített)',
-    'Buckfast F0 (Tenyésztői)',
-    'Saját nevelés (Bölcső/Pároztató)',
   ];
 
   await showDialog(
@@ -733,47 +744,271 @@ Future<void> showQueenReplacementFlowDialog({
                     ),
                     const SizedBox(height: 10),
 
-                    // 3. Származás választó
+                    // 3. Fajta (Kizárólag Pannon Krajnai!)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF064E3B).withAlpha(120),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.greenAccent.withAlpha(120)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.verified, color: Colors.greenAccent, size: 18),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Fajta: Pannon Krajnai (Apis mellifera carnica)',
+                              style: TextStyle(
+                                color: Colors.greenAccent,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 4. Anyai vonal (Anyaanya)
                     const Text(
-                      'Származás / Vonal:',
+                      'Anyacsalád vonala (Anya tenyésztője & Szériája):',
                       style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 4),
                     Wrap(
                       spacing: 6,
-                      runSpacing: 6,
-                      children: originOptions.map((o) {
-                        final isSelected = (wizardOrigin == o);
-
+                      runSpacing: 4,
+                      children: commonBreeders.map((b) {
+                        final isSel = (motherBreeder == b);
                         return ChoiceChip(
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            if (selected) {
+                          selected: isSel,
+                          onSelected: (val) {
+                            if (val) {
                               setDialogState(() {
-                                wizardOrigin = o;
+                                motherBreeder = b;
+                                motherBreederController.text = b;
                               });
                             }
                           },
                           backgroundColor: const Color(0xFF0F172A),
-                          selectedColor: const Color(0xFF065F46),
-                          side: BorderSide(
-                            color: isSelected ? const Color(0xFF10b981) : Colors.white24,
-                            width: isSelected ? 1.5 : 1,
-                          ),
+                          selectedColor: const Color(0xFF1E3A8A),
+                          side: BorderSide(color: isSel ? Colors.lightBlueAccent : Colors.white24),
                           label: Text(
-                            o,
-                            style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.white70,
-                              fontSize: 11,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            ),
+                            b,
+                            style: TextStyle(color: isSel ? Colors.white : Colors.white70, fontSize: 10.5),
                           ),
                         );
                       }).toList(),
                     ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: Container(
+                            height: 42,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: TextField(
+                              controller: motherBreederController,
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                hintText: 'Tenyésztő neve / OMME kód',
+                                hintStyle: TextStyle(color: Colors.white30, fontSize: 11),
+                              ),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  motherBreeder = val;
+                                });
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 2,
+                          child: Container(
+                            height: 42,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: TextField(
+                              controller: motherSeriesController,
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                hintText: 'Széria (pl. P24-01)',
+                                hintStyle: TextStyle(color: Colors.white30, fontSize: 11),
+                              ),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  motherSeries = val;
+                                });
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 5. Apai vonal (Herecsalád)
+                    const Text(
+                      'Apacsalád vonala (Herecsalád tenyésztője & Szériája):',
+                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: commonBreeders.map((b) {
+                        final isSel = (fatherBreeder == b);
+                        return ChoiceChip(
+                          selected: isSel,
+                          onSelected: (val) {
+                            if (val) {
+                              setDialogState(() {
+                                fatherBreeder = b;
+                                fatherBreederController.text = b;
+                              });
+                            }
+                          },
+                          backgroundColor: const Color(0xFF0F172A),
+                          selectedColor: const Color(0xFF1E3A8A),
+                          side: BorderSide(color: isSel ? Colors.lightBlueAccent : Colors.white24),
+                          label: Text(
+                            b,
+                            style: TextStyle(color: isSel ? Colors.white : Colors.white70, fontSize: 10.5),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: Container(
+                            height: 42,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: TextField(
+                              controller: fatherBreederController,
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                hintText: 'Herecsalád tenyésztője',
+                                hintStyle: TextStyle(color: Colors.white30, fontSize: 11),
+                              ),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  fatherBreeder = val;
+                                });
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 2,
+                          child: Container(
+                            height: 42,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: TextField(
+                              controller: fatherSeriesController,
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                hintText: 'Széria (pl. SZ24-03)',
+                                hintStyle: TextStyle(color: Colors.white30, fontSize: 11),
+                              ),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  fatherSeries = val;
+                                });
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 6. Beltenyészet-ellenőrzés (Inbreeding Check)
+                    Builder(
+                      builder: (ctx) {
+                        final bool isInbreeding = motherBreeder.trim().isNotEmpty &&
+                            motherSeries.trim().isNotEmpty &&
+                            motherBreeder.trim().toLowerCase() == fatherBreeder.trim().toLowerCase() &&
+                            motherSeries.trim().toLowerCase() == fatherSeries.trim().toLowerCase();
+
+                        if (isInbreeding) {
+                          return Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withAlpha(40),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.redAccent, width: 1.5),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 24),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '⚠️ Beltenyészet tilalom! Az anya- és az apacsalád nem származhat ugyanazon tenyésztő azonos szériájából (csd homozigóta, lyukacsos fiasítás veszélye)! Válassz eltérő szériát vagy vérvonalat!',
+                                    style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withAlpha(25),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.greenAccent.withAlpha(80)),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.verified, color: Colors.greenAccent, size: 18),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Különböző vérvonal: Anyai és apai ág elkülönül, heterózis hatás biztosított.',
+                                  style: TextStyle(color: Colors.greenAccent, fontSize: 11),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                     const SizedBox(height: 10),
 
-                    // 4. "Tiszta lap :)" információs kártya
+                    // 7. "Tiszta lap :)" információs kártya
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       decoration: BoxDecoration(
@@ -797,38 +1032,54 @@ Future<void> showQueenReplacementFlowDialog({
                     const SizedBox(height: 12),
 
                     // Mentés és továbblépés a beadáshoz
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF10b981),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 3,
-                      ),
-                      onPressed: () {
-                        final chosenId = idController.text.trim().isEmpty ? wizardQueenId : idController.text.trim();
-                        final newQueen = QueenData(
-                          id: chosenId,
-                          origin: wizardOrigin,
-                          vintage: wizardVintage,
-                          isAlive: true,
-                          needsReplacement: false,
+                    Builder(
+                      builder: (ctx) {
+                        final bool isInbreeding = motherBreeder.trim().isNotEmpty &&
+                            motherSeries.trim().isNotEmpty &&
+                            motherBreeder.trim().toLowerCase() == fatherBreeder.trim().toLowerCase() &&
+                            motherSeries.trim().toLowerCase() == fatherSeries.trim().toLowerCase();
+
+                        return ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isInbreeding ? Colors.grey : const Color(0xFF10b981),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 3,
+                          ),
+                          onPressed: isInbreeding
+                              ? null
+                              : () {
+                                  final chosenId = idController.text.trim().isEmpty ? wizardQueenId : idController.text.trim();
+                                  final fullOrigin =
+                                      'Pannon Krajnai • Anya: ${motherBreeder.trim()} (${motherSeries.trim()}) × Apa: ${fatherBreeder.trim()} (${fatherSeries.trim()})';
+                                  final newQueen = QueenData(
+                                    id: chosenId,
+                                    origin: fullOrigin,
+                                    vintage: wizardVintage,
+                                    isAlive: true,
+                                    needsReplacement: false,
+                                    breeder: motherBreeder.trim(),
+                                    motherLine: '${motherBreeder.trim()} - ${motherSeries.trim()}',
+                                    fatherLine: '${fatherBreeder.trim()} - ${fatherSeries.trim()}',
+                                  );
+
+                                  // Regisztráció az adatbázisba
+                                  repository.addQueen(newQueen);
+
+                                  setDialogState(() {
+                                    selectedQueen = newQueen;
+                                    isShowingQueenWizard = false;
+                                    isShowingIntroductionChoice = true;
+                                  });
+                                },
+                          icon: const Icon(Icons.arrow_forward, size: 20),
+                          label: const Text(
+                            'Mentés és továbblépés a beadáshoz',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
                         );
-
-                        // Regisztráció az adatbázisba
-                        repository.addQueen(newQueen);
-
-                        setDialogState(() {
-                          selectedQueen = newQueen;
-                          isShowingQueenWizard = false;
-                          isShowingIntroductionChoice = true;
-                        });
                       },
-                      icon: const Icon(Icons.arrow_forward, size: 20),
-                      label: const Text(
-                        'Mentés és továbblépés a beadáshoz',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton(
@@ -902,18 +1153,40 @@ Future<void> showQueenReplacementFlowDialog({
                         ],
                       ),
                     ),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withAlpha(25),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.lightBlueAccent.withAlpha(90)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.lightBlueAccent, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Kötelező szoktatási fázis: Új anya esetén közvetlen kirágásra adás nem engedélyezett (leölési veszély). Az anyát először 3 napig zárt kalitkában szoktatjuk a családhoz!',
+                              style: TextStyle(color: Colors.lightBlueAccent, fontSize: 11),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF0284C7), // Kék / Cyan
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 3,
                       ),
                       onPressed: () {
                         final queenToAssign = selectedQueen ??
                             QueenData(
                               id: 'Új anya (${DateTime.now().year})',
-                              origin: 'Saját / Anyanevelés',
+                              origin: 'Pannon Krajnai • Szoktatós',
                               vintage: '${DateTime.now().year}',
                               isAlive: true,
                               needsReplacement: false,
@@ -921,7 +1194,7 @@ Future<void> showQueenReplacementFlowDialog({
 
                         hive.queenReplacementState = 'introduced_cage';
                         hive.queenIntroducedAt = DateTime.now();
-                        hive.status = 'yellow';
+                        hive.status = 'green';
                         hive.queen = queenToAssign;
                         // Tiszta lap - Minden jegy alapállapotba kerül
                         hive.resetEvaluation(
@@ -935,83 +1208,9 @@ Future<void> showQueenReplacementFlowDialog({
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              'Új anya (${queenToAssign.id}) szoktatósra beadva! 3 nap múlva esedékes az anyakalitka kirágósra állítása.',
-                            ),
-                            backgroundColor: Colors.blueAccent,
-                            duration: const Duration(seconds: 4),
-                          ),
-                        );
-                      },
-                      child: const Row(
-                        children: [
-                          Icon(Icons.lock_clock, size: 24),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Új anya beadva szoktatósra', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                Text('Zárt kalitka (3 nap múlva kirágósra állítás)', style: TextStyle(fontSize: 10.5, color: Colors.white70)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.amberAccent,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () {
-                        final queenToAssign = selectedQueen ??
-                            QueenData(
-                              id: 'Új anya (${DateTime.now().year})',
-                              origin: 'Saját / Anyanevelés',
-                              vintage: '${DateTime.now().year}',
-                              isAlive: true,
-                              needsReplacement: false,
-                            );
-
-                        // 14 napos lakat aktiválása
-                        hive.queenReplacementState = 'introduced_chewout';
-                        hive.queenIntroducedAt = DateTime.now();
-                        final lockEnd = DateTime.now().add(const Duration(days: 14));
-                        hive.lockedUntil = lockEnd;
-                        hive.lockReason = 'Új anya kirágósra adva (${queenToAssign.id} - Ne nyúlj hozzá!)';
-                        hive.status = 'green';
-                        hive.queen = queenToAssign;
-                        // Tiszta lap - Minden jegy alapállapotba kerül
-                        hive.resetEvaluation(
-                          newQueenId: queenToAssign.id,
-                          reason: 'Tiszta lap - beadva kirágósra (${queenToAssign.id})',
-                        );
-
-                        // Szokásos délelőtti (10:00) vizsgálat beütemezése a lakat lejárata napjára
-                        final inspectionDate = DateTime(
-                          lockEnd.year,
-                          lockEnd.month,
-                          lockEnd.day,
-                          10,
-                          0,
-                        );
-                        repository.scheduleQueenReplacementTasks(
-                          hive,
-                          isCageMode: false,
-                          custom14DayDate: inspectionDate,
-                        );
-                        repository.updateHive(hive);
-
-                        Navigator.pop(dialogCtx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Új anya (${queenToAssign.id}) kirágósra beadva! Tiszta lap indult.\n'
-                              '🔒 14 napos LAKAT aktív (Tilos bolygatni, a monitor hallgatózik)!\n'
-                              '📅 Vizsgálat a lakat lejáratakor: ${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')} (10:00)',
+                              'Új anya (${queenToAssign.id}) szoktatósra beadva!\n'
+                              '🔒 3 napos zárt beszoktatás aktív a leölés megelőzésére.\n'
+                              '📅 3 nap múlva esedékes az anyakalitka kirágósra állítása.',
                             ),
                             backgroundColor: Colors.teal,
                             duration: const Duration(seconds: 5),
@@ -1020,14 +1219,15 @@ Future<void> showQueenReplacementFlowDialog({
                       },
                       child: const Row(
                         children: [
-                          Icon(Icons.lock, size: 24, color: Colors.black),
+                          Icon(Icons.lock_clock, size: 26),
                           SizedBox(width: 10),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Új anya beadva kirágósra', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black)),
-                                Text('Cukorlepényes zárka + 2 hetes LAKAT védelem', style: TextStyle(fontSize: 10.5, color: Colors.black87)),
+                                Text('Új anya beadva szoktatósra', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                SizedBox(height: 2),
+                                Text('Kötelező zárt kalitka (3 nap beszoktatás a leölés megelőzésére)', style: TextStyle(fontSize: 11, color: Colors.white70)),
                               ],
                             ),
                           ),
@@ -1068,6 +1268,8 @@ Future<void> showQueenReplacementFlowDialog({
                         hive.lockedUntil = lockEnd;
                         hive.lockReason = 'Új anya kirágósra adva (Ne nyúlj hozzá!)';
                         hive.status = 'green';
+                        hive.isAcousticSentinelActive = true;
+                        hive.acousticSampleIntervalMinutes = 15;
 
                         // Szokásos délelőtti (10:00) vizsgálat beütemezése a lakat lejárata napjára
                         final inspectionDate = DateTime(
@@ -1089,10 +1291,12 @@ Future<void> showQueenReplacementFlowDialog({
                           SnackBar(
                             content: Text(
                               'Kirágósra állítva! Kaptár 14 napra zárolva (🔒 Lakat: Tilos bolygatni)!\n'
+                              '🎧 Sűrített akusztikai felügyelet aktív (15 percenkénti hallgatózás)!\n'
+                              'A monitor éberen figyeli a méhzúgást, és anomália esetén azonnal figyelmeztet.\n'
                               '📅 Vizsgálat a lakat lejáratakor: ${inspectionDate.year}.${inspectionDate.month.toString().padLeft(2, '0')}.${inspectionDate.day.toString().padLeft(2, '0')} (10:00)',
                             ),
                             backgroundColor: Colors.teal,
-                            duration: const Duration(seconds: 5),
+                            duration: const Duration(seconds: 6),
                           ),
                         );
                       },
