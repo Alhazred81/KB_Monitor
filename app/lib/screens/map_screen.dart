@@ -13,7 +13,11 @@ import '../services/location_compass_service.dart';
 import '../widgets/hive_config_dialog.dart';
 import '../widgets/hive_detail_sheet.dart';
 import '../widgets/weak_colony_warning_dialog.dart';
+import '../widgets/scanner_controls.dart';
+import '../widgets/scanner_overlay.dart';
+import '../widgets/top_gps_bar.dart';
 import '../widgets/candy_icon.dart';
+import '../widgets/hive_tower_icon.dart';
 import '../widgets/waterer_icon.dart';
 import '../widgets/queen_replacement_dialog.dart';
 import '../widgets/help_bubble.dart';
@@ -22,6 +26,7 @@ import 'office_dashboard_screen.dart';
 import 'processing_room_screen.dart';
 import 'settings_screen.dart';
 import 'server_config_screen.dart'; // <-- Beimportálva az új fülös konfig képernyő
+import 'weather_history_screen.dart';
 
 const String kSecretProtocolPassword = "Multioptipupiloptómia";
 
@@ -191,10 +196,12 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
       _isEditMode = !_isEditMode;
     });
     if (!_isEditMode) {
-      _repository.syncWithSupabase();
+      _repository.saveMapLayoutPositions();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Ikonok új elrendezése rögzítve.'),
+          content: const Text(
+            'Ikonok új elrendezése mentve az adatbázisba és a naplóba.',
+          ),
           backgroundColor: Colors.green.shade700,
           duration: const Duration(seconds: 2),
         ),
@@ -538,9 +545,23 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   ),
                   onPressed: () {
                     if (selectedTargetHive != null) {
-                      void executeAdd() {
+                      void executeAdd({bool overriddenMismatch = false}) {
+                        final target = selectedTargetHive!;
+                        if (overriddenMismatch) {
+                          _repository.logHistoryEvent(
+                            target.id,
+                            'nem_megfelelo_elem_felulbiralas',
+                            'Figyelmeztetés felülbírálva (${getHiveFamilyFunctionLabel(target.familyFunction)}): $boxName [$primaryCode] felhelyezve.',
+                            metadata: {
+                              'family_function': target.familyFunction,
+                              'box_type': selectedType,
+                              'box_name': boxName,
+                              'code': primaryCode,
+                            },
+                          );
+                        }
                         _repository.addBoxToHive(
-                          selectedTargetHive!,
+                          target,
                           BoxElement(
                             name: boxName,
                             code: primaryCode,
@@ -559,8 +580,11 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         );
                       }
 
-                      // 0. Méret kompatibilitás ellenőrzése (Dadant vs NB/Hunor/1/2 NB)
-                      final bool isRealBox = (selectedType == 'brood_box' || selectedType == 'honey');
+                      // 0. Méret kompatibilitás és 4 fiókos magasságkorlát ellenőrzése
+                      final bool isRealBox = isFrameBoxType(
+                        selectedType,
+                        name: boxName,
+                      );
                       if (isRealBox && boxSize.isNotEmpty) {
                         String norm(String s) {
                           final c = s.toLowerCase().replaceAll(' ', '').replaceAll('_', '').replaceAll('/', '');
@@ -571,7 +595,7 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         }
 
                         final incompatibleBox = selectedTargetHive!.boxes.firstWhere(
-                          (b) => b.size.isNotEmpty && (b.type == 'brood_box' || b.type == 'honey') && norm(b.size) != norm(boxSize),
+                          (b) => b.size.isNotEmpty && isFrameBoxType(b.type, name: b.name) && norm(b.size) != norm(boxSize),
                           orElse: () => BoxElement(name: '', code: '', type: '', size: ''),
                         );
 
@@ -604,70 +628,154 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                           );
                           return;
                         }
+
+                        final double addedEq = boxFullEquivalentFor(
+                          type: selectedType,
+                          size: boxSize,
+                          name: boxName,
+                        );
+                        final double projectedEq =
+                            selectedTargetHive!.fullBoxEquivalentCount + addedEq;
+                        if (projectedEq > HiveData.kMaxFullBoxEquivalent + 1e-6) {
+                          showMaxTowerHeightBlockedDialog(
+                            context: context,
+                            hive: selectedTargetHive!,
+                            addedBoxLabel: boxName,
+                            addedEquivalent: addedEq,
+                          );
+                          return;
+                        }
                       }
 
-                      // 1. Etető és Méztér összeférhetetlenség ellenőrzése
-                      if (selectedType == 'feeder' &&
-                          selectedTargetHive!.hasHoneySuper) {
-                        showFeederHoneyConflictDialog(
-                          context: context,
-                          hive: selectedTargetHive!,
-                          conflictType: 'adding_feeder_with_honey',
-                          onConfirm: executeAdd,
-                        );
-                        return;
+                      final FamilyFunctionBoxMismatch? fnMismatch =
+                          evaluateFamilyFunctionBoxMismatch(
+                            hive: selectedTargetHive!,
+                            boxType: selectedType,
+                            boxName: boxName,
+                          );
+                      final double scanAddedEq = isRealBox
+                          ? boxFullEquivalentFor(
+                              type: selectedType,
+                              size: boxSize,
+                              name: boxName,
+                            )
+                          : 0.0;
+                      final double scanProjectedEq =
+                          selectedTargetHive!.fullBoxEquivalentCount +
+                          scanAddedEq;
+                      final bool needsSpanifer =
+                          isRealBox &&
+                          scanProjectedEq >
+                              HiveData.kSpaniferWarningThreshold + 1e-6;
+
+                      void stepOtherConflicts({bool overriddenMismatch = false}) {
+                        // 1. Etető és Méztér összeférhetetlenség ellenőrzése
+                        if (!overriddenMismatch &&
+                            selectedType == 'feeder' &&
+                            selectedTargetHive!.hasHoneySuper) {
+                          showFeederHoneyConflictDialog(
+                            context: context,
+                            hive: selectedTargetHive!,
+                            conflictType: 'adding_feeder_with_honey',
+                            onConfirm: () => executeAdd(
+                              overriddenMismatch: overriddenMismatch,
+                            ),
+                          );
+                          return;
+                        }
+                        if (selectedType == 'honey' &&
+                            (selectedTargetHive!.hasFeeder ||
+                                selectedTargetHive!.feedingMode != 'off')) {
+                          showFeederHoneyConflictDialog(
+                            context: context,
+                            hive: selectedTargetHive!,
+                            conflictType: 'adding_honey_with_feeder',
+                            onConfirm: () => executeAdd(
+                              overriddenMismatch: overriddenMismatch,
+                            ),
+                          );
+                          return;
+                        }
+
+                        // 2. Pollengyűjtő és Méztér összeférhetetlenség ellenőrzése
+                        if (!overriddenMismatch &&
+                            selectedType == 'honey' &&
+                            selectedTargetHive!.hasActivePollenTrap) {
+                          showPollenHoneyConflictDialog(
+                            context: context,
+                            hive: selectedTargetHive!,
+                            conflictType: 'adding_honey_with_pollen',
+                            onConfirm: () => executeAdd(
+                              overriddenMismatch: overriddenMismatch,
+                            ),
+                          );
+                          return;
+                        }
+                        if (!overriddenMismatch &&
+                            selectedType == 'pollen_trap' &&
+                            selectedTargetHive!.hasHoneySuper) {
+                          showPollenHoneyConflictDialog(
+                            context: context,
+                            hive: selectedTargetHive!,
+                            conflictType: 'enabling_pollen_with_honey',
+                            onConfirm: () => executeAdd(
+                              overriddenMismatch: overriddenMismatch,
+                            ),
+                          );
+                          return;
+                        }
+
+                        // 3. Gyenge vagy beteg család védelme
+                        final bool isHoneyOrPollen = (selectedType == 'honey' ||
+                            selectedType == 'pollen_trap');
+                        if (isHoneyOrPollen && selectedTargetHive!.isWeakOrSick) {
+                          final String actionTitle = selectedType == 'honey'
+                              ? 'Méztér hozzáadása'
+                              : 'Pollengyűjtő hozzáadása';
+                          showWeakColonyWarningDialog(
+                            context: context,
+                            hive: selectedTargetHive!,
+                            actionTitle: actionTitle,
+                            onConfirm: () => executeAdd(
+                              overriddenMismatch: overriddenMismatch,
+                            ),
+                          );
+                          return;
+                        }
+
+                        executeAdd(overriddenMismatch: overriddenMismatch);
                       }
-                      if (selectedType == 'honey' &&
-                          (selectedTargetHive!.hasFeeder ||
-                              selectedTargetHive!.feedingMode != 'off')) {
-                        showFeederHoneyConflictDialog(
+
+                      void stepScanSpanifer({bool overriddenMismatch = false}) {
+                        if (needsSpanifer) {
+                          showSpaniferRequiredWarningDialog(
+                            context: context,
+                            hive: selectedTargetHive!,
+                            addedBoxLabel: boxName,
+                            projectedFullEquivalent: scanProjectedEq,
+                            onConfirm: () => stepOtherConflicts(
+                              overriddenMismatch: overriddenMismatch,
+                            ),
+                          );
+                          return;
+                        }
+                        stepOtherConflicts(
+                          overriddenMismatch: overriddenMismatch,
+                        );
+                      }
+
+                      if (fnMismatch != null) {
+                        showFamilyFunctionBoxMismatchDialog(
                           context: context,
                           hive: selectedTargetHive!,
-                          conflictType: 'adding_honey_with_feeder',
-                          onConfirm: executeAdd,
+                          mismatch: fnMismatch,
+                          onConfirm: () =>
+                              stepScanSpanifer(overriddenMismatch: true),
                         );
                         return;
                       }
 
-                      // 2. Pollengyűjtő és Méztér összeférhetetlenség ellenőrzése
-                      if (selectedType == 'honey' &&
-                          selectedTargetHive!.hasActivePollenTrap) {
-                        showPollenHoneyConflictDialog(
-                          context: context,
-                          hive: selectedTargetHive!,
-                          conflictType: 'adding_honey_with_pollen',
-                          onConfirm: executeAdd,
-                        );
-                        return;
-                      }
-                      if (selectedType == 'pollen_trap' &&
-                          selectedTargetHive!.hasHoneySuper) {
-                        showPollenHoneyConflictDialog(
-                          context: context,
-                          hive: selectedTargetHive!,
-                          conflictType: 'enabling_pollen_with_honey',
-                          onConfirm: executeAdd,
-                        );
-                        return;
-                      }
-
-                      // 3. Gyenge vagy beteg család védelme
-                      final bool isHoneyOrPollen = (selectedType == 'honey' ||
-                          selectedType == 'pollen_trap');
-                      if (isHoneyOrPollen && selectedTargetHive!.isWeakOrSick) {
-                        final String actionTitle = selectedType == 'honey'
-                            ? 'Méztér hozzáadása'
-                            : 'Pollengyűjtő hozzáadása';
-                        showWeakColonyWarningDialog(
-                          context: context,
-                          hive: selectedTargetHive!,
-                          actionTitle: actionTitle,
-                          onConfirm: executeAdd,
-                        );
-                        return;
-                      }
-
-                      executeAdd();
+                      stepScanSpanifer();
                       return;
                     }
                     Navigator.pop(context);
@@ -979,7 +1087,41 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                 Colors.greenAccent,
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
+
+              // Kiemelt Időjárás History gomb (Ma óránként, Tegnap, Ezen a héten, Múlt héten, 30 nap)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            WeatherHistoryScreen(repository: _repository),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.timeline_rounded, size: 22),
+                  label: const Text(
+                    'Időjárás History (Óránként / Heti / Havi)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
 
               // Navigáció a szerver weboldal-szerű, fülös beállításaihoz
               Row(
@@ -2035,8 +2177,8 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                   for (var hive in _repository.hives)
                     Marker(
                       point: hive.location,
-                      width: 54,
-                      height: 54,
+                      width: 58,
+                      height: 58,
                       child: GestureDetector(
                         onTap: () {
                           if (!_isEditMode) {
@@ -2131,42 +2273,114 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                               badgeIcon = Icons.bug_report;
                             }
 
-                            markerWidget = Container(
-                              decoration: BoxDecoration(
-                                color: badgeColor,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: _isEditMode
-                                      ? Colors.amberAccent
-                                      : Colors.white,
-                                  width: _isEditMode ? 3 : 2,
-                                ),
-                              ),
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Center(
-                                    child: Icon(
-                                      badgeIcon,
-                                      color: Colors.white,
-                                      size: 18,
+                            markerWidget = Stack(
+                              alignment: Alignment.center,
+                              clipBehavior: Clip.none,
+                              children: [
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: badgeColor,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: _isEditMode
+                                          ? Colors.amberAccent
+                                          : (hive.isRelapsedAfterStrengthening
+                                              ? Colors.redAccent
+                                              : Colors.white),
+                                      width: (_isEditMode || hive.isRelapsedAfterStrengthening) ? 3 : 2,
                                     ),
                                   ),
-                                  if (hasTartorHordozo)
-                                    Positioned(
-                                      child: Container(
-                                        width: 28,
-                                        height: 4,
-                                        decoration: BoxDecoration(
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      Center(
+                                        child: Icon(
+                                          badgeIcon,
                                           color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            2,
+                                          size: 18,
+                                        ),
+                                      ),
+                                      if (hasTartorHordozo)
+                                        Positioned(
+                                          child: Container(
+                                            width: 28,
+                                            height: 4,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(
+                                                2,
+                                              ),
+                                            ),
                                           ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                if (hive.isRelapsedAfterStrengthening)
+                                  Positioned(
+                                    top: -6,
+                                    left: -6,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2.5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFDC2626),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.amberAccent,
+                                          width: 1.8,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                            color: Colors.black87,
+                                            blurRadius: 5,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.priority_high_rounded,
+                                        color: Colors.white,
+                                        size: 13,
+                                      ),
+                                    ),
+                                  ),
+                                if (hive.hasExtraBoxes)
+                                  Positioned(
+                                    bottom: -6,
+                                    right: _isEditMode ? null : -6,
+                                    left: _isEditMode ? -6 : null,
+                                    child: Container(
+                                      width: 21,
+                                      height: 21,
+                                      padding: const EdgeInsets.all(2.5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF0F172A),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: hive.requiresSpanifer
+                                              ? Colors.orangeAccent
+                                              : Colors.amberAccent,
+                                          width: 1.6,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                            color: Colors.black87,
+                                            blurRadius: 4,
+                                          ),
+                                        ],
+                                      ),
+                                      child: Center(
+                                        child: HiveTowerIcon(
+                                          size: 13,
+                                          color: hive.requiresSpanifer
+                                              ? Colors.orangeAccent
+                                              : Colors.amberAccent,
                                         ),
                                       ),
                                     ),
-                                ],
-                              ),
+                                  ),
+                              ],
                             );
                           } else {
                             final Color markerBorderColor = _isEditMode
@@ -2229,8 +2443,38 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                     ],
                                   ),
                                 ),
-                                // Teljesítmény jelző: Csillag (jól teljesítő) vagy Piros lefelé nyíl (rosszul teljesítő)
-                                if (hive.isTopPerformer)
+                                // Teljesítmény és visszaesés jelző:
+                                // 1. Felkiáltójel (!): erősítés után ismét legyengült a többihez képest (tartós probléma!)
+                                // 2. Aranysárga csillag (⭐): Rekorder család (frissen erősített nem kaphatja!)
+                                // 3. Piros lefelé nyíl: rosszul teljesítő család
+                                if (hive.isRelapsedAfterStrengthening)
+                                  Positioned(
+                                    top: -6,
+                                    left: -6,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2.5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFDC2626),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.amberAccent,
+                                          width: 1.8,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                            color: Colors.black87,
+                                            blurRadius: 5,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.priority_high_rounded,
+                                        color: Colors.white,
+                                        size: 13,
+                                      ),
+                                    ),
+                                  )
+                                else if (hive.isTopPerformer)
                                   Positioned(
                                     top: -4,
                                     left: -4,
@@ -2343,6 +2587,41 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                                       ),
                                     ),
                                   ),
+                                if (hive.hasExtraBoxes)
+                                  Positioned(
+                                    bottom: -6,
+                                    right: _isEditMode ? null : -6,
+                                    left: _isEditMode ? -6 : null,
+                                    child: Container(
+                                      width: 21,
+                                      height: 21,
+                                      padding: const EdgeInsets.all(2.5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF0F172A),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: hive.requiresSpanifer
+                                              ? Colors.orangeAccent
+                                              : Colors.amberAccent,
+                                          width: 1.6,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                            color: Colors.black87,
+                                            blurRadius: 4,
+                                          ),
+                                        ],
+                                      ),
+                                      child: Center(
+                                        child: HiveTowerIcon(
+                                          size: 13,
+                                          color: hive.requiresSpanifer
+                                              ? Colors.orangeAccent
+                                              : Colors.amberAccent,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 if (_isEditMode)
                                   Positioned(
                                     bottom: 0,
@@ -2442,6 +2721,17 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         }
                       },
                       onLongPress: _toggleEditMode,
+                      onPanUpdate: _isEditMode
+                          ? (details) {
+                              setState(() {
+                                _repository.weatherStation.location =
+                                    _applyDragDelta(
+                                      _repository.weatherStation.location,
+                                      details.delta,
+                                    );
+                              });
+                            }
+                          : null,
                       child: () {
                         final station = _repository.weatherStation;
                         final bool isConnected =
@@ -2546,6 +2836,16 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                           }
                         },
                         onLongPress: _toggleEditMode,
+                        onPanUpdate: _isEditMode
+                            ? (details) {
+                                setState(() {
+                                  waterer.location = _applyDragDelta(
+                                    waterer.location,
+                                    details.delta,
+                                  );
+                                });
+                              }
+                            : null,
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
@@ -2617,6 +2917,17 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
                         }
                       },
                       onLongPress: _toggleEditMode,
+                      onPanUpdate: _isEditMode
+                          ? (details) {
+                              setState(() {
+                                _repository.syrupPump.location =
+                                    _applyDragDelta(
+                                      _repository.syrupPump.location,
+                                      details.delta,
+                                    );
+                              });
+                            }
+                          : null,
                       child: () {
                         final pump = _repository.syrupPump;
                         final String pStatus = pump.status;
@@ -2945,10 +3256,8 @@ class _MapAndScannerScreenState extends State<MapAndScannerScreen>
 
         if (!_isCameraActive)
           ScannerControls(
-            idController: _idController,
             isNfcScanning: _isNfcScanning,
             nfcColorAnim: _nfcColorAnim,
-            onSubmitted: (val) => _findAndShowHive(val),
             onCameraPressed: () => _setCameraActive(true),
             onNfcPressed: () {
               _startNfcScan();

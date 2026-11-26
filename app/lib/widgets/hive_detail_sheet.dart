@@ -458,6 +458,54 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
+                                if (widget.hive.isRelapsedAfterStrengthening)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFDC2626).withAlpha(70),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.amberAccent, width: 1.5),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.priority_high_rounded, size: 14, color: Colors.amberAccent),
+                                        SizedBox(width: 3),
+                                        Text(
+                                          'Visszaesett!',
+                                          style: TextStyle(
+                                            color: Colors.amberAccent,
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                else if (widget.hive.isFreshlyStrengthened)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.lightGreen.withAlpha(40),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.lightGreenAccent.withAlpha(160), width: 1.1),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.group_add_rounded, size: 12, color: Colors.lightGreenAccent),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Felerősített',
+                                          style: TextStyle(
+                                            color: Colors.lightGreenAccent,
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 if (widget.hive.isLocked)
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -494,6 +542,46 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                         Text(
                                           'Anyacsere',
                                           style: TextStyle(color: Colors.redAccent, fontSize: 10.5, fontWeight: FontWeight.bold),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (widget.hive.hasExtraBoxes)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                    decoration: BoxDecoration(
+                                      color: widget.hive.requiresSpanifer
+                                          ? Colors.orange.withAlpha(45)
+                                          : Colors.amber.withAlpha(35),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: widget.hive.requiresSpanifer
+                                            ? Colors.orangeAccent
+                                            : Colors.amberAccent.withAlpha(180),
+                                        width: 1.2,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        HiveTowerIcon(
+                                          size: 13,
+                                          color: widget.hive.requiresSpanifer
+                                              ? Colors.orangeAccent
+                                              : Colors.amberAccent,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          widget.hive.fullBoxEquivalentCount > 1.0 + 1e-6
+                                              ? 'Torony (${widget.hive.formattedBoxEquivalent}/4)'
+                                              : 'Felépítmény',
+                                          style: TextStyle(
+                                            color: widget.hive.requiresSpanifer
+                                                ? Colors.orangeAccent
+                                                : Colors.amberAccent,
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -543,6 +631,65 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                     ],
                   ),
                   const Divider(color: Colors.white24, height: 24),
+
+                  if (widget.hive.isRelapsedAfterStrengthening) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF7F1D1D).withAlpha(150),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.amberAccent, width: 2),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDC2626),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.amberAccent, width: 1.5),
+                            ),
+                            child: const Icon(
+                              Icons.priority_high_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.hive.strengtheningCount > 1
+                                      ? '❗ ISMÉTELT LEGYENGÜLÉS (${widget.hive.strengtheningCount}× erősítés után)!'
+                                      : '❗ FELERŐSÍTÉS UTÁN ISMÉT LEGYENGÜLT!',
+                                  style: const TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'A család a többihez képest ismét visszaesett'
+                                  '${widget.hive.relapseReason != null ? " (${widget.hive.relapseReason})" : ""}. '
+                                  'Nem egyszeri lemaradásról van szó – tartós probléma (pl. hibás/öreg méhanya, rejtett betegség vagy nosema) gyanúja áll fenn!',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11.5,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
 
                   _buildUnifiedStatusAndTaskCard(context, widget.hive, repository),
                   const SizedBox(height: 12),
@@ -607,26 +754,14 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                   children: [
                     const Icon(Icons.warning_amber, color: Colors.amberAccent, size: 24),
                     const SizedBox(width: 10),
-                    Expanded(
-                      child: Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Hiányos torony: Nincs fészekfiók rögzítve!',
-                              style: TextStyle(
-                                color: Colors.amberAccent,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          HelpBubbleButton(
-                            title: 'Hiányzó fészekfiók',
-                            message: 'A toronyban még nincs fészekfiók rögzítve. Kattints a jobb felső beállító gombra (tune ikon) fészekfiók hozzáadásához.',
-                            iconColor: Colors.amberAccent,
-                            size: 16,
-                          ),
-                        ],
+                    const Expanded(
+                      child: Text(
+                        'Hiányos torony: Nincs fészekfiók rögzítve!',
+                        style: TextStyle(
+                          color: Colors.amberAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ],
@@ -681,24 +816,42 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
               ),
             ],
 
-            Row(
-              children: [
-                const Text(
-                  'Torony felépítése:',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
+            if (widget.hive.requiresSpanifer && !widget.hive.isQuarantined) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade900.withAlpha(85),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amberAccent, width: 1.5),
                 ),
-                const SizedBox(width: 6),
-                HelpBubbleButton(
-                  title: 'Kaptártorony fiókjai',
-                  message: 'A torony elemei az aljdeszkától a tetőig. Bármelyik fiókra vagy elemre koppintva megnyithatod a dedikált vezérlőjét vagy beállításait.',
-                  iconColor: Colors.white70,
-                  size: 14,
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '⚠️ Magas torony (${widget.hive.formattedBoxEquivalent} / 4 teljes fiók): 1 teljes + 4 db 1/2-Dadant (3 fiók) felett minimum spaniferes rögzítés szükséges!',
+                        style: const TextStyle(
+                          color: Colors.amberAccent,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.bold,
+                          height: 1.25,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
+            ],
+
+            Text(
+              'Torony felépítése (${widget.hive.formattedBoxEquivalent} / 4 fiók):',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
 
@@ -883,16 +1036,47 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                       }
                     }
 
-                    // Figyelmeztetés ha méztér van fenn
-                    if (widget.hive.hasHoneySuper) {
-                      showPollenHoneyConflictDialog(
+                    // Figyelmeztetés ha a család feladata nem virágporgyűjtés, vagy ha méztér van fenn
+                    final fnPollenMismatch = evaluateFamilyFunctionBoxMismatch(
+                      hive: widget.hive,
+                      boxType: 'pollen_trap',
+                      boxName: 'Pollengyűjtő',
+                    );
+                    void checkHoneyAndProceed() {
+                      if (widget.hive.hasHoneySuper) {
+                        showPollenHoneyConflictDialog(
+                          context: context,
+                          hive: widget.hive,
+                          conflictType: 'enabling_pollen_with_honey',
+                          onConfirm: proceedWithEnable,
+                        );
+                      } else {
+                        proceedWithEnable();
+                      }
+                    }
+
+                    if (fnPollenMismatch != null) {
+                      showFamilyFunctionBoxMismatchDialog(
                         context: context,
                         hive: widget.hive,
-                        conflictType: 'enabling_pollen_with_honey',
-                        onConfirm: proceedWithEnable,
+                        mismatch: fnPollenMismatch,
+                        isActivation: true,
+                        onConfirm: () {
+                          repository.logHistoryEvent(
+                            widget.hive.id,
+                            'nem_megfelelo_elem_felulbiralas',
+                            'Figyelmeztetés felülbírálva (${fnPollenMismatch.functionLabel}): Pollengyűjtő bekapcsolva.',
+                          );
+                          if (fnPollenMismatch.functionLabel == 'Méztermelés') {
+                            // Méztermelésnél a funkció-figyelmeztetés már lefedte a mézhozam-konfliktust
+                            proceedWithEnable();
+                          } else {
+                            checkHoneyAndProceed();
+                          }
+                        },
                       );
                     } else {
-                      proceedWithEnable();
+                      checkHoneyAndProceed();
                     }
                   } else {
                     setState(() {
@@ -1209,8 +1393,10 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                       ),
                                       const SizedBox(width: 4),
                                       BoxInfoButton(box: box),
-                                      const SizedBox(width: 2),
-                                      BoxHelpButton(box: box),
+                                      if (BoxHelpButton.hasHelp(box)) ...[
+                                        const SizedBox(width: 2),
+                                        BoxHelpButton(box: box),
+                                      ],
                                     ],
                                   ),
                                 ),
@@ -1220,21 +1406,47 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                     child: InkWell(
                                       borderRadius: BorderRadius.circular(8),
                                       onTap: () {
-                                        repository.insertEscapeBoardUnderBox(
-                                          widget.hive,
-                                          box,
-                                        );
-                                        setState(() {});
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Leszöktetés elindítva: Szöktető behelyezve a(z) "$boxTitle" alá!\n'
-                                              'A felette levő mézterek max. 24 órán belül elveendők.',
+                                        void doInsertEscapement() {
+                                          repository.insertEscapeBoardUnderBox(
+                                            widget.hive,
+                                            box,
+                                          );
+                                          setState(() {});
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Leszöktetés elindítva: Szöktető behelyezve a(z) "$boxTitle" alá!\n'
+                                                'A felette levő mézterek max. 24 órán belül elveendők.',
+                                              ),
+                                              backgroundColor: Colors.teal,
+                                              duration: const Duration(seconds: 4),
                                             ),
-                                            backgroundColor: Colors.teal,
-                                            duration: const Duration(seconds: 4),
-                                          ),
-                                        );
+                                          );
+                                        }
+
+                                        final escMismatch =
+                                            evaluateFamilyFunctionBoxMismatch(
+                                              hive: widget.hive,
+                                              boxType: 'escapement',
+                                              boxName: 'Méhszöktető',
+                                            );
+                                        if (escMismatch != null) {
+                                          showFamilyFunctionBoxMismatchDialog(
+                                            context: context,
+                                            hive: widget.hive,
+                                            mismatch: escMismatch,
+                                            onConfirm: () {
+                                              repository.logHistoryEvent(
+                                                widget.hive.id,
+                                                'nem_megfelelo_elem_felulbiralas',
+                                                'Figyelmeztetés felülbírálva (${escMismatch.functionLabel}): Méhszöktető behelyezve a(z) "$boxTitle" alá.',
+                                              );
+                                              doInsertEscapement();
+                                            },
+                                          );
+                                          return;
+                                        }
+                                        doInsertEscapement();
                                       },
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
@@ -1554,6 +1766,13 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
       diagnosticIssues.add({
         'icon': Icons.warning_rounded,
         'title': '⚠️ TELJES TORONY HATÓSÁGI ZÁRLAT (Nyúlós költésrothadás)! Szigorúan tilos bármilyen elemet vagy mézet áthelyezni máshová!',
+        'isManualStatus': false,
+      });
+    } else if (hive.isRelapsedAfterStrengthening) {
+      diagnosticIssues.add({
+        'icon': Icons.priority_high_rounded,
+        'title':
+            '❗ Felerősítés után ismét legyengült a többi családhoz képest${hive.relapseReason != null ? " (${hive.relapseReason})" : ""}: tartós probléma (pl. anyacsere / betegség) vizsgálata szükséges!',
         'isManualStatus': false,
       });
     }
@@ -2118,7 +2337,32 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                             ),
                           ),
                         ),
-                        if (hive.isTopPerformer) ...[
+                        if (hive.isRelapsedAfterStrengthening) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDC2626),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.amberAccent, width: 1.2),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.priority_high_rounded, color: Colors.white, size: 13),
+                                SizedBox(width: 2),
+                                Text(
+                                  'Tartós gond!',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ] else if (hive.isTopPerformer) ...[
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -2133,7 +2377,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                 Icon(Icons.star, color: Colors.amberAccent, size: 13),
                                 SizedBox(width: 3),
                                 Text(
-                                  'Top',
+                                  'Rekorder',
                                   style: TextStyle(
                                     color: Colors.amberAccent,
                                     fontSize: 10,
@@ -2172,12 +2416,17 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                       ],
                     ),
                   ),
-                  HelpBubbleButton(
-                    title: isQuietLock ? 'Védett lakat időszak' : 'Diagnosztikai besorolás',
-                    message: helpMsg,
-                    iconColor: statusColor,
-                    size: 15,
-                  ),
+                  if (isCageMode || isQuietLock || hive.isQuarantined)
+                    HelpBubbleButton(
+                      title: isQuietLock
+                          ? 'Védett lakat időszak'
+                          : (hive.isQuarantined
+                              ? 'Hans-protokoll zárlat'
+                              : 'Szoktatós anyásítás'),
+                      message: helpMsg,
+                      iconColor: statusColor,
+                      size: 15,
+                    ),
                 ],
               ),
             ),
@@ -2315,7 +2564,12 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                     setState(() {
                       widget.hive.status = 'green';
                     });
-                    repository.updateHive(widget.hive);
+                    repository.updateHive(
+                      widget.hive,
+                      historyEventType: 'statusz_valtozas',
+                      historyDescription:
+                          'Család státusza kézzel módosítva: green.',
+                    );
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('A kaptár kézi státusza Zöldre állítva!'),
@@ -3852,13 +4106,9 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                           ),
                                           onPressed: () {
                                             Navigator.pop(ctx);
-                                            setModalState(() {
-                                              hive.familyFunction = 'Hans';
-                                              hive.status = 'red';
-                                              hive.protocol = 'hans';
-                                            });
+                                            repository.activateHansProtocol(hive);
+                                            setModalState(() {});
                                             setState(() {});
-                                            repository.updateHive(hive);
                                           },
                                           child: const Text('Igen, Hans (Elpusztítás)'),
                                         ),
@@ -3866,14 +4116,47 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                     ),
                                   );
                                 } else {
-                                  setModalState(() {
-                                    hive.familyFunction = cat['id'] as String;
-                                    if (cat['id'] != 'Hans' && hive.protocol == 'hans') {
-                                      hive.protocol = 'standard';
-                                    }
-                                  });
-                                  setState(() {});
-                                  repository.updateHive(hive);
+                                  final String newFnId = cat['id'] as String;
+                                  final String newFnName = cat['name'] as String;
+                                  void applyNewFunction() {
+                                    setModalState(() {
+                                      hive.familyFunction = newFnId;
+                                      if (newFnId != 'Hans' && hive.protocol == 'hans') {
+                                        hive.protocol = 'standard';
+                                      }
+                                    });
+                                    setState(() {});
+                                    repository.updateHive(
+                                      hive,
+                                      historyEventType: 'funkcio_valtozas',
+                                      historyDescription:
+                                          'Család funkciója módosítva: $newFnName ($newFnId).',
+                                    );
+                                  }
+
+                                  final towerMismatches =
+                                      findExistingTowerMismatchesForFunction(
+                                        hive,
+                                        newFnId,
+                                      );
+                                  if (towerMismatches.isNotEmpty) {
+                                    showFunctionChangeTowerMismatchDialog(
+                                      context: context,
+                                      hive: hive,
+                                      newFunctionLabel: newFnName,
+                                      mismatches: towerMismatches,
+                                      onConfirm: () {
+                                        repository.logHistoryEvent(
+                                          hive.id,
+                                          'torony_funkcio_elteres',
+                                          'Funkció átállítva ($newFnName) fennlévő eltérő elemekkel: ${towerMismatches.map((m) => m.elementLabel).join(", ")}.',
+                                        );
+                                        applyNewFunction();
+                                      },
+                                    );
+                                  } else {
+                                    applyNewFunction();
+                                  }
                                 }
                               },
                               child: Container(
@@ -3908,12 +4191,6 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                           fontSize: 15,
                                         ),
                                       ),
-                                    ),
-                                    HelpBubbleButton(
-                                      title: cat['name'] as String,
-                                      message: cat['desc'] as String,
-                                      iconColor: catColor,
-                                      size: 18,
                                     ),
                                     if (isSel) ...[
                                       const SizedBox(width: 8),
@@ -3996,6 +4273,29 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                     style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.w600),
                                   ),
                                 ],
+                                if (hive.isRelapsedAfterStrengthening) ...[
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF7F1D1D).withAlpha(140),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.amberAccent, width: 1.3),
+                                    ),
+                                    child: const Row(
+                                      children: [
+                                        Icon(Icons.priority_high_rounded, color: Colors.amberAccent, size: 16),
+                                        SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            'A család erősítés után ismét legyengült a többihez képest – javasolt az anya ellenőrzése vagy sürgős cseréje!',
+                                            style: TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 10),
                                 if (hive.isQueenReplacementActive) ...[
                                   Row(
@@ -4032,7 +4332,11 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                         onPressed: () {
                                           hive.queenReplacementState = null;
                                           if (hive.queen != null) hive.queen!.needsReplacement = false;
-                                          repository.updateHive(hive);
+                                          repository.updateHive(
+                                            hive,
+                                            historyEventType: 'anyacsere_visszavonas',
+                                            historyDescription: 'Anyacsere jelölés visszavonva.',
+                                          );
                                           setModalState(() {});
                                           setState(() {});
                                         },
@@ -4072,7 +4376,11 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                       hive.queenReplacementState = 'needs_replacement';
                                       hive.status = 'red';
                                       if (hive.queen != null) hive.queen!.needsReplacement = true;
-                                      repository.updateHive(hive);
+                                      repository.updateHive(
+                                        hive,
+                                        historyEventType: 'anyacsere_jeloles',
+                                        historyDescription: 'Sürgős anyacsere megjelölve.',
+                                      );
                                       setModalState(() {});
                                       setState(() {});
                                       ScaffoldMessenger.of(context).showSnackBar(
@@ -4146,27 +4454,20 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                     fontSize: 14.5,
                                   ),
                                 ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    HelpBubbleButton(
-                                      title: st['label'] as String,
-                                      message: st['desc'] as String,
-                                      iconColor: color,
-                                      size: 18,
-                                    ),
-                                    if (isSelected) ...[
-                                      const SizedBox(width: 8),
-                                      Icon(Icons.check_circle, color: color, size: 24),
-                                    ],
-                                  ],
-                                ),
+                                trailing: isSelected
+                                    ? Icon(Icons.check_circle, color: color, size: 24)
+                                    : null,
                                 onTap: () {
                                   setModalState(() {
                                     hive.status = st['key'] as String;
                                   });
                                   setState(() {});
-                                  repository.updateHive(hive);
+                                  repository.updateHive(
+                                    hive,
+                                    historyEventType: 'statusz_valtozas',
+                                    historyDescription:
+                                        'Család állapota módosítva: ${st["label"]}.',
+                                  );
                                 },
                               ),
                             ),
@@ -4213,7 +4514,12 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                         );
                                       });
                                       setState(() {});
-                                      repository.updateHive(hive);
+                                      repository.updateHive(
+                                        hive,
+                                        historyEventType: 'biralat_alaphelyzet',
+                                        historyDescription:
+                                            'Tenyészbírálati minősítés alaphelyzetbe állítva (Tiszta lap).',
+                                      );
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(
                                           content: Text('Család minősítése alaphelyzetbe állítva (Tiszta lap)!'),
@@ -4254,26 +4560,65 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                                   ),
                                 ),
                               ],
+                              if (hive.isFreshlyStrengthened && !hive.isRelapsedAfterStrengthening) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withAlpha(30),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.amberAccent.withAlpha(110)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.block, color: Colors.amberAccent, size: 15),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          'Frissen felerősített család (${hive.strengthenedDaysAgo} napja): külső erősítés miatt még ${hive.rekorderCooldownDaysRemaining} napig nem kaphat Rekorder státuszt.',
+                                          style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 10),
                               _buildTraitRow('Szelídség', hive.evaluation.temperament, (val) {
                                 setModalState(() => hive.evaluation.temperament = val);
                                 setState(() {});
-                                repository.updateHive(hive);
+                                repository.updateHive(
+                                  hive,
+                                  historyEventType: 'tenyeszbiralat',
+                                  historyDescription: 'Tenyészbírálat módosítva – Szelídség: $val',
+                                );
                               }),
                               _buildTraitRow('Tisztogató hajlam (VSH)', hive.evaluation.hygiene, (val) {
                                 setModalState(() => hive.evaluation.hygiene = val);
                                 setState(() {});
-                                repository.updateHive(hive);
+                                repository.updateHive(
+                                  hive,
+                                  historyEventType: 'tenyeszbiralat',
+                                  historyDescription: 'Tenyészbírálat módosítva – Tisztogató hajlam (VSH): $val',
+                                );
                               }),
                               _buildTraitRow('Gyűjtési hajlam', hive.evaluation.gathering, (val) {
                                 setModalState(() => hive.evaluation.gathering = val);
                                 setState(() {});
-                                repository.updateHive(hive);
+                                repository.updateHive(
+                                  hive,
+                                  historyEventType: 'tenyeszbiralat',
+                                  historyDescription: 'Tenyészbírálat módosítva – Gyűjtési hajlam: $val',
+                                );
                               }),
                               _buildTraitRow('Rajzási hajlam', hive.evaluation.swarming, (val) {
                                 setModalState(() => hive.evaluation.swarming = val);
                                 setState(() {});
-                                repository.updateHive(hive);
+                                repository.updateHive(
+                                  hive,
+                                  historyEventType: 'tenyeszbiralat',
+                                  historyDescription: 'Tenyészbírálat módosítva – Rajzási hajlam: $val',
+                                );
                               }),
                             ],
                           ),

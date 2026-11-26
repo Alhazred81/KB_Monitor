@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/hive_repository.dart';
+
 class ServerConfigForm extends StatefulWidget {
   final String
   section; // 'all', 'wifi', 'sensors', 'gsm', 'iot', 'reports', 'diag'
@@ -328,9 +330,41 @@ class _ServerConfigFormState extends State<ServerConfigForm> {
             backgroundColor: const Color(0xFF10b981),
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
-          onPressed: () {
+          onPressed: () async {
+            final rawUrl = _supaUrlController.text.trim();
+            final rawKey = _supaKeyController.text.trim();
+            if (rawUrl.isNotEmpty && rawKey.isNotEmpty) {
+              final normalizedUrl = rawUrl.startsWith('http')
+                  ? rawUrl
+                  : 'https://$rawUrl';
+              await HiveRepository.instance.setSupabaseConfig(
+                normalizedUrl,
+                rawKey,
+              );
+            }
+            HiveRepository.instance.logHistoryEvent(
+              'ESP32_SERVER',
+              'szerver_konfig',
+              'ESP32 & rendszer beállítások mentve (${widget.section} szekció, mód: $_selectedCommMode).',
+              metadata: {
+                'section': widget.section,
+                'comm_mode': _selectedCommMode,
+                'hide_ap': _hideAp,
+                'ap_ssid': _apSsidController.text.trim(),
+                'sta_ssid': _staSsidController.text.trim(),
+                'rs485_baud': _rs485BaudController.text.trim(),
+                'gprs_active': _dataConnActive,
+                'ntfy_topic': _ntfyTopicController.text.trim(),
+                'report_times': _reportTimesController.text.trim(),
+              },
+            );
+            if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Beállítások mentve!')),
+              const SnackBar(
+                content: Text(
+                  'Beállítások mentve és naplózva az adatbázisba!',
+                ),
+              ),
             );
           },
           child: const Text(

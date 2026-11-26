@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/hive_repository.dart';
 import '../widgets/serverconfigform.dart';
 import 'ble_pairing_screen.dart';
+import 'weather_history_screen.dart';
 
 class ServerAndWeatherConfigScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -241,6 +242,31 @@ class _ServerAndWeatherConfigScreenState
                             Colors.amber,
                           ),
                           const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.amber,
+                                foregroundColor: Colors.black,
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => WeatherHistoryScreen(
+                                      repository: HiveRepository.instance,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.timeline_rounded),
+                              label: const Text(
+                                'Időjárás History (Ma / Tegnap / Heti)',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(

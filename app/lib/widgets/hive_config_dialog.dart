@@ -278,28 +278,23 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
   }
 
   String _formatSize(String size) {
-    switch (size.toLowerCase().trim()) {
+    final lower = size.toLowerCase().trim();
+    if (isHalfBoxSize(lower)) {
+      if (lower.contains('nb')) return '1/2 NB';
+      if (lower.contains('lang')) return '1/2 Langstroth';
+      return '1/2 Dadant';
+    }
+    switch (lower) {
       case 'hunor':
         return 'Hunor';
       case 'dadant':
         return 'Dadant';
-      case 'fel_dadant':
-      case '1/2 dadant':
-      case '1/2dadant':
-      case 'half_dadant':
-        return '1/2 Dadant';
       case 'langstroth':
+      case 'lang_deep':
         return 'Langstroth';
-      case 'fel_langstroth':
-      case '1/2 langstroth':
-      case 'half_langstroth':
-        return '1/2 Langstroth';
       case 'nb':
+      case 'nb_rakodo':
         return 'NB';
-      case 'fel_nb':
-      case '1/2 nb':
-      case '1/2nb':
-        return '1/2 NB';
       case 'nb_fekvo':
       case 'nagyboczonadi':
         return 'NB Fekvő';
@@ -570,6 +565,23 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
         );
         return;
       }
+
+      // Maximális toronymagasság ellenőrzése: max. 4.0 teljes fiók (vagy 8 db 1/2 fiók)!
+      final double addedEq = boxFullEquivalentFor(
+        type: _newBoxType,
+        size: _newBoxSize,
+      );
+      final double projectedEq =
+          _activeHive!.fullBoxEquivalentCount + addedEq;
+      if (projectedEq > HiveData.kMaxFullBoxEquivalent + 1e-6) {
+        showMaxTowerHeightBlockedDialog(
+          context: context,
+          hive: _activeHive!,
+          addedBoxLabel: _getSelectedElementLabel(),
+          addedEquivalent: addedEq,
+        );
+        return;
+      }
     }
 
     final bool alreadyHasBroodBox = _activeHive!.boxes.any(
@@ -583,36 +595,74 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
     final bool needsWeakColonyConfirm =
         (isExtraFrameBox || _newBoxType == 'pollen_trap') &&
         (_activeHive!.isWeakOrSick || _activeHive!.isPoorPerformer);
+    final double addedBoxEq = _isRealBox(_newBoxType)
+        ? boxFullEquivalentFor(type: _newBoxType, size: _newBoxSize)
+        : 0.0;
+    final double projectedTowerEq =
+        _activeHive!.fullBoxEquivalentCount + addedBoxEq;
+    final bool needsSpaniferConfirm =
+        _isRealBox(_newBoxType) &&
+        projectedTowerEq > HiveData.kSpaniferWarningThreshold + 1e-6;
 
-    void stepPollenConflict() {
-      if (_newBoxType == 'honey' && _activeHive!.hasActivePollenTrap) {
-        showPollenHoneyConflictDialog(
-          context: context,
+    final FamilyFunctionBoxMismatch? functionMismatch =
+        evaluateFamilyFunctionBoxMismatch(
           hive: _activeHive!,
-          conflictType: 'adding_honey_with_pollen',
-          onConfirm: _executeAddElementToActiveHive,
+          boxType: _newBoxType,
+          boxName: _getSelectedElementLabel(),
         );
-        return;
-      }
-      if (_newBoxType == 'pollen_trap' && _activeHive!.hasHoneySuper) {
-        showPollenHoneyConflictDialog(
-          context: context,
-          hive: _activeHive!,
-          conflictType: 'enabling_pollen_with_honey',
-          onConfirm: _executeAddElementToActiveHive,
+
+    void finishAndAdd({bool overriddenMismatch = false}) {
+      if (overriddenMismatch && functionMismatch != null) {
+        _repository.logHistoryEvent(
+          _activeHive!.id,
+          'nem_megfelelo_elem_felulbiralas',
+          'Figyelmeztetés felülbírálva (${functionMismatch.functionLabel}): ${functionMismatch.elementLabel} felhelyezve.',
+          metadata: {
+            'family_function': _activeHive!.familyFunction,
+            'box_type': _newBoxType,
+            'element_label': functionMismatch.elementLabel,
+          },
         );
-        return;
       }
       _executeAddElementToActiveHive();
     }
 
-    void stepFeederConflict() {
-      if (_newBoxType == 'feeder' && _activeHive!.hasHoneySuper) {
+    void stepPollenConflict({bool overriddenMismatch = false}) {
+      if (!overriddenMismatch &&
+          _newBoxType == 'honey' &&
+          _activeHive!.hasActivePollenTrap) {
+        showPollenHoneyConflictDialog(
+          context: context,
+          hive: _activeHive!,
+          conflictType: 'adding_honey_with_pollen',
+          onConfirm: () => finishAndAdd(overriddenMismatch: overriddenMismatch),
+        );
+        return;
+      }
+      if (!overriddenMismatch &&
+          _newBoxType == 'pollen_trap' &&
+          _activeHive!.hasHoneySuper) {
+        showPollenHoneyConflictDialog(
+          context: context,
+          hive: _activeHive!,
+          conflictType: 'enabling_pollen_with_honey',
+          onConfirm: () => finishAndAdd(overriddenMismatch: overriddenMismatch),
+        );
+        return;
+      }
+      finishAndAdd(overriddenMismatch: overriddenMismatch);
+    }
+
+    void stepFeederConflict({bool overriddenMismatch = false}) {
+      if (!overriddenMismatch &&
+          _newBoxType == 'feeder' &&
+          _activeHive!.hasHoneySuper) {
         showFeederHoneyConflictDialog(
           context: context,
           hive: _activeHive!,
           conflictType: 'adding_feeder_with_honey',
-          onConfirm: stepPollenConflict,
+          onConfirm: () =>
+              stepPollenConflict(overriddenMismatch: overriddenMismatch),
         );
         return;
       }
@@ -622,11 +672,40 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
           context: context,
           hive: _activeHive!,
           conflictType: 'adding_honey_with_feeder',
-          onConfirm: stepPollenConflict,
+          onConfirm: () =>
+              stepPollenConflict(overriddenMismatch: overriddenMismatch),
         );
         return;
       }
-      stepPollenConflict();
+      stepPollenConflict(overriddenMismatch: overriddenMismatch);
+    }
+
+    void stepSpaniferWarning({bool overriddenMismatch = false}) {
+      if (needsSpaniferConfirm) {
+        showSpaniferRequiredWarningDialog(
+          context: context,
+          hive: _activeHive!,
+          addedBoxLabel: _getSelectedElementLabel(),
+          projectedFullEquivalent: projectedTowerEq,
+          onConfirm: () =>
+              stepFeederConflict(overriddenMismatch: overriddenMismatch),
+        );
+        return;
+      }
+      stepFeederConflict(overriddenMismatch: overriddenMismatch);
+    }
+
+    void stepFunctionMismatchWarning() {
+      if (functionMismatch != null) {
+        showFamilyFunctionBoxMismatchDialog(
+          context: context,
+          hive: _activeHive!,
+          mismatch: functionMismatch,
+          onConfirm: () => stepSpaniferWarning(overriddenMismatch: true),
+        );
+        return;
+      }
+      stepSpaniferWarning();
     }
 
     if (needsWeakColonyConfirm) {
@@ -654,12 +733,12 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
         context: context,
         hive: _activeHive!,
         actionTitle: actionTitle,
-        onConfirm: stepFeederConflict,
+        onConfirm: stepFunctionMismatchWarning,
       );
       return;
     }
 
-    stepFeederConflict();
+    stepFunctionMismatchWarning();
   }
 
   void _executeAddElementToActiveHive() {
@@ -830,7 +909,11 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
     setState(() {
       _activeHive!.status = newStatus;
     });
-    _repository.updateHive(_activeHive!);
+    _repository.updateHive(
+      _activeHive!,
+      historyEventType: 'statusz_valtozas',
+      historyDescription: 'Család státusza kézzel módosítva: $newStatus.',
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Család státusza frissítve: $newStatus'),
@@ -965,12 +1048,28 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                                   _syncDefaultSizeWithHive();
                                 });
                               },
-                              child: Text(
-                                h.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13.5,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (h.hasExtraBoxes) ...[
+                                    HiveTowerIcon(
+                                      size: 16,
+                                      color: selected
+                                          ? Colors.black87
+                                          : (h.requiresSpanifer
+                                                ? Colors.orangeAccent
+                                                : Colors.amberAccent),
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Text(
+                                    h.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13.5,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           );
@@ -1177,20 +1276,96 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                       const SizedBox(height: 18),
 
                       // 2. TORONY FELÉPÍTÉSE (NAGY FEL / LE / TÖRLÉS GOMBOKKAL)
-                      const Row(
+                      Row(
                         children: [
-                          HiveTowerIcon(size: 18, color: Colors.amberAccent),
-                          SizedBox(width: 8),
-                          Text(
-                            'Torony felépítése (Fentről lefelé):',
-                            style: TextStyle(
-                              color: Colors.amberAccent,
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.bold,
+                          const HiveTowerIcon(size: 18, color: Colors.amberAccent),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Torony felépítése (Fentről lefelé):',
+                              style: TextStyle(
+                                color: Colors.amberAccent,
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _activeHive!.isAtMaxBoxCapacity
+                                  ? Colors.red.withAlpha(55)
+                                  : (_activeHive!.requiresSpanifer
+                                        ? Colors.orange.withAlpha(55)
+                                        : Colors.teal.withAlpha(45)),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _activeHive!.isAtMaxBoxCapacity
+                                    ? Colors.redAccent
+                                    : (_activeHive!.requiresSpanifer
+                                          ? Colors.orangeAccent
+                                          : Colors.tealAccent),
+                                width: 1.4,
+                              ),
+                            ),
+                            child: Text(
+                              '${_activeHive!.formattedBoxEquivalent} / 4 fiók',
+                              style: TextStyle(
+                                color: _activeHive!.isAtMaxBoxCapacity
+                                    ? Colors.redAccent
+                                    : (_activeHive!.requiresSpanifer
+                                          ? Colors.orangeAccent
+                                          : Colors.tealAccent),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ),
                         ],
                       ),
+                      if (_activeHive!.requiresSpanifer) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 9,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade900.withAlpha(90),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.amberAccent,
+                              width: 1.6,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.amberAccent,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _activeHive!.isAtMaxBoxCapacity
+                                      ? '⚠️ Maximális magasság (${_activeHive!.formattedBoxEquivalent} / 4 teljes fiók) elérve! Minimum spaniferes rögzítés kötelező!'
+                                      : '⚠️ 1 teljes + 4 db 1/2-Dadant (3 teljes fiók) feletti torony (${_activeHive!.formattedBoxEquivalent} / 4 fiók): minimum spaniferes rögzítés szükséges!',
+                                  style: const TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    height: 1.25,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(10),
@@ -1528,8 +1703,10 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                       ),
                       const SizedBox(width: 4),
                       BoxInfoButton(box: box, size: 15),
-                      const SizedBox(width: 2),
-                      BoxHelpButton(box: box, size: 15),
+                      if (BoxHelpButton.hasHelp(box)) ...[
+                        const SizedBox(width: 2),
+                        BoxHelpButton(box: box, size: 15),
+                      ],
                     ],
                   ),
                   if (sizeText.isNotEmpty)

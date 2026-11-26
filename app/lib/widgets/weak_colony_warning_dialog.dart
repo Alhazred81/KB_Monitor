@@ -425,3 +425,244 @@ Future<bool> showPollenHoneyConflictDialog({
   }
   return false;
 }
+
+/// 4. FIGYELMEZTETÉS: 1 TELJES + 4 DB 1/2-DADANT (3 TELJES FIÓK) FELETTI TORONY -> MINIMUM SPANIFER SZÜKSÉGES!
+Future<bool> showSpaniferRequiredWarningDialog({
+  required BuildContext context,
+  required HiveData hive,
+  required String addedBoxLabel,
+  required double projectedFullEquivalent,
+  VoidCallback? onConfirm,
+}) async {
+  final String projStr = HiveData.formatBoxEquivalent(projectedFullEquivalent);
+  final String currStr = hive.formattedBoxEquivalent;
+
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => _LargeBeekeepingWarningDialog(
+      title: 'Spanifer Rögzítés Szükséges!',
+      badgeText:
+          'Spanifer határ (3 fiók) felett: $currStr ➔ $projStr / 4 teljes fiók',
+      primaryMessage:
+          '1 teljes + 4 db 1/2-Dadant (ill. 3 teljes) fiók felett ehhez a magassághoz már minimum spanifer kell!',
+      biologicalExplanation:
+          '1 teljes és 4 db 1/2-Dadant fióknál (3 teljes fiók-egyenértékig) még pont nincs szükség spaniferre, '
+          'viszont a(z) "$addedBoxLabel" felhelyezésével a torony magassága eléri a $projStr teljes fiók-egyenértéket.\n\n'
+          'Ilyen magasságnál (különösen teli mézterekkel és szélben) a súlypont magasra kerül, a kaptár megbillenhet vagy felborulhat – '
+          'csak akkor helyezd fel, ha a tornyot minimum spaniferrel (racsnis hevederrel) biztonságosan rögzíted!',
+      targetHiveInfo: 'Kaptár: ${hive.name} (${hive.id})',
+      badgeColor: const Color(0xFFF59E0B),
+      confirmationQuestion:
+          'Biztosítod a torony minimum spaniferes rögzítését?',
+      confirmButtonLabel: 'IGEN, SPANIFERREL!',
+    ),
+  );
+
+  if (result == true) {
+    onConfirm?.call();
+    return true;
+  }
+  return false;
+}
+
+/// 5. TILTÓ ABLAK: 4 TELJES FIÓK (VAGY 8 DB 1/2 FIÓK) FELETTI TORONY NEM ENGEDÉLYEZETT!
+Future<void> showMaxTowerHeightBlockedDialog({
+  required BuildContext context,
+  required HiveData hive,
+  required String addedBoxLabel,
+  required double addedEquivalent,
+}) async {
+  final double currentEq = hive.fullBoxEquivalentCount;
+  final double projectedEq = currentEq + addedEquivalent;
+  final double remainingEq = (HiveData.kMaxFullBoxEquivalent - currentEq).clamp(
+    0.0,
+    HiveData.kMaxFullBoxEquivalent,
+  );
+  final String currStr = HiveData.formatBoxEquivalent(currentEq);
+  final String projStr = HiveData.formatBoxEquivalent(projectedEq);
+  final bool halfBoxStillFits =
+      remainingEq >= 0.5 - 1e-6 && addedEquivalent > 0.5;
+
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    builder: (dialogCtx) => Dialog(
+      backgroundColor: const Color(0xFF1E293B),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: Colors.redAccent, width: 2.2),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Padding(
+          padding: const EdgeInsets.all(18.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade900.withValues(alpha: 0.45),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.redAccent, width: 2),
+                    ),
+                    child: const Icon(
+                      Icons.block,
+                      color: Colors.redAccent,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Maximális Toronymagasság!',
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Kaptár: ${hive.name} (Jelenleg: $currStr / 4 fiók)',
+                          style: const TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7F1D1D).withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.redAccent, width: 1.3),
+                ),
+                child: Text(
+                  'A kaptártorony maximális megengedett magassága 4 teljes fiók (vagy ezzel egyenértékű 8 db 1/2 fiók, pl. 1 teljes fészek + 6 db 1/2 Dadant méztér)!\n\n'
+                  '• Jelenlegi magasság: $currStr teljes fiók\n'
+                  '• Kiválasztott elem ($addedBoxLabel): +${HiveData.formatBoxEquivalent(addedEquivalent)} fiók ➔ $projStr / 4 fiók (TÚLLÉPÉS!)'
+                  '${halfBoxStillFits ? "\n\n💡 Tipp: Egy teljes fiók már nem fér fel, de még 1 db 1/2 fiók (+0.5) felhelyezhető spaniferes rögzítéssel!" : ""}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 50,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  icon: const Icon(Icons.check_circle_outline, size: 22),
+                  label: const Text(
+                    'MEGÉRTETTEM',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// 6. FIGYELMEZTETÉS: A CSALÁD FELADATÁHOZ (FAMILY FUNCTION) NEM ILLŐ FIÓK VAGY ZUBEHÖR (KELLÉK)!
+Future<bool> showFamilyFunctionBoxMismatchDialog({
+  required BuildContext context,
+  required HiveData hive,
+  required FamilyFunctionBoxMismatch mismatch,
+  bool isActivation = false,
+  VoidCallback? onConfirm,
+}) async {
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => _LargeBeekeepingWarningDialog(
+      title: isActivation
+          ? 'Nem megfelelő kellék a feladathoz!'
+          : 'Nem megfelelő fiók / kellék!',
+      badgeText: mismatch.badgeText,
+      primaryMessage: mismatch.primaryMessage,
+      biologicalExplanation: mismatch.explanation,
+      targetHiveInfo:
+          'Kaptár: ${hive.name} (${hive.id}) • Feladat: ${mismatch.functionLabel}',
+      badgeColor: const Color(0xFFF59E0B),
+      confirmationQuestion: isActivation
+          ? 'Biztosan bekapcsolod a(z) "${mismatch.elementLabel}" elemet ezen a családon?'
+          : 'Biztosan felrakod a(z) "${mismatch.elementLabel}" elemet erre a családra?',
+      confirmButtonLabel: isActivation ? 'BEKAPCSOLÁS ÍGY IS' : 'FELRAKÁS ÍGY IS',
+    ),
+  );
+
+  if (result == true) {
+    onConfirm?.call();
+    return true;
+  }
+  return false;
+}
+
+/// 7. FIGYELMEZTETÉS: CSALÁDFUNKCIÓ ÁTÁLLÍTÁSA, AMIKOR A TORNYON MÁR NEM ODAILLŐ FIÓK/KELLÉK VAN!
+Future<bool> showFunctionChangeTowerMismatchDialog({
+  required BuildContext context,
+  required HiveData hive,
+  required String newFunctionLabel,
+  required List<FamilyFunctionBoxMismatch> mismatches,
+  VoidCallback? onConfirm,
+}) async {
+  final String conflictingItems = mismatches
+      .map((m) => m.elementLabel)
+      .join(', ');
+  final String detailedReasons = mismatches
+      .map((m) => '• ${m.elementLabel}: ${m.explanation}')
+      .join('\n\n');
+
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => _LargeBeekeepingWarningDialog(
+      title: 'Torony & Feladat Eltérés!',
+      badgeText:
+          'Új feladat: $newFunctionLabel • Fennlévő elem: $conflictingItems',
+      primaryMessage:
+          'A kaptáron jelenleg olyan fiók / kellék ($conflictingItems) van, ami nem illik a(z) "$newFunctionLabel" feladathoz!',
+      biologicalExplanation:
+          '$detailedReasons\n\n💡 Javaslat: Az átállítás után a Konfig ablakban vedd le vagy kapcsold ki a nem odaillő elemet!',
+      targetHiveInfo: 'Kaptár: ${hive.name} (${hive.id})',
+      badgeColor: const Color(0xFFF59E0B),
+      confirmationQuestion:
+          'Átállítod így is a család feladatát "$newFunctionLabel" módra?',
+      confirmButtonLabel: 'ÁTÁLLÍTÁS ÍGY IS',
+    ),
+  );
+
+  if (result == true) {
+    onConfirm?.call();
+    return true;
+  }
+  return false;
+}

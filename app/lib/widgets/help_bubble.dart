@@ -285,10 +285,14 @@ class BoxInfoButton extends StatelessWidget {
         : 'Nincs párosítva';
     final db = box.dbId != null ? '#${box.dbId}' : 'Helyi azonosító';
     final sizeStr = box.size.trim().isNotEmpty ? box.size.toUpperCase() : 'Standard';
+    final double eq = box.fullBoxEquivalent;
+    final String eqLine = eq > 0.0
+        ? '\n⚖️ Magassági egyenérték: ${eq == 0.5 ? "0.5 (1/2 fiók)" : "1.0 (teljes fiók)"}'
+        : '';
 
     final infoText =
         '🏷️ Megnevezés: ${box.name}\n'
-        '📏 Fiókméret: $sizeStr\n'
+        '📏 Fiókméret: $sizeStr$eqLine\n'
         '📱 QR azonosító: ${box.code}\n'
         '📡 NFC kód: $nfc\n'
         '🗄️ Adatbázis azonosító: $db';
@@ -304,7 +308,8 @@ class BoxInfoButton extends StatelessWidget {
   }
 }
 
-/// Segítség gomb (❓): Részletezi a kaptárelem szakmai rendeltetését és használatát
+/// Segítség gomb (❓): Kizárólag olyan elemeknél jelenik meg, ahol nem triviális,
+/// időkritikus méhészeti vagy protokoll-szabályra kell figyelni (pl. napi ürítés, 3 napos kontroll, 24h leszöktetés).
 class BoxHelpButton extends StatelessWidget {
   final BoxElement box;
   final double size;
@@ -317,53 +322,42 @@ class BoxHelpButton extends StatelessWidget {
     this.padding = const EdgeInsets.all(5.0),
   });
 
-  String _getHelpText() {
+  static String? helpTextFor(BoxElement box) {
     final t = box.type.toLowerCase();
     final n = box.name.toLowerCase();
 
-    if (t == 'bottom' || n.contains('alj')) {
-      return 'Higiénikus aljdeszka atkavizsgáló tálcával. Betolt állapotban 3 napos természetes atkahullás vizsgálat végezhető. Kihúzva biztosítja az alsó szellőzést.';
+    if (t == 'bottom' || t == '15' || n.contains('alj')) {
+      return 'Betolt atkavizsgáló tálcánál 3 naponta ellenőrizni kell a természetes atkahullást és tisztítani a tálcát! Kihúzva biztosítja az alsó szellőzést.';
     }
-    if (t == 'pollen_trap' || n.contains('pollen') || n.contains('virágpor')) {
-      return 'Pollengyűjtő rács virágpor behordásának gyűjtésére. Szabály szerint közvetlenül az aljdeszkán helyezkedik el. Gyenge vagy fiasításnevelő családoknál ne hagyd tartósan bekapcsolva!';
+    if (t == 'pollen_trap' ||
+        t == '11' ||
+        n.contains('pollen') ||
+        n.contains('virágpor') ||
+        n.contains('viragpor')) {
+      return 'Bekapcsolt pollengyűjtő tálcáját naponta üríteni kell a virágpor penészedésének elkerülésére! Gyenge családnál vagy főhordásban ne hagyd tartósan bekapcsolva.';
     }
-    if (t == 'brood_box' || t == 'nest' || n.contains('fészek') || n.contains('feszek')) {
-      return 'Fészekfiók: a méhcsalád központi része, ahol az anya petézik és a fiasítás nevelése zajlik. Ide kerülnek a fedett és nyitott fiasításos keretek.';
+    if (t == 'escapement' ||
+        t == '13' ||
+        n.contains('szöktet') ||
+        n.contains('szoktet')) {
+      return 'A méhszöktető felhelyezése után 24 (legfeljebb 48) órán belül el kell venni a felette lévő méztereket!';
     }
-    if (t == 'comb_builder' || n.contains('lépépít') || n.contains('lepepit')) {
-      return 'Lépépítő fiók: műlépes keretek gyors kiépíttetésére erős hordásban vagy serkentés mellett, a viasztermelő fiatal méhek munkára fogásához és a rajzási hajlam csökkentéséhez.';
-    }
-    if (t == 'demaree' || n.contains('szaporít') || n.contains('szaporit') || n.contains('demaree')) {
-      return 'Szaporító (Demaree) fiók: rajzásgátló és szaporító eljáráshoz. Az anyarács fölé (gyakran méztér közbeiktatásával) emelt fiasításos fiók dajkaméheket vonz fel, tehermentesíti az alsó fészket, és kölyökcsalád képzésére is kiváló.';
-    }
-    if (t == 'queen_excluder' || n.contains('anyarács') || n.contains('anyaracs')) {
-      return 'Anyarács: megakadályozza, hogy a méhanya felmenjen a méztérbe vagy a Demaree-fiókba petézni, miközben a dolgozók szabadon átjárhatnak rajta.';
-    }
-    if (t == 'honey' || n.contains('méz') || n.contains('mez')) {
-      return 'Méztéri fiók: a méhek ide hordják be a tiszta felesleges nektárt és érlelik mézzé. Pergetés előtt alá helyezett méhszöktetővel kíméletesen, méhmentesen elvehető.';
-    }
-    if (t == 'feeder' || t == 'roof_feeder' || n.contains('etet')) {
-      return 'Tetőetető: szirupos serkentéshez és telelő etetéshez. Szabály szerint közvetlenül a dekli (tető) alatt helyezkedik el, úszóval a méhek fulladásának megakadályozására.';
-    }
-    if (t == 'roof' || n.contains('tető') || n.contains('teto') || n.contains('dekli')) {
-      return 'Tető / Dekli: a kaptártorony legfelső záróeleme, amely védelmet nyújt az időjárás, beázás és túlmelegedés ellen, valamint hőszigetelést biztosít.';
-    }
-    if (t == 'escapement' || n.contains('szöktet')) {
-      return 'Méhszöktető keret: a méztér alá helyezve 24-48 óra alatt kitereli a méheket a fészek felé, így a méztér szúrásmentesen pergethető.';
-    }
-    if (t == 'vent' || n.contains('szellőz')) {
-      return 'Szellőzőfiók / rács: vándorláskor és kánikulában biztosítja a torony átáramló levegőztetését.';
-    }
-    return '${box.name}: kaptárelem a toronyban.';
+    return null;
   }
+
+  static bool hasHelp(BoxElement box) => helpTextFor(box) != null;
 
   @override
   Widget build(BuildContext context) {
+    final msg = helpTextFor(box);
+    if (msg == null) {
+      return const SizedBox.shrink();
+    }
     return HelpBubbleButton(
       icon: Icons.help_outline_rounded,
       iconColor: Colors.amberAccent,
-      title: '${box.name} – Szakmai Súgó',
-      message: _getHelpText(),
+      title: '${box.name} – Fontos tudnivaló',
+      message: msg,
       size: size,
       padding: padding,
     );

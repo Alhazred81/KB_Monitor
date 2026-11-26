@@ -8,7 +8,9 @@ import 'package:printing/printing.dart';
 
 import '../hive_model.dart';
 import '../services/hive_repository.dart';
+import '../widgets/hive_tower_icon.dart';
 import '../widgets/safe_camera_controller.dart';
+import 'office_history_screen.dart';
 
 // ============================================================================
 // DINAMIKUS TÖRZSADAT MODELL (Adatbázis elemekhez)
@@ -349,7 +351,21 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _mergeCustomCatalogsFromRepository();
     _selectedSiteCode = _getByCategory('site').first.code;
+  }
+
+  void _mergeCustomCatalogsFromRepository() {
+    for (final raw in widget.repository.customCatalogItems) {
+      final item = CatalogItem.fromJson(raw);
+      if (item.code.isEmpty || item.category.isEmpty) continue;
+      final exists = _catalogs.any(
+        (c) => c.code == item.code && c.category == item.category,
+      );
+      if (!exists) {
+        _catalogs.add(item);
+      }
+    }
   }
 
   List<CatalogItem> _getByCategory(String category) {
@@ -1266,28 +1282,28 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                     final code = codeCtrl.text.trim();
                     if (label.isEmpty || code.isEmpty) return;
 
+                    final newItem = CatalogItem(
+                      category: selectedCategory,
+                      code: code,
+                      label: label,
+                      defaultSize: sizeCtrl.text.trim().isEmpty
+                          ? null
+                          : sizeCtrl.text.trim(),
+                      iconName: selectedCategory == 'feed_type'
+                          ? 'opacity'
+                          : selectedCategory == 'box_type'
+                          ? 'inventory_2'
+                          : selectedCategory == 'accessory_type'
+                          ? 'extension'
+                          : 'hive',
+                      colorHex: selectedColor,
+                    );
+
                     setState(() {
-                      _catalogs.add(
-                        CatalogItem(
-                          category: selectedCategory,
-                          code: code,
-                          label: label,
-                          defaultSize: sizeCtrl.text.trim().isEmpty
-                              ? null
-                              : sizeCtrl.text.trim(),
-                          iconName: selectedCategory == 'feed_type'
-                              ? 'opacity'
-                              : selectedCategory == 'box_type'
-                              ? 'inventory_2'
-                              : selectedCategory == 'accessory_type'
-                              ? 'extension'
-                              : 'hive',
-                          colorHex: selectedColor,
-                        ),
-                      );
+                      _catalogs.add(newItem);
                     });
 
-                    widget.repository.syncWithSupabase();
+                    widget.repository.addCatalogItem(newItem.toJson());
                     Navigator.pop(ctx);
                   },
                   icon: const Icon(Icons.cloud_upload),
@@ -1538,53 +1554,116 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                       const Divider(color: Colors.white12, height: 24),
                       ...siteHives.map((hive) {
                         final item = _resolveFunctionItem(hive.familyFunction);
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 6),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF0F172A),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(item.icon, color: item.color, size: 16),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    hive.name,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => OfficeHistoryScreen(
+                                  repository: widget.repository,
+                                  initialHiveFilter: hive.id,
+                                ),
+                              ),
+                            );
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      Icon(item.icon, color: item.color, size: 16),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          hive.name,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                      if (hive.isRelapsedAfterStrengthening) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.all(2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFDC2626),
+                                            shape: BoxShape.circle,
+                                            border: Border.all(color: Colors.amberAccent, width: 1.2),
+                                          ),
+                                          child: const Icon(
+                                            Icons.priority_high_rounded,
+                                            color: Colors.white,
+                                            size: 12,
+                                          ),
+                                        ),
+                                      ] else if (hive.isTopPerformer) ...[
+                                        const SizedBox(width: 6),
+                                        const Icon(
+                                          Icons.star,
+                                          color: Colors.amberAccent,
+                                          size: 15,
+                                        ),
+                                      ],
+                                      if (hive.hasExtraBoxes) ...[
+                                        const SizedBox(width: 6),
+                                        HiveTowerIcon(
+                                          size: 15,
+                                          color: hive.requiresSpanifer
+                                              ? Colors.orangeAccent
+                                              : Colors.amberAccent,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: item.color.withAlpha(30),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        item.label,
+                                        style: TextStyle(
+                                          color: item.color,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 3,
+                                    const SizedBox(width: 6),
+                                    const Icon(
+                                      Icons.manage_history_rounded,
+                                      color: Colors.white54,
+                                      size: 17,
+                                    ),
+                                  ],
                                 ),
-                                decoration: BoxDecoration(
-                                  color: item.color.withAlpha(30),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  item.label,
-                                  style: TextStyle(
-                                    color: item.color,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         );
                       }),
@@ -1592,6 +1671,190 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                   ],
                 ],
               ),
+            ),
+            const SizedBox(height: 16),
+
+            // ─── KAPTÁRNAPLÓ & ELŐZMÉNYEK (HISTORY) KÁRTYA ───
+            ListenableBuilder(
+              listenable: widget.repository,
+              builder: (context, _) {
+                final logs = widget.repository.historyLogs;
+                int boxEvents = 0;
+                int zubehorEvents = 0;
+                int treatmentEvents = 0;
+                int classEvents = 0;
+                for (final e in logs) {
+                  switch (e.mainCategory) {
+                    case 'boxes':
+                      boxEvents++;
+                      break;
+                    case 'zubehor':
+                      zubehorEvents++;
+                      break;
+                    case 'treatments':
+                      treatmentEvents++;
+                      break;
+                    case 'classification':
+                      classEvents++;
+                      break;
+                  }
+                }
+
+                void openHistory({String category = 'all'}) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => OfficeHistoryScreen(
+                        repository: widget.repository,
+                        initialCategory: category,
+                      ),
+                    ),
+                  );
+                }
+
+                Widget miniCatButton({
+                  required String cat,
+                  required String label,
+                  required int count,
+                  required IconData icon,
+                  required Color color,
+                }) {
+                  return Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () => openHistory(category: cat),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 8,
+                          horizontal: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F172A),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: color.withAlpha(90)),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(icon, color: color, size: 17),
+                            const SizedBox(height: 3),
+                            Text(
+                              '$count',
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                            Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                return Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF141428),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.tealAccent.withAlpha(100)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.manage_history_rounded,
+                            color: Colors.tealAccent,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Kaptárnapló & Előzmények (${logs.length} bejegyzés)',
+                              style: const TextStyle(
+                                color: Colors.tealAccent,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          miniCatButton(
+                            cat: 'boxes',
+                            label: 'Fiókok (+/−)',
+                            count: boxEvents,
+                            icon: Icons.inventory_2_rounded,
+                            color: const Color(0xFF10B981),
+                          ),
+                          const SizedBox(width: 6),
+                          miniCatButton(
+                            cat: 'zubehor',
+                            label: 'Zubehör',
+                            count: zubehorEvents,
+                            icon: Icons.extension_rounded,
+                            color: const Color(0xFF14B8A6),
+                          ),
+                          const SizedBox(width: 6),
+                          miniCatButton(
+                            cat: 'treatments',
+                            label: 'Kezelések',
+                            count: treatmentEvents,
+                            icon: Icons.medical_services_rounded,
+                            color: const Color(0xFFEC4899),
+                          ),
+                          const SizedBox(width: 6),
+                          miniCatButton(
+                            cat: 'classification',
+                            label: 'Osztályozás',
+                            count: classEvents,
+                            icon: Icons.workspace_premium_rounded,
+                            color: const Color(0xFFFBBF24),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 44,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0D9488),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: () => openHistory(),
+                          icon: const Icon(Icons.timeline_rounded, size: 20),
+                          label: const Text(
+                            'Teljes Kaptárnapló Megnyitása',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 20),
 
@@ -1801,10 +2064,34 @@ class _ItemRegistrationScreenState extends State<ItemRegistrationScreen> {
       status: 'green',
     );
 
+    bool attachedToHive = false;
     if (widget.repository.hives.isNotEmpty) {
-      widget.repository.addBoxToHive(widget.repository.hives.first, newBox);
+      final targetHive = widget.repository.hives.cast<HiveData?>().firstWhere(
+        (h) =>
+            h != null &&
+            !h.isQuarantined &&
+            h.canFitAdditionalBox(newBox) &&
+            evaluateFamilyFunctionBoxMismatch(
+                  hive: h,
+                  boxType: newBox.type,
+                  boxName: newBox.name,
+                ) ==
+                null,
+        orElse: () => null,
+      );
+      if (targetHive != null) {
+        widget.repository.addBoxToHive(targetHive, newBox);
+        attachedToHive = true;
+      }
     }
-    widget.repository.syncWithSupabase();
+    if (!attachedToHive) {
+      widget.repository.logHistoryEvent(
+        'OFFICE',
+        'elem_cimke_regisztracio',
+        'Kaptárelem QR/NFC címke párosítva raktárkészletbe: ${newBox.name} [${newBox.code}]${_scannedNfc.isNotEmpty ? " (NFC: $_scannedNfc)" : ""}.',
+        metadata: newBox.toJson(),
+      );
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

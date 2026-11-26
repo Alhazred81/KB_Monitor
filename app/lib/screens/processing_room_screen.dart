@@ -366,6 +366,19 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
         container.currentNetWeightKg = finalNet;
         container.isPlacedOnScale = false;
 
+        widget.repository.logHistoryEvent(
+          'PROCESSING_ROOM',
+          'hordo_merlegeles',
+          'Hordó (${container.id} - ${container.honeyType}) mérlegről levéve: +${addedNet.toStringAsFixed(1)} kg betöltve (Összes nettó: ${finalNet.toStringAsFixed(1)} kg).',
+          metadata: {
+            'container_id': container.id,
+            'honey_type': container.honeyType,
+            'added_net_kg': addedNet,
+            'final_net_kg': finalNet,
+            'batch_code': container.batchCode,
+          },
+        );
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -376,7 +389,6 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
         );
       }
     });
-    widget.repository.syncWithSupabase();
   }
 
   void _saveExtraction() {
@@ -404,10 +416,11 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
       return;
     }
 
+    final HiveData? extractedHive = _parentHive;
     final record = ExtractionRecord(
       timestamp: DateTime.now(),
       boxCode: code,
-      hiveName: _parentHive?.name ?? 'Központi / Tartalék',
+      hiveName: extractedHive?.name ?? 'Központi / Tartalék',
       honeyType: _selectedHoneyType,
       grossKg: gross,
       tareKg: tare,
@@ -418,6 +431,22 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
           ? _selectedTasteProfile
           : '$_selectedTasteProfile – ${_tasteCtrl.text.trim()}',
       targetContainerId: _selectedTargetContainerId,
+    );
+
+    HiveRepository.instance.logHistoryEvent(
+      extractedHive?.id ?? 'PROCESSING_ROOM',
+      'pergetes',
+      'Mézpergetés rögzítve ($code): ${net.toStringAsFixed(1)} kg $_selectedHoneyType (${moisture.toStringAsFixed(1)}% víztartalom, tároló: $_selectedTargetContainerId).',
+      metadata: {
+        'box_code': code,
+        'hive_name': record.hiveName,
+        'honey_type': _selectedHoneyType,
+        'gross_kg': gross,
+        'tare_kg': tare,
+        'net_kg': net,
+        'moisture': moisture,
+        'target_container_id': _selectedTargetContainerId,
+      },
     );
 
     setState(() {
@@ -449,8 +478,6 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
       _boxCodeCtrl.clear();
       _tasteCtrl.clear();
     });
-
-    widget.repository.syncWithSupabase();
   }
 
   void _showAddContainerDialog() {
@@ -684,6 +711,19 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                       _containers.add(newContainer);
                       _selectedTargetContainerId = newContainer.id;
                     });
+                    widget.repository.logHistoryEvent(
+                      'PROCESSING_ROOM',
+                      'uj_hordo',
+                      'Új méztároló edény regisztrálva: ${newContainer.id} (${newContainer.type}, ${newContainer.honeyType}, LOT: ${newContainer.batchCode}).',
+                      metadata: {
+                        'container_id': newContainer.id,
+                        'type': newContainer.type,
+                        'honey_type': newContainer.honeyType,
+                        'tare_kg': newContainer.tareWeightKg,
+                        'max_capacity_kg': newContainer.maxCapacityKg,
+                        'batch_code': newContainer.batchCode,
+                      },
+                    );
                     Navigator.pop(ctx);
                   },
                   child: const Text(
@@ -742,6 +782,23 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
         ),
       );
     });
+    final String usedLot = _lotCtrl.text.trim().isEmpty
+        ? source.batchCode
+        : _lotCtrl.text.trim();
+    widget.repository.logHistoryEvent(
+      'PROCESSING_ROOM',
+      'kiszereles',
+      'Mézkiszerelés rögzítve (${source.id}): $count db $_selectedJarLabel (${totalRequiredKg.toStringAsFixed(2)} kg ${source.honeyType}, LOT: $usedLot).',
+      metadata: {
+        'source_container_id': source.id,
+        'honey_type': source.honeyType,
+        'jar_size': _selectedJarLabel,
+        'count': count,
+        'total_kg': totalRequiredKg,
+        'remaining_net_kg': source.currentNetWeightKg,
+        'lot_number': usedLot,
+      },
+    );
   }
 
   Widget _buildExtractionTab() {

@@ -216,32 +216,16 @@ Future<void> showQueenReplacementFlowDialog({
                             ),
                           ),
                           const Spacer(),
-                          HelpBubbleButton(
-                            title: 'Anyacsere folyamat súgó',
-                            message: (state == 'needs_replacement')
-                                ? 'Anya eltávolítási fázis: A család anyacserére lett jelölve. A kaptár a térképen pirossal jelez. Miután a régi anyát megkerested és eltávolítottad, bökj az "Anya eltávolítva" gombra.'
-                                : (state == 'queen_removed' &&
-                                        !isSelectingQueenSource &&
-                                        !isShowingRegisteredPicker &&
-                                        !isShowingQueenWizard &&
-                                        !isShowingIntroductionChoice)
-                                    ? 'Anyátlan állapot: A régi anya el lett távolítva. Bökj az "Új anya" gombra a forrás (regisztrált vagy varázsló) kiválasztásához, vagy a "Család felszámolása" gombra.'
-                                    : isSelectingQueenSource
-                                        ? 'Válassz a már meglévő, nyilvántartott szabad anyák közül, vagy készíts új anyát a regisztrációs varázslóval.'
-                                        : isShowingRegisteredPicker
-                                            ? 'A listában a kaptárhoz még nem rendelt, élő tartalék anyák láthatók. Bökj a választott anyára a beadási módhoz!'
-                                            : isShowingQueenWizard
-                                                ? 'Generált azonosító, évjárat és származás beállítása. Mentés után a család értékelése tiszta lappal indul.'
-                                                : (state == 'introduced_cage')
-                                                    ? 'Szoktatós anyásítás: Az új anya zárt kalitkában szokja a családot. Pár nap után állítsd át kirágósra.'
-                                                    : 'Beadási módok:\n• Szoktatósra: Zárt zárka (nem rághatják ki még).\n• Kirágósra: Cukorlepényes kirágásra adva + 14 napos LAKAT védelem (tilos bolygatni)!',
-                            iconColor: isWarningState
-                                ? Colors.redAccent
-                                : (isShowingQueenWizard || isSelectingQueenSource)
-                                    ? const Color(0xFF10b981)
-                                    : Colors.amberAccent,
-                            size: 18,
-                          ),
+                          if (state == 'introduced_cage' ||
+                              isShowingIntroductionChoice)
+                            HelpBubbleButton(
+                              title: 'Anyásítási protokoll',
+                              message: (state == 'introduced_cage')
+                                  ? 'Az új anya zárt kalitkában szokja a családot. 3 nap után állítsd át cukorlepényes kirágósra!'
+                                  : '• Szoktatósra: 3 napos zárt zárka a leölés megelőzésére.\n• Kirágósra: Cukorlepényes kirágás + 14 napos nyugalmi LAKAT (tilos a kaptár bolygatása)!',
+                              iconColor: Colors.amberAccent,
+                              size: 18,
+                            ),
                         ],
                       ),
                     ],
@@ -267,7 +251,12 @@ Future<void> showQueenReplacementFlowDialog({
                       onPressed: () {
                         hive.queenReplacementState = 'queen_removed';
                         hive.status = 'red';
-                        repository.updateHive(hive);
+                        repository.updateHive(
+                          hive,
+                          historyEventType: 'anyacsere',
+                          historyDescription:
+                              'Régi méhanya eltávolítva (Anyátlan állapot).',
+                        );
                         setDialogState(() {});
                       },
                       icon: const Icon(Icons.check_circle_outline, size: 24),
@@ -352,7 +341,12 @@ Future<void> showQueenReplacementFlowDialog({
                                   hive.familyFunction = 'selejt';
                                   hive.queenReplacementState = null;
                                   hive.status = 'yellow';
-                                  repository.updateHive(hive);
+                                  repository.updateHive(
+                                    hive,
+                                    historyEventType: 'felszamolas',
+                                    historyDescription:
+                                        'Család felszámolásra jelölve (Selejt funkció).',
+                                  );
                                   Navigator.pop(dialogCtx);
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
@@ -1203,7 +1197,12 @@ Future<void> showQueenReplacementFlowDialog({
                         );
 
                         repository.scheduleQueenReplacementTasks(hive, isCageMode: true);
-                        repository.updateHive(hive);
+                        repository.updateHive(
+                          hive,
+                          historyEventType: 'anyasitas',
+                          historyDescription:
+                              'Új méhanya (${queenToAssign.id}) zárt kalitkában szoktatósra beadva (3 nap, Tiszta lap).',
+                        );
                         Navigator.pop(dialogCtx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -1284,7 +1283,12 @@ Future<void> showQueenReplacementFlowDialog({
                           isCageMode: false,
                           custom14DayDate: inspectionDate,
                         );
-                        repository.updateHive(hive);
+                        repository.updateHive(
+                          hive,
+                          historyEventType: 'anyasitas',
+                          historyDescription:
+                              'Anyakalitka kirágósra állítva, 14 napos nyugalmi lakat és sűrített akusztikai felügyelet aktiválva.',
+                        );
 
                         Navigator.pop(dialogCtx);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1536,7 +1540,12 @@ Future<void> showLockedHiveWarningDialog({
                             Navigator.pop(unlockCtx);
                             hive.lockedUntil = null;
                             hive.lockReason = null;
-                            repository.updateHive(hive);
+                            repository.updateHive(
+                              hive,
+                              historyEventType: 'lakat_feloldas',
+                              historyDescription:
+                                  '14 napos nyugalmi zárolás (lakat) kézzel feloldva.',
+                            );
                             Navigator.pop(ctx);
                             if (onOpenDetails != null) onOpenDetails();
                             ScaffoldMessenger.of(context).showSnackBar(
