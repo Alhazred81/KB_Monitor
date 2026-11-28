@@ -142,19 +142,36 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
     );
   }
 
-  void _showConfigOptionsScreen(BuildContext context) {
-    Navigator.push(
+  Future<void> _showConfigOptionsScreen(BuildContext context) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => _ConfigOptionsScreen(
-          hive: widget.hive,
+        builder: (routeCtx) => _ConfigOptionsScreen(
+          hive: _repository.resolveLiveHive(widget.hive),
+          onManualEdit: () async {
+            await showDialog(
+              context: context,
+              builder: (dialogCtx) => HiveConfigDialog(
+                selectedHive: _repository.resolveLiveHive(widget.hive),
+              ),
+            );
+            if (mounted) {
+              _repository.resolveLiveHive(widget.hive);
+              setState(() {});
+            }
+          },
           onScanTower: () => _startTowerScanWizard(context),
         ),
       ),
     );
+    if (mounted) {
+      _repository.resolveLiveHive(widget.hive);
+      setState(() {});
+    }
   }
 
-  void _showInvestigationsScreen(BuildContext context) {
+  Future<void> _showInvestigationsScreen(BuildContext context) async {
+    _repository.resolveLiveHive(widget.hive);
     if (widget.hive.hasExtraBoxes) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -164,10 +181,12 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
       );
       return;
     }
-    InvestigationsScreen.open(context, widget.hive, _repository);
+    await InvestigationsScreen.open(context, widget.hive, _repository);
+    if (mounted) setState(() {});
   }
 
-  void _showTreatmentsScreen(BuildContext context) {
+  Future<void> _showTreatmentsScreen(BuildContext context) async {
+    _repository.resolveLiveHive(widget.hive);
     if (widget.hive.hasExtraBoxes) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -177,16 +196,27 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
       );
       return;
     }
-    TreatmentsScreen.open(context, widget.hive, _repository, confirmAction: _confirmTreatmentAction);
+    await TreatmentsScreen.open(
+      context,
+      widget.hive,
+      _repository,
+      confirmAction: _confirmTreatmentAction,
+    );
+    if (mounted) setState(() {});
   }
 
-  void _showMasterPlansScreen(BuildContext context) {
-    FamilyFunctionScreen.open(context, widget.hive, _repository);
+  Future<void> _showMasterPlansScreen(BuildContext context) async {
+    await FamilyFunctionScreen.open(context, widget.hive, _repository);
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ListenableBuilder(
+      listenable: _repository,
+      builder: (context, _) {
+        _repository.resolveLiveHive(widget.hive);
+        return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E293B),
@@ -476,6 +506,8 @@ class _BroodBoxControlScreenState extends State<BroodBoxControlScreen> {
       }(),
     ),
   );
+      },
+    );
   }
 
   Widget _buildStatusButton(String label, String statusKey, Color color) {
@@ -669,9 +701,14 @@ class _SensorsScreen extends StatelessWidget {
 
 class _ConfigOptionsScreen extends StatelessWidget {
   final HiveData hive;
+  final VoidCallback onManualEdit;
   final VoidCallback onScanTower;
 
-  const _ConfigOptionsScreen({required this.hive, required this.onScanTower});
+  const _ConfigOptionsScreen({
+    required this.hive,
+    required this.onManualEdit,
+    required this.onScanTower,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -706,11 +743,7 @@ class _ConfigOptionsScreen extends StatelessWidget {
                       label: 'Kézi Bevitel\n(Torony szerkesztése)',
                       onPressed: () {
                         Navigator.pop(context);
-                        showDialog(
-                          context: context,
-                          builder: (dialogCtx) =>
-                              HiveConfigDialog(selectedHive: hive),
-                        );
+                        onManualEdit();
                       },
                     ),
                   ),
@@ -782,12 +815,16 @@ class InvestigationsScreen extends StatefulWidget {
     required this.repository,
   });
 
-  static void open(BuildContext context, HiveData hive, HiveRepository repository) {
-    Navigator.push(
+  static Future<void> open(
+    BuildContext context,
+    HiveData hive,
+    HiveRepository repository,
+  ) {
+    return Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (context) => InvestigationsScreen(
-          hive: hive,
+          hive: repository.resolveLiveHive(hive),
           repository: repository,
         ),
       ),
@@ -1048,13 +1085,14 @@ class TreatmentsScreen extends StatelessWidget {
     this.confirmAction,
   });
 
-  static void open(
+  static Future<void> open(
     BuildContext context,
     HiveData hive,
     HiveRepository repository, {
     Function(BuildContext, String, VoidCallback)? confirmAction,
-  }) {
-    if (hive.isQuarantined) {
+  }) async {
+    final HiveData liveHive = repository.resolveLiveHive(hive);
+    if (liveHive.isQuarantined) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1065,11 +1103,11 @@ class TreatmentsScreen extends StatelessWidget {
       );
       return;
     }
-    Navigator.push(
+    await Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (context) => TreatmentsScreen(
-          hive: hive,
+          hive: liveHive,
           repository: repository,
           confirmAction: confirmAction,
         ),
@@ -1980,9 +2018,7 @@ class _ColonyStrengtheningScreenState
 
   void _commitStrengthening() {
     void executeSave() {
-      final bool wasWeak =
-          widget.hive.isWeakOrSick || widget.hive.isPoorPerformer;
-      widget.repository.strengthenColony(
+      final bool applied = widget.repository.strengthenColony(
         targetHive: widget.hive,
         withBroodFrames: _usesBroodFrames,
         broodFrameCount: _broodFrameCount,
@@ -1990,6 +2026,24 @@ class _ColonyStrengtheningScreenState
         donorHive: _selectedDonorHive,
       );
 
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      if (!applied) {
+        messenger?.showSnackBar(
+          SnackBar(
+            content: const Text(
+              'A felerősítés nem hajtható végre: zárlat alatt álló (Hans-protokoll) család!',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+        return;
+      }
+
+      final HiveData liveHive = widget.repository.hives.firstWhere(
+        (h) => h.id == widget.hive.id,
+        orElse: () => widget.hive,
+      );
       final List<String> parts = [];
       if (_usesBroodFrames) parts.add('$_broodFrameCount db fias keret');
       if (_usesNurseBees) parts.add('dajkaméhek');
@@ -1997,19 +2051,23 @@ class _ColonyStrengtheningScreenState
       final String donorInfo = _selectedDonorHive != null
           ? ' (Donor: ${_selectedDonorHive!.name})'
           : '';
-      final String statusResetInfo = wasWeak
-          ? ' • Státusz normálra (Zöld) állítva!'
-          : '';
+      final String postStatus = liveHive.worstStatus;
+      final bool isNowGreen = postStatus == 'green';
+      final String remainingNote = isNowGreen
+          ? ' • Állapot: Normál (Zöld)!'
+          : ' • További teendő maradt: ${liveHive.specificHealthDescription}';
 
-      final messenger = ScaffoldMessenger.maybeOf(context);
       Navigator.pop(context);
       messenger?.showSnackBar(
         SnackBar(
           content: Text(
-            'Népesség felerősítés rögzítve: $summary$donorInfo$statusResetInfo',
+            'Népesség felerősítés rögzítve: $summary$donorInfo$remainingNote',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-          backgroundColor: Colors.green.shade700,
+          backgroundColor: isNowGreen
+              ? Colors.green.shade700
+              : Colors.orange.shade800,
+          duration: Duration(seconds: isNowGreen ? 4 : 6),
         ),
       );
     }
@@ -2337,12 +2395,16 @@ class FamilyFunctionScreen extends StatefulWidget {
     required this.repository,
   });
 
-  static void open(BuildContext context, HiveData hive, HiveRepository repository) {
-    Navigator.push(
+  static Future<void> open(
+    BuildContext context,
+    HiveData hive,
+    HiveRepository repository,
+  ) {
+    return Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (context) => FamilyFunctionScreen(
-          hive: hive,
+          hive: repository.resolveLiveHive(hive),
           repository: repository,
         ),
       ),

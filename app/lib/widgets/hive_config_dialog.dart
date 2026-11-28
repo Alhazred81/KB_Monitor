@@ -68,10 +68,25 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
   @override
   void initState() {
     super.initState();
-    _activeHive =
-        widget.selectedHive ??
-        (_repository.hives.isNotEmpty ? _repository.hives.first : null);
+    _activeHive = widget.selectedHive != null
+        ? _repository.resolveLiveHive(widget.selectedHive!)
+        : (_repository.hives.isNotEmpty ? _repository.hives.first : null);
     _syncDefaultSizeWithHive();
+  }
+
+  void _finishAndClose() {
+    if (_activeHive != null) {
+      if (widget.selectedHive != null &&
+          widget.selectedHive!.id == _activeHive!.id) {
+        _repository.notifyHiveChanged(_activeHive);
+        _repository.resolveLiveHive(widget.selectedHive!);
+      } else {
+        _repository.notifyHiveChanged(_activeHive);
+      }
+    } else {
+      _repository.notifyHiveChanged();
+    }
+    Navigator.pop(context, _activeHive);
   }
 
   /// Meghatározza a kaptáron már meglévő alapfiók szabványrendszerét ('dadant', 'nb_hunor', 'langstroth'),
@@ -604,14 +619,33 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
         _isRealBox(_newBoxType) &&
         projectedTowerEq > HiveData.kSpaniferWarningThreshold + 1e-6;
 
-    final FamilyFunctionBoxMismatch? functionMismatch =
-        evaluateFamilyFunctionBoxMismatch(
-          hive: _activeHive!,
-          boxType: _newBoxType,
-          boxName: _getSelectedElementLabel(),
-        );
+    final bool canAutoPollenOnAdd =
+        _newBoxType == 'pollen_trap' &&
+        _repository.canAutoSwitchToPollenCollection(_activeHive!);
+
+    final FamilyFunctionBoxMismatch? functionMismatch = canAutoPollenOnAdd
+        ? null
+        : evaluateFamilyFunctionBoxMismatch(
+            hive: _activeHive!,
+            boxType: _newBoxType,
+            boxName: _getSelectedElementLabel(),
+          );
 
     void finishAndAdd({bool overriddenMismatch = false}) {
+      if (canAutoPollenOnAdd &&
+          normalizeHiveFamilyFunctionCategory(_activeHive!.familyFunction) !=
+              'pollen') {
+        final String prevLabel = getHiveFamilyFunctionLabel(
+          _activeHive!.familyFunction,
+        );
+        _activeHive!.familyFunction = 'pollen';
+        _repository.updateHive(
+          _activeHive!,
+          historyEventType: 'funkcio_valtozas',
+          historyDescription:
+              'Család feladata automatikusan Virágporgyűjtésre állítva a virágporgyűjtő felhelyezésekor (korábbi: $prevLabel).',
+        );
+      }
       if (overriddenMismatch && functionMismatch != null) {
         _repository.logHistoryEvent(
           _activeHive!.id,
@@ -925,7 +959,21 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog.fullscreen(
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) {
+          if (_activeHive != null) {
+            _repository.notifyHiveChanged(_activeHive);
+            if (widget.selectedHive != null &&
+                widget.selectedHive!.id == _activeHive!.id) {
+              _repository.resolveLiveHive(widget.selectedHive!);
+            }
+          } else {
+            _repository.notifyHiveChanged();
+          }
+        }
+      },
+      child: Dialog.fullscreen(
       backgroundColor: const Color(0xFF0F172A),
       child: Scaffold(
         backgroundColor: const Color(0xFF0F172A),
@@ -934,27 +982,35 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
           elevation: 0,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
-            onPressed: () => Navigator.pop(context),
+            onPressed: _finishAndClose,
           ),
-          title: Row(
-            children: [
-              const HiveTowerIcon(size: 24, color: Colors.amberAccent),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _activeHive != null
-                      ? 'Konfiguráció – ${_activeHive!.name}'
-                      : 'Torony Konfiguráció',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.amberAccent,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+          title: ListenableBuilder(
+            listenable: _repository,
+            builder: (context, _) {
+              final HiveData? liveTitleHive = _activeHive != null
+                  ? (_repository.getHiveById(_activeHive!.id) ?? _activeHive)
+                  : null;
+              return Row(
+                children: [
+                  const HiveTowerIcon(size: 24, color: Colors.amberAccent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      liveTitleHive != null
+                          ? 'Konfiguráció – ${liveTitleHive.name}'
+                          : 'Torony Konfiguráció',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.amberAccent,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
           actions: [
             Padding(
@@ -968,7 +1024,7 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                onPressed: () => Navigator.pop(context),
+                onPressed: _finishAndClose,
                 child: const Text(
                   'Kész',
                   style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
@@ -981,11 +1037,21 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
           child: ListenableBuilder(
             listenable: _repository,
             builder: (context, _) {
-              if (_activeHive != null &&
-                  !_repository.hives.contains(_activeHive)) {
-                _activeHive = _repository.hives.isNotEmpty
-                    ? _repository.hives.first
-                    : null;
+              if (_activeHive != null) {
+                final HiveData? canonical = _repository.getHiveById(
+                  _activeHive!.id,
+                );
+                if (canonical != null) {
+                  _activeHive = canonical;
+                  if (widget.selectedHive != null &&
+                      widget.selectedHive!.id == canonical.id) {
+                    _repository.resolveLiveHive(widget.selectedHive!);
+                  }
+                } else {
+                  _activeHive = _repository.hives.isNotEmpty
+                      ? _repository.hives.first
+                      : null;
+                }
               }
 
               if (_activeHive != null) {
@@ -1468,11 +1534,14 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                               borderRadius: BorderRadius.circular(18),
                             ),
                           ),
-                          onPressed: () => FamilyFunctionScreen.open(
-                            context,
-                            _activeHive!,
-                            _repository,
-                          ),
+                          onPressed: () async {
+                            await FamilyFunctionScreen.open(
+                              context,
+                              _activeHive!,
+                              _repository,
+                            );
+                            if (mounted) setState(() {});
+                          },
                           icon: const Icon(Icons.workspace_premium, size: 26),
                           label: Text(
                             'Család funkció & Mesterterv (${_activeHive!.familyFunction})',
@@ -1493,6 +1562,7 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
             },
           ),
         ),
+      ),
       ),
     );
   }
@@ -1729,9 +1799,58 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                     ? null
                     : (val) {
                   if (val) {
+                    if (_repository.canAutoSwitchToPollenCollection(
+                      _activeHive!,
+                    )) {
+                      final bool switchedFn = _repository
+                          .enablePollenTrapWithAutoSwitch(_activeHive!, box);
+                      setState(() {});
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            switchedFn
+                                ? 'Virágporgyűjtés bekapcsolva – a család feladata automatikusan Virágporgyűjtésre állítva!'
+                                : 'Virágporgyűjtés bekapcsolva!',
+                          ),
+                          backgroundColor: switchedFn
+                              ? Colors.green.shade700
+                              : Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+
                     void doEnable() {
                       _repository.toggleBoxActiveState(_activeHive!, box, true);
                       setState(() {});
+                    }
+
+                    void checkWeakAndTreatment() {
+                      final String? pendingTreatment = _repository
+                          .getPendingTreatmentReason(_activeHive!);
+                      if (_activeHive!.isWeakOrSick ||
+                          _activeHive!.isPoorPerformer) {
+                        showWeakColonyWarningDialog(
+                          context: context,
+                          hive: _activeHive!,
+                          actionTitle: 'Virágporgyűjtő bekapcsolása',
+                          onConfirm: doEnable,
+                        );
+                        return;
+                      }
+                      if (pendingTreatment != null) {
+                        showWeakColonyWarningDialog(
+                          context: context,
+                          hive: _activeHive!,
+                          actionTitle:
+                              'Virágporgyűjtő bekapcsolása (kezelés alatt)',
+                          customWarningMessage:
+                              '$pendingTreatment.\n\nKezelés alatt álló családon a virágporgyűjtés szermaradvány-kockázatot jelent és gyengíti a családot.',
+                          onConfirm: doEnable,
+                        );
+                        return;
+                      }
+                      doEnable();
                     }
 
                     void checkHoneyConflict() {
@@ -1740,20 +1859,36 @@ class _HiveConfigDialogState extends State<HiveConfigDialog> {
                           context: context,
                           hive: _activeHive!,
                           conflictType: 'enabling_pollen_with_honey',
-                          onConfirm: doEnable,
+                          onConfirm: checkWeakAndTreatment,
                         );
                         return;
                       }
-                      doEnable();
+                      checkWeakAndTreatment();
                     }
 
-                    if (_activeHive!.isWeakOrSick ||
-                        _activeHive!.isPoorPerformer) {
-                      showWeakColonyWarningDialog(
+                    final fnMismatch = evaluateFamilyFunctionBoxMismatch(
+                      hive: _activeHive!,
+                      boxType: 'pollen_trap',
+                      boxName: 'Virágporgyűjtő',
+                    );
+                    if (fnMismatch != null) {
+                      showFamilyFunctionBoxMismatchDialog(
                         context: context,
                         hive: _activeHive!,
-                        actionTitle: 'Virágporgyűjtő bekapcsolása',
-                        onConfirm: checkHoneyConflict,
+                        mismatch: fnMismatch,
+                        isActivation: true,
+                        onConfirm: () {
+                          _repository.logHistoryEvent(
+                            _activeHive!.id,
+                            'nem_megfelelo_elem_felulbiralas',
+                            'Figyelmeztetés felülbírálva (${fnMismatch.functionLabel}): Virágporgyűjtő bekapcsolva.',
+                          );
+                          if (fnMismatch.functionLabel == 'Méztermelés') {
+                            checkWeakAndTreatment();
+                          } else {
+                            checkHoneyConflict();
+                          }
+                        },
                       );
                       return;
                     }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../hive_model.dart';
@@ -13,7 +14,7 @@ import 'help_bubble.dart';
 class HiveDetailSheet extends StatefulWidget {
   final HiveData hive;
   final Animation<double> redFlashOpacityAnim;
-  final VoidCallback onConfigurePressed;
+  final FutureOr<void> Function() onConfigurePressed;
 
   const HiveDetailSheet({
     super.key,
@@ -389,28 +390,34 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
   @override
   Widget build(BuildContext context) {
     final HiveRepository repository = HiveRepository.instance;
-    sortHiveBoxes(widget.hive.boxes);
-    final displayedBoxes = widget.hive.boxes.reversed.toList();
-    final int escapementIndex = widget.hive.boxes.indexWhere(
-      (b) => b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
-    );
-    final DateTime now = DateTime.now();
+    return ListenableBuilder(
+      listenable: repository,
+      builder: (context, _) {
+        repository.resolveLiveHive(widget.hive);
+        sortHiveBoxes(widget.hive.boxes);
+        final displayedBoxes = widget.hive.boxes.reversed.toList();
+        final int escapementIndex = widget.hive.boxes.indexWhere(
+          (b) =>
+              b.type == 'escapement' ||
+              b.name.toLowerCase().contains('szöktet'),
+        );
+        final DateTime now = DateTime.now();
 
-    // Megkeressük a legalsó fészekfiókot
-    BoxElement? bottomBroodBox;
-    for (var b in widget.hive.boxes) {
-      final name = _getBoxDisplayName(b).toLowerCase();
-      if (b.type == 'brood_box' ||
-          b.type == 'nest' ||
-          name.contains('fészek') ||
-          name.contains('feszek')) {
-        bottomBroodBox = b;
-        break;
-      }
-    }
+        // Megkeressük a legalsó fészekfiókot
+        BoxElement? bottomBroodBox;
+        for (var b in widget.hive.boxes) {
+          final name = _getBoxDisplayName(b).toLowerCase();
+          if (b.type == 'brood_box' ||
+              b.type == 'nest' ||
+              name.contains('fészek') ||
+              name.contains('feszek')) {
+            bottomBroodBox = b;
+            break;
+          }
+        }
 
-    final double sheetHeight = MediaQuery.of(context).size.height * 0.88;
-    return Material(
+        final double sheetHeight = MediaQuery.of(context).size.height * 0.88;
+        return Material(
       color: const Color(0xFF0F172A),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       clipBehavior: Clip.antiAlias,
@@ -451,7 +458,7 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                               spacing: 8,
                               children: [
                                 Text(
-                                  widget.hive.name,
+                                  sanitizeHiveDisplayName(widget.hive.name),
                                   style: const TextStyle(
                                     color: Colors.amberAccent,
                                     fontSize: 20,
@@ -626,7 +633,13 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                           color: Colors.amberAccent,
                         ),
                         tooltip: 'Torony Konfiguráció',
-                        onPressed: widget.onConfigurePressed,
+                        onPressed: () async {
+                          await Future.sync(widget.onConfigurePressed);
+                          if (mounted) {
+                            repository.resolveLiveHive(widget.hive);
+                            setState(() {});
+                          }
+                        },
                       ),
                     ],
                   ),
@@ -962,13 +975,14 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                           IconButton(
                             icon: const Icon(Icons.center_focus_strong, color: Colors.amberAccent, size: 22),
                             tooltip: 'Élőképes Atkaszámláló',
-                            onPressed: () {
-                              Navigator.push(
+                            onPressed: () async {
+                              await Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => VarroaCounterScreen(hive: widget.hive),
                                 ),
                               );
+                              if (mounted) setState(() {});
                             },
                           ),
                         ],
@@ -996,47 +1010,75 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                 void togglePollen(bool val) {
                   if (widget.hive.isQuarantined) return;
                   if (val) {
+                    // Ha nincs extra torony, és nincs függő kezelés / probléma / betegség,
+                    // figyelmeztetés nélkül automatikusan átállunk Virágporgyűjtés feladatra!
+                    if (repository.canAutoSwitchToPollenCollection(
+                      widget.hive,
+                    )) {
+                      bool switchedFn = false;
+                      setState(() {
+                        switchedFn = repository.enablePollenTrapWithAutoSwitch(
+                          widget.hive,
+                          box,
+                        );
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            switchedFn
+                                ? 'Virágporgyűjtés bekapcsolva – a család feladata automatikusan Virágporgyűjtésre állítva!'
+                                : 'Virágporgyűjtés bekapcsolva!',
+                          ),
+                          backgroundColor: switchedFn
+                              ? Colors.green.shade700
+                              : Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+
+                    void doFinalEnable() {
+                      setState(() {
+                        repository.toggleBoxActiveState(
+                          widget.hive,
+                          box,
+                          true,
+                        );
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Virágporgyűjtés bekapcsolva!'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
+
                     void proceedWithEnable() {
+                      final String? pendingTreatment = repository
+                          .getPendingTreatmentReason(widget.hive);
                       if (widget.hive.isWeakOrSick ||
                           widget.hive.isPoorPerformer) {
                         showWeakColonyWarningDialog(
                           context: context,
                           hive: widget.hive,
                           actionTitle: 'Pollengyűjtő bekapcsolása',
-                          onConfirm: () {
-                            setState(() {
-                              repository.toggleBoxActiveState(
-                                widget.hive,
-                                box,
-                                true,
-                              );
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Virágporgyűjtés bekapcsolva!'),
-                                backgroundColor: Colors.orange,
-                              ),
-                            );
-                          },
+                          onConfirm: doFinalEnable,
+                        );
+                      } else if (pendingTreatment != null) {
+                        showWeakColonyWarningDialog(
+                          context: context,
+                          hive: widget.hive,
+                          actionTitle: 'Pollengyűjtő bekapcsolása (kezelés alatt)',
+                          customWarningMessage:
+                              '$pendingTreatment.\n\nKezelés alatt álló családon a virágporgyűjtés szermaradvány-kockázatot jelent és gyengíti a családot.',
+                          onConfirm: doFinalEnable,
                         );
                       } else {
-                        setState(() {
-                          repository.toggleBoxActiveState(
-                            widget.hive,
-                            box,
-                            true,
-                          );
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Virágporgyűjtés bekapcsolva!'),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
+                        doFinalEnable();
                       }
                     }
 
-                    // Figyelmeztetés ha a család feladata nem virágporgyűjtés, vagy ha méztér van fenn
+                    // Figyelmeztetés ha extra torony / probléma mellett a család feladata nem virágporgyűjtés, vagy ha méztér van fenn
                     final fnPollenMismatch = evaluateFamilyFunctionBoxMismatch(
                       hive: widget.hive,
                       boxType: 'pollen_trap',
@@ -1068,7 +1110,6 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                             'Figyelmeztetés felülbírálva (${fnPollenMismatch.functionLabel}): Pollengyűjtő bekapcsolva.',
                           );
                           if (fnPollenMismatch.functionLabel == 'Méztermelés') {
-                            // Méztermelésnél a funkció-figyelmeztetés már lefedte a mézhozam-konfliktust
                             proceedWithEnable();
                           } else {
                             checkHoneyAndProceed();
@@ -1214,15 +1255,18 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                       } else if (isEscapement) {
                         // Szöktető kártyára kattintva nem nyitunk fészekfiókot
                       } else {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) => BroodBoxControlScreen(
-                              hive: widget.hive,
-                              broodBox: box,
+                        () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (ctx) => BroodBoxControlScreen(
+                                hive: widget.hive,
+                                broodBox: box,
+                              ),
                             ),
-                          ),
-                        );
+                          );
+                          if (mounted) setState(() {});
+                        }();
                       }
                     },
                     borderRadius: BorderRadius.circular(12),
@@ -1640,6 +1684,8 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
 ),
 ),
 );
+      },
+    );
   }
 
   Widget _buildSensorBadge(IconData icon, String value, Color color) {
@@ -2121,7 +2167,9 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
       });
     }
 
-    if (hive.worstStatus == 'red' || hive.worstStatus == 'flashing_red') {
+    if (!hive.isQuarantined &&
+        (hive.worstStatus == 'red' || hive.worstStatus == 'flashing_red') &&
+        !repository.isUrgentHiveCheckDismissed(hive)) {
       allTasks.add({
         'id': 'URGENT_${hive.id}',
         'title': 'Azonnali fészekvizsgálat & Családmentés',
@@ -2134,58 +2182,130 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
 
     allTasks.sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
 
+    Color taskUrgencyColor(String urgencyCode) {
+      switch (urgencyCode) {
+        case 'flashing_red':
+        case 'red':
+          return Colors.redAccent;
+        case 'flashing_orange':
+          return const Color(0xFFFF9100);
+        case 'orange':
+          return Colors.deepOrangeAccent;
+        case 'yellow':
+          return Colors.amberAccent;
+        case 'green':
+        default:
+          return Colors.greenAccent;
+      }
+    }
+
+    Color taskUrgencyBgColor(String urgencyCode) {
+      switch (urgencyCode) {
+        case 'flashing_red':
+          return const Color(0xFFDC2626);
+        case 'red':
+          return const Color(0xFFB91C1C);
+        case 'flashing_orange':
+          return const Color(0xFFFF6D00);
+        case 'orange':
+          return const Color(0xFFEA580C);
+        case 'yellow':
+          return const Color(0xFFD97706);
+        case 'green':
+        default:
+          return const Color(0xFF16A34A);
+      }
+    }
+
+    String formatTaskDueLabel(Map<String, dynamic> taskMap) {
+      final DateTime targetDate = taskMap['date'] as DateTime;
+      final int diffDays = computeTaskDiffDays(targetDate, now: now);
+      final String timeStr =
+          '${targetDate.hour.toString().padLeft(2, '0')}:${targetDate.minute.toString().padLeft(2, '0')}';
+
+      if (taskMap['type'] == 'escapement_harvest') {
+        final escapementBox = taskMap['box'] as BoxElement;
+        final startTime = escapementBox.statusUpdatedAt ?? now;
+        final remainingSec = (24 * 3600) - now.difference(startTime).inSeconds;
+        if (remainingSec <= 0) {
+          return '24h LEJÁRT! AZONNAL!';
+        }
+        final remainingHours = (remainingSec + 3599) ~/ 3600;
+        return 'AZNAPI • ~$remainingHours ÓRA (MAX. 24h)';
+      }
+      if (diffDays < 0) {
+        return 'LEJÁRT (${diffDays.abs()} napja késik!)';
+      }
+      if (diffDays == 0) {
+        return 'MA ESEDÉKES! ($timeStr)';
+      }
+      if (diffDays == 1) {
+        return 'HOLNAP ESEDÉKES ($timeStr)';
+      }
+      return '$diffDays nap múlva (${targetDate.month.toString().padLeft(2, '0')}.${targetDate.day.toString().padLeft(2, '0')})';
+    }
+
+    String resolveTaskMapUrgency(Map<String, dynamic> taskMap) {
+      final DateTime targetDate = taskMap['date'] as DateTime;
+      final String tType = (taskMap['type'] ?? '').toString();
+      if (tType == 'acoustic_alert') {
+        return 'flashing_red';
+      }
+      if (tType == 'urgent_check') {
+        return hive.worstStatus == 'flashing_red' ? 'flashing_red' : 'red';
+      }
+      if (tType == 'escapement_harvest') {
+        final escapementBox = taskMap['box'] as BoxElement;
+        final startTime = escapementBox.statusUpdatedAt ?? now;
+        final remainingSec = (24 * 3600) - now.difference(startTime).inSeconds;
+        return remainingSec <= 0 ? 'flashing_red' : 'flashing_orange';
+      }
+      bool isSevereScheduled = false;
+      if (tType == 'scheduled' && taskMap['task'] is ScheduledTask) {
+        final ScheduledTask st = taskMap['task'] as ScheduledTask;
+        isSevereScheduled =
+            st.category == 'hans_protocol' || st.id.startsWith('HANS_');
+      }
+      return computeTaskUrgencyCode(
+        targetDate,
+        now: now,
+        isSevereEmergency: isSevereScheduled,
+      );
+    }
+
     Map<String, dynamic>? nextTask;
     String dueBadgeText = '';
-    Color badgeColor = Colors.lightBlueAccent;
+    String nextTaskUrgency = 'green';
+    bool isNextTaskBlinking = false;
+    Color badgeColor = Colors.greenAccent;
+    Color badgeFillColor = const Color(0xFF16A34A);
     IconData taskIcon = Icons.alarm;
 
     if (allTasks.isNotEmpty) {
       nextTask = allTasks.first;
-      final DateTime targetDate = nextTask['date'] as DateTime;
-      final today = DateTime(now.year, now.month, now.day);
-      final targetDay = DateTime(targetDate.year, targetDate.month, targetDate.day);
-      final diffDays = targetDay.difference(today).inDays;
-      final String timeStr =
-          '${targetDate.hour.toString().padLeft(2, '0')}:${targetDate.minute.toString().padLeft(2, '0')}';
+      nextTaskUrgency = resolveTaskMapUrgency(nextTask);
+      isNextTaskBlinking =
+          nextTaskUrgency == 'flashing_orange' ||
+          nextTaskUrgency == 'flashing_red';
+      badgeColor = taskUrgencyColor(nextTaskUrgency);
+      badgeFillColor = taskUrgencyBgColor(nextTaskUrgency);
+      dueBadgeText = formatTaskDueLabel(nextTask);
 
-      if (hive.isLocked && (nextTask['title'] as String).contains('Anyásítás vizsgálata')) {
-        dueBadgeText = '🔒 ${hive.lockedDaysRemaining} NAP NYUGALOM (TILOS BOLYGATNI)';
-        badgeColor = Colors.tealAccent;
+      if (hive.isLocked &&
+          (nextTask['title'] as String).contains('Anyásítás vizsgálata')) {
+        dueBadgeText =
+            '🔒 ${hive.lockedDaysRemaining} NAP NYUGALOM • $dueBadgeText';
         taskIcon = Icons.lock_clock;
-      } else if (nextTask['type'] == 'escapement_harvest') {
-        final escapementBox = nextTask['box'] as BoxElement;
-        final startTime = escapementBox.statusUpdatedAt ?? now;
-        final elapsedSec = now.difference(startTime).inSeconds;
-        final remainingSec = (24 * 3600) - elapsedSec;
-        if (remainingSec <= 0) {
-          dueBadgeText = '24h LEJÁRT! AZONNAL!';
-          badgeColor = Colors.redAccent;
-          taskIcon = Icons.warning_rounded;
-        } else {
-          final remainingHours = (remainingSec + 3599) ~/ 3600;
-          dueBadgeText = 'MÉG ~$remainingHours ÓRA (MAX. 24h)';
-          badgeColor = Colors.tealAccent;
-          taskIcon = Icons.hourglass_top_rounded;
-        }
-      } else if (diffDays < 0) {
-        dueBadgeText = 'LEJÁRT (${diffDays.abs()} napja késik!)';
-        badgeColor = Colors.redAccent;
+      } else if (nextTaskUrgency == 'flashing_red' ||
+          nextTaskUrgency == 'red') {
         taskIcon = Icons.assignment_late;
-      } else if (diffDays == 0) {
-        dueBadgeText = 'MA ESEDÉKES! ($timeStr)';
-        badgeColor = Colors.amberAccent;
-        taskIcon = Icons.notification_important;
-      } else if (diffDays == 1) {
-        dueBadgeText = 'HOLNAP esedékes ($timeStr)';
-        badgeColor = Colors.orangeAccent;
-        taskIcon = Icons.today;
-      } else if (diffDays <= 3) {
-        dueBadgeText = '$diffDays nap múlva (${targetDate.month}.${targetDate.day})';
-        badgeColor = Colors.cyanAccent;
+      } else if (nextTaskUrgency == 'flashing_orange') {
+        taskIcon = Icons.notifications_active;
+      } else if (nextTaskUrgency == 'orange') {
+        taskIcon = Icons.schedule;
+      } else if (nextTaskUrgency == 'yellow') {
         taskIcon = Icons.event;
       } else {
-        dueBadgeText = '${targetDate.month}.${targetDate.day} ($diffDays nap múlva)';
-        badgeColor = Colors.lightBlueAccent;
         taskIcon = Icons.calendar_month;
       }
     }
@@ -2247,16 +2367,22 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(taskIcon, color: badgeColor, size: 16),
+                      if (isNextTaskBlinking)
+                        FadeTransition(
+                          opacity: widget.redFlashOpacityAnim,
+                          child: Icon(taskIcon, color: badgeColor, size: 17),
+                        )
+                      else
+                        Icon(taskIcon, color: badgeColor, size: 17),
                       const SizedBox(width: 6),
-                      const Flexible(
+                      Flexible(
                         child: Text(
-                          'KÖVETKEZŐ TEENDŐ',
+                          'KÖVETKEZŐ TEENDŐ (${allTasks.length} db)',
                           style: TextStyle(
-                            color: Colors.white70,
-                            fontWeight: FontWeight.bold,
+                            color: badgeColor,
+                            fontWeight: FontWeight.w800,
                             fontSize: 11,
-                            letterSpacing: 1.0,
+                            letterSpacing: 0.8,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -2265,46 +2391,213 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withAlpha(40),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: badgeColor.withAlpha(140)),
-                  ),
-                  child: Text(
-                    dueBadgeText,
-                    style: TextStyle(
-                      color: badgeColor,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                Flexible(
+                  child: () {
+                    final Widget badgeChip = Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isNextTaskBlinking
+                            ? badgeFillColor
+                            : badgeFillColor.withAlpha(65),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: badgeColor,
+                          width: isNextTaskBlinking ? 1.6 : 1.1,
+                        ),
+                      ),
+                      child: Text(
+                        dueBadgeText,
+                        style: TextStyle(
+                          color: isNextTaskBlinking ? Colors.white : badgeColor,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                    if (isNextTaskBlinking) {
+                      return FadeTransition(
+                        opacity: widget.redFlashOpacityAnim,
+                        child: badgeChip,
+                      );
+                    }
+                    return badgeChip;
+                  }(),
                 ),
               ],
             ),
             const SizedBox(height: 6),
-            Text(
-              nextTask['title'] as String,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: badgeFillColor.withAlpha(28),
+                borderRadius: BorderRadius.circular(10),
+                border: Border(
+                  left: BorderSide(color: badgeColor, width: 3.5),
+                ),
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              nextTask['description'] as String,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 11.5,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nextTask['title'] as String,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    nextTask['description'] as String,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ],
               ),
             ),
             if (nextTask['type'] != 'escapement_harvest') ...[
               const SizedBox(height: 10),
-              _buildTaskActionButton(context, nextTask, hive, repository),
+              _buildTaskActionButton(
+                context,
+                nextTask,
+                hive,
+                repository,
+                urgencyCode: nextTaskUrgency,
+              ),
+            ],
+            if (allTasks.length > 1) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A).withAlpha(170),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'További ütemezett teendők (${allTasks.length - 1} db):',
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    ...allTasks.skip(1).take(5).map((tItem) {
+                      final String uCode = resolveTaskMapUrgency(tItem);
+                      final Color uCol = taskUrgencyColor(uCode);
+                      final Color uBg = taskUrgencyBgColor(uCode);
+                      final bool uBlink =
+                          uCode == 'flashing_orange' || uCode == 'flashing_red';
+                      final String uLabel = formatTaskDueLabel(tItem);
+
+                      final Widget pill = Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: uBlink ? uBg : uBg.withAlpha(55),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: uCol, width: 1.0),
+                        ),
+                        child: Text(
+                          uLabel,
+                          style: TextStyle(
+                            color: uBlink ? Colors.white : uCol,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 5),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: () {
+                            final String subTitle = tItem['title'] as String;
+                            final String subType = tItem['type'] as String;
+                            if (subType == 'queen_cage_switch' ||
+                                subTitle.contains('kirágósra állítása')) {
+                              showQueenReplacementFlowDialog(
+                                context: context,
+                                hive: hive,
+                                repository: repository,
+                                initialStepOverride: 'introduced_cage',
+                              ).then((_) {
+                                if (mounted) setState(() {});
+                              });
+                            } else if (subType == 'scheduled' &&
+                                tItem['task'] is ScheduledTask) {
+                              final st = tItem['task'] as ScheduledTask;
+                              repository.completeTask(st.id);
+                              if (mounted) setState(() {});
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Feladat készre jelentve: $subTitle',
+                                  ),
+                                  backgroundColor: Colors.teal,
+                                ),
+                              );
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: uCol,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 7),
+                                Expanded(
+                                  child: Text(
+                                    tItem['title'] as String,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                uBlink
+                                    ? FadeTransition(
+                                        opacity: widget.redFlashOpacityAnim,
+                                        child: pill,
+                                      )
+                                    : pill,
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
             ],
           ],
 
@@ -2316,7 +2609,10 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
           // 2. CSALÁD ÁLLAPOTA
           InkWell(
             borderRadius: BorderRadius.circular(8),
-            onTap: () => FamilyFunctionScreen.open(context, hive, repository),
+            onTap: () async {
+              await FamilyFunctionScreen.open(context, hive, repository);
+              if (mounted) setState(() {});
+            },
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(
@@ -2612,8 +2908,9 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
     BuildContext context,
     Map<String, dynamic> next,
     HiveData hive,
-    HiveRepository repository,
-  ) {
+    HiveRepository repository, {
+    String urgencyCode = 'green',
+  }) {
     final type = next['type'] as String;
     final String title = next['title'] as String;
     final bool isCageSwitch =
@@ -2622,8 +2919,32 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
 
     IconData btnIcon = Icons.check_circle_outline;
     String btnLabel = 'Feladat készre jelentése';
-    Color btnBg = Colors.greenAccent;
-    Color btnFg = const Color(0xFF0F172A);
+    Color btnBg;
+    Color btnFg;
+    switch (urgencyCode) {
+      case 'flashing_red':
+      case 'red':
+        btnBg = Colors.redAccent;
+        btnFg = Colors.white;
+        break;
+      case 'flashing_orange':
+        btnBg = const Color(0xFFFF6D00);
+        btnFg = Colors.white;
+        break;
+      case 'orange':
+        btnBg = Colors.orange;
+        btnFg = Colors.black;
+        break;
+      case 'yellow':
+        btnBg = Colors.amber;
+        btnFg = Colors.black;
+        break;
+      case 'green':
+      default:
+        btnBg = Colors.greenAccent;
+        btnFg = const Color(0xFF0F172A);
+        break;
+    }
 
     if (isCageSwitch) {
       btnIcon = Icons.lock_open;
@@ -2663,7 +2984,10 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
               context: context,
               hive: hive,
               repository: repository,
-            );
+              initialStepOverride: 'introduced_cage',
+            ).then((_) {
+              if (mounted) setState(() {});
+            });
           } else if (isQueenInspection && hive.isLocked) {
             showLockedHiveWarningDialog(
               context: context,
@@ -2679,6 +3003,31 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Feladat készre jelentve: ${next['title']}'),
+                backgroundColor: Colors.teal,
+              ),
+            );
+          } else if (type == 'urgent_check') {
+            repository.acknowledgeUrgentHiveCheck(hive).then((_) {
+              if (mounted) setState(() {});
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Azonnali fészekvizsgálat kézzel készre jelentve (nyugtázva).',
+                ),
+                backgroundColor: Colors.teal,
+              ),
+            );
+          } else if (type == 'feeder_refill') {
+            final double portion = hive.feedingPortionLiters > 0
+                ? hive.feedingPortionLiters
+                : 1.0;
+            repository.requestSyrupRefillForHive(hive, portion);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Szirup utántöltés elindítva (+${portion.toStringAsFixed(1)} L).',
+                ),
                 backgroundColor: Colors.teal,
               ),
             );
@@ -2735,7 +3084,10 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
               elevation: 3,
               padding: const EdgeInsets.symmetric(horizontal: 8),
             ),
-            onPressed: () => InvestigationsScreen.open(context, hive, repository),
+            onPressed: () async {
+              await InvestigationsScreen.open(context, hive, repository);
+              if (mounted) setState(() {});
+            },
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -2767,7 +3119,10 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
               elevation: 3,
               padding: const EdgeInsets.symmetric(horizontal: 8),
             ),
-            onPressed: () => TreatmentsScreen.open(context, hive, repository),
+            onPressed: () async {
+              await TreatmentsScreen.open(context, hive, repository);
+              if (mounted) setState(() {});
+            },
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -2799,8 +3154,10 @@ class _HiveDetailSheetState extends State<HiveDetailSheet> {
               elevation: 3,
               padding: const EdgeInsets.symmetric(horizontal: 8),
             ),
-            onPressed: () =>
-                FamilyFunctionScreen.open(context, hive, repository),
+            onPressed: () async {
+              await FamilyFunctionScreen.open(context, hive, repository);
+              if (mounted) setState(() {});
+            },
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [

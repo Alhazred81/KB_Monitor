@@ -34,13 +34,34 @@ Future<void> showQueenReplacementFlowDialog({
   required HiveData hive,
   required HiveRepository repository,
   VoidCallback? onOpenDetails,
+  String? initialStepOverride,
 }) async {
+  final HiveData liveHive = repository.resolveLiveHive(hive);
+  if (initialStepOverride != null && initialStepOverride.isNotEmpty) {
+    liveHive.queenReplacementState = initialStepOverride;
+    hive.queenReplacementState = initialStepOverride;
+  } else if (liveHive.queenReplacementState == null ||
+      liveHive.queenReplacementState == 'needs_replacement') {
+    // Ha van nyitott "Anyakalitka kirágósra állítása" feladat, akkor a család már a szoktatós (3 napos) fázisban tart!
+    final bool hasOpenCageSwitchTask = repository.scheduledTasks.any(
+      (t) =>
+          !t.isCompleted &&
+          t.hiveId == liveHive.id &&
+          t.title.contains('kirágósra állítása'),
+    );
+    if (hasOpenCageSwitchTask) {
+      liveHive.queenReplacementState = 'introduced_cage';
+      hive.queenReplacementState = 'introduced_cage';
+    }
+  }
+
   // Állapotok a több lépéses folyamathoz
   QueenData? selectedQueen;
   bool isSelectingQueenSource = false;
   bool isShowingRegisteredPicker = false;
   bool isShowingQueenWizard = false;
-  bool isShowingIntroductionChoice = (hive.queenReplacementState == 'choosing_intro_mode');
+  bool isShowingIntroductionChoice =
+      (liveHive.queenReplacementState == 'choosing_intro_mode');
 
   // Varázsló állapotok
   final random = math.Random();
@@ -81,7 +102,10 @@ Future<void> showQueenReplacementFlowDialog({
     builder: (dialogCtx) {
       return StatefulBuilder(
         builder: (ctx, setDialogState) {
-          final String state = hive.queenReplacementState ?? 'needs_replacement';
+          final String state =
+              liveHive.queenReplacementState ??
+              hive.queenReplacementState ??
+              'needs_replacement';
 
           final bool isWarningState = (state == 'needs_replacement' ||
               (state == 'queen_removed' &&
@@ -249,10 +273,12 @@ Future<void> showQueenReplacementFlowDialog({
                         elevation: 4,
                       ),
                       onPressed: () {
+                        liveHive.queenReplacementState = 'queen_removed';
+                        liveHive.status = 'red';
                         hive.queenReplacementState = 'queen_removed';
                         hive.status = 'red';
                         repository.updateHive(
-                          hive,
+                          liveHive,
                           historyEventType: 'anyacsere',
                           historyDescription:
                               'Régi méhanya eltávolítva (Anyátlan állapot).',
@@ -1186,19 +1212,25 @@ Future<void> showQueenReplacementFlowDialog({
                               needsReplacement: false,
                             );
 
-                        hive.queenReplacementState = 'introduced_cage';
-                        hive.queenIntroducedAt = DateTime.now();
-                        hive.status = 'green';
-                        hive.queen = queenToAssign;
-                        // Tiszta lap - Minden jegy alapállapotba kerül
-                        hive.resetEvaluation(
+                        liveHive.queenReplacementState = 'introduced_cage';
+                        liveHive.queenIntroducedAt = DateTime.now();
+                        liveHive.status = 'green';
+                        liveHive.queen = queenToAssign;
+                        liveHive.resetEvaluation(
                           newQueenId: queenToAssign.id,
                           reason: 'Tiszta lap - beadva szoktatósra (${queenToAssign.id})',
                         );
+                        if (!identical(liveHive, hive)) {
+                          hive.queenReplacementState = 'introduced_cage';
+                          hive.queenIntroducedAt = liveHive.queenIntroducedAt;
+                          hive.status = 'green';
+                          hive.queen = queenToAssign;
+                          hive.evaluation = liveHive.evaluation;
+                        }
 
-                        repository.scheduleQueenReplacementTasks(hive, isCageMode: true);
+                        repository.scheduleQueenReplacementTasks(liveHive, isCageMode: true);
                         repository.updateHive(
-                          hive,
+                          liveHive,
                           historyEventType: 'anyasitas',
                           historyDescription:
                               'Új méhanya (${queenToAssign.id}) zárt kalitkában szoktatósra beadva (3 nap, Tiszta lap).',
@@ -1261,14 +1293,24 @@ Future<void> showQueenReplacementFlowDialog({
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () {
-                        hive.queenReplacementState = 'introduced_chewout';
-                        hive.queenIntroducedAt = DateTime.now();
+                        liveHive.queenReplacementState = 'introduced_chewout';
+                        liveHive.queenIntroducedAt = DateTime.now();
                         final lockEnd = DateTime.now().add(const Duration(days: 14));
-                        hive.lockedUntil = lockEnd;
-                        hive.lockReason = 'Új anya kirágósra adva (Ne nyúlj hozzá!)';
-                        hive.status = 'green';
-                        hive.isAcousticSentinelActive = true;
-                        hive.acousticSampleIntervalMinutes = 15;
+                        liveHive.lockedUntil = lockEnd;
+                        liveHive.lockReason = 'Új anya kirágósra adva (Ne nyúlj hozzá!)';
+                        liveHive.status = 'green';
+                        liveHive.isAcousticSentinelActive = true;
+                        liveHive.acousticSampleIntervalMinutes = 15;
+
+                        if (!identical(liveHive, hive)) {
+                          hive.queenReplacementState = 'introduced_chewout';
+                          hive.queenIntroducedAt = liveHive.queenIntroducedAt;
+                          hive.lockedUntil = lockEnd;
+                          hive.lockReason = liveHive.lockReason;
+                          hive.status = 'green';
+                          hive.isAcousticSentinelActive = true;
+                          hive.acousticSampleIntervalMinutes = 15;
+                        }
 
                         // Szokásos délelőtti (10:00) vizsgálat beütemezése a lakat lejárata napjára
                         final inspectionDate = DateTime(
@@ -1279,12 +1321,12 @@ Future<void> showQueenReplacementFlowDialog({
                           0,
                         );
                         repository.scheduleQueenReplacementTasks(
-                          hive,
+                          liveHive,
                           isCageMode: false,
                           custom14DayDate: inspectionDate,
                         );
                         repository.updateHive(
-                          hive,
+                          liveHive,
                           historyEventType: 'anyasitas',
                           historyDescription:
                               'Anyakalitka kirágósra állítva, 14 napos nyugalmi lakat és sűrített akusztikai felügyelet aktiválva.',

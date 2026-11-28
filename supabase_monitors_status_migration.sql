@@ -12,6 +12,11 @@ ALTER TABLE public.monitors
   ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS entrance_heading DOUBLE PRECISION DEFAULT 180.0,
+  ADD COLUMN IF NOT EXISTS temp DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS humidity DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS weight DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS zcr DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS swarm_index DOUBLE PRECISION DEFAULT 0.0,
   ADD COLUMN IF NOT EXISTS daily_varroa_drop DOUBLE PRECISION DEFAULT 0.0,
   ADD COLUMN IF NOT EXISTS syrup_liters DOUBLE PRECISION DEFAULT 0.0,
   ADD COLUMN IF NOT EXISTS feeding_mode TEXT DEFAULT 'off',
@@ -47,6 +52,10 @@ ALTER TABLE public.monitors
 UPDATE public.monitors
 SET status = 'green'
 WHERE status IS NULL OR TRIM(status) = '';
+
+UPDATE public.monitors
+SET hive_number = '2. Család'
+WHERE hive_number = '2. Család (Bővülő)';
 
 -- 2. BODIES (Kaptártorony fiókok és tartozékok teljes konfigurációja)
 ALTER TABLE public.bodies
@@ -189,12 +198,26 @@ CREATE TABLE IF NOT EXISTS public.catalogs (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 8. HONEY_CONTAINERS (Feldolgozó / Pergetőhelyiség hordó- és vödörkészlete)
+CREATE TABLE IF NOT EXISTS public.honey_containers (
+  id TEXT PRIMARY KEY,
+  container_type TEXT,
+  honey_type TEXT,
+  tare_kg DOUBLE PRECISION DEFAULT 1.1,
+  net_kg DOUBLE PRECISION DEFAULT 0.0,
+  max_capacity_kg DOUBLE PRECISION DEFAULT 28.0,
+  avg_moisture DOUBLE PRECISION DEFAULT 17.0,
+  batch_code TEXT,
+  status TEXT DEFAULT 'Töltés alatt',
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- RLS engedélyezése anon / authenticated kliens számára (ha RLS be van kapcsolva)
 DO $$
 DECLARE
   tbl TEXT;
 BEGIN
-  FOREACH tbl IN ARRAY ARRAY['monitors', 'bodies', 'queens', 'treatments', 'syrup_pumps', 'history_logs', 'hive_meters', 'weather_logs', 'catalogs']
+  FOREACH tbl IN ARRAY ARRAY['monitors', 'bodies', 'queens', 'treatments', 'syrup_pumps', 'history_logs', 'hive_meters', 'weather_logs', 'catalogs', 'honey_containers']
   LOOP
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = tbl) THEN
       EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl);

@@ -33,6 +33,36 @@ class HoneyContainer {
     this.isPlacedOnScale = false,
     this.currentLiveGrossKg = 0.0,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'container_type': type,
+    'honey_type': honeyType,
+    'tare_kg': tareWeightKg,
+    'net_kg': currentNetWeightKg,
+    'max_capacity_kg': maxCapacityKg,
+    'avg_moisture': avgMoisture,
+    'batch_code': batchCode,
+    'status': status,
+  };
+
+  factory HoneyContainer.fromJson(Map<String, dynamic> json) {
+    final double tare = (json['tare_kg'] as num?)?.toDouble() ?? 1.1;
+    final double net = (json['net_kg'] as num?)?.toDouble() ?? 0.0;
+    return HoneyContainer(
+      id: (json['id'] ?? '').toString(),
+      type: (json['container_type'] ?? '20L Vödör (28 kg)').toString(),
+      honeyType: (json['honey_type'] ?? 'Vegyes virágméz').toString(),
+      tareWeightKg: tare,
+      currentNetWeightKg: net,
+      maxCapacityKg: (json['max_capacity_kg'] as num?)?.toDouble() ?? 28.0,
+      avgMoisture: (json['avg_moisture'] as num?)?.toDouble() ?? 17.0,
+      batchCode: (json['batch_code'] ?? '').toString(),
+      status: (json['status'] ?? 'Töltés alatt').toString(),
+      isPlacedOnScale: false,
+      currentLiveGrossKg: tare + net,
+    );
+  }
 }
 
 class ExtractionRecord {
@@ -214,6 +244,64 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _hydrateFromRepository();
+  }
+
+  void _hydrateFromRepository() {
+    for (final raw in widget.repository.honeyContainers) {
+      final parsed = HoneyContainer.fromJson(raw);
+      if (parsed.id.isEmpty) continue;
+      final idx = _containers.indexWhere((c) => c.id == parsed.id);
+      if (idx >= 0) {
+        _containers[idx] = parsed;
+      } else {
+        _containers.add(parsed);
+      }
+    }
+    if (_containers.isNotEmpty) {
+      _selectedTargetContainerId = _containers.first.id;
+      _bottlingSourceId = _containers.first.id;
+    }
+
+    for (final log in widget.repository.historyLogs) {
+      final meta = log.metadata;
+      if (log.eventType == 'pergetes' &&
+          meta != null &&
+          meta['box_code'] != null) {
+        _extractionHistory.add(
+          ExtractionRecord(
+            timestamp: log.createdAt,
+            boxCode: meta['box_code'].toString(),
+            hiveName: (meta['hive_name'] ?? 'Kaptár').toString(),
+            honeyType: (meta['honey_type'] ?? 'Vegyes virágméz').toString(),
+            grossKg: (meta['gross_kg'] as num?)?.toDouble() ?? 0.0,
+            tareKg: (meta['tare_kg'] as num?)?.toDouble() ?? 0.0,
+            moisture: (meta['moisture'] as num?)?.toDouble() ?? 17.0,
+            cappingLook: 'Naplózott pergetés',
+            consistency: 'Normál',
+            tasteNotes: '',
+            targetContainerId:
+                (meta['target_container_id'] ?? 'C_0000001').toString(),
+          ),
+        );
+      } else if (log.eventType == 'kiszereles' &&
+          meta != null &&
+          meta['source_container_id'] != null) {
+        final int cnt = (meta['count'] as num?)?.toInt() ?? 1;
+        final double totalKg = (meta['total_kg'] as num?)?.toDouble() ?? 1.0;
+        _bottlingHistory.add(
+          BottlingRecord(
+            timestamp: log.createdAt,
+            sourceContainerId: meta['source_container_id'].toString(),
+            honeyType: (meta['honey_type'] ?? 'Vegyes virágméz').toString(),
+            jarSizeLabel: (meta['jar_size'] ?? '1000 g').toString(),
+            jarWeightKg: cnt > 0 ? totalKg / cnt : 1.0,
+            count: cnt,
+            lotNumber: (meta['lot_number'] ?? '').toString(),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -365,6 +453,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
         );
         container.currentNetWeightKg = finalNet;
         container.isPlacedOnScale = false;
+        widget.repository.upsertHoneyContainer(container.toJson());
 
         widget.repository.logHistoryEvent(
           'PROCESSING_ROOM',
@@ -467,6 +556,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
         }
         c.currentNetWeightKg = double.parse(newTotalWeight.toStringAsFixed(1));
         c.honeyType = _selectedHoneyType;
+        widget.repository.upsertHoneyContainer(c.toJson());
       }
 
       _cappingWaxKg = double.parse(
@@ -711,6 +801,9 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
                       _containers.add(newContainer);
                       _selectedTargetContainerId = newContainer.id;
                     });
+                    widget.repository.upsertHoneyContainer(
+                      newContainer.toJson(),
+                    );
                     widget.repository.logHistoryEvent(
                       'PROCESSING_ROOM',
                       'uj_hordo',
@@ -766,6 +859,7 @@ class _ProcessingRoomScreenState extends State<ProcessingRoomScreen>
       if (source.currentNetWeightKg <= 0.1) {
         source.status = 'Üres';
       }
+      widget.repository.upsertHoneyContainer(source.toJson());
 
       _bottlingHistory.insert(
         0,

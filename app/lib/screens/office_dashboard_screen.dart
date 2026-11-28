@@ -11,6 +11,7 @@ import '../services/hive_repository.dart';
 import '../widgets/hive_tower_icon.dart';
 import '../widgets/safe_camera_controller.dart';
 import 'office_history_screen.dart';
+import 'weekly_calendar_screen.dart';
 
 // ============================================================================
 // DINAMIKUS TÖRZSADAT MODELL (Adatbázis elemekhez)
@@ -1350,6 +1351,19 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.calendar_month, color: Colors.amberAccent),
+            tooltip: 'Heti Feladatnaptár (Csoportosított)',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      WeeklyCalendarScreen(repository: widget.repository),
+                ),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.sync, color: Colors.tealAccent),
             tooltip: 'Szinkronizálás a Supabase-szel',
             onPressed: () async {
@@ -1554,6 +1568,28 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                       const Divider(color: Colors.white12, height: 24),
                       ...siteHives.map((hive) {
                         final item = _resolveFunctionItem(hive.familyFunction);
+                        final nextTask = widget.repository
+                            .getNextTaskOverviewForHive(hive);
+                        Color? taskCol;
+                        if (nextTask != null) {
+                          switch (nextTask.urgencyCode) {
+                            case 'flashing_red':
+                            case 'red':
+                              taskCol = Colors.redAccent;
+                              break;
+                            case 'flashing_orange':
+                              taskCol = const Color(0xFFFF6D00);
+                              break;
+                            case 'orange':
+                              taskCol = Colors.orangeAccent;
+                              break;
+                            case 'yellow':
+                              taskCol = Colors.amberAccent;
+                              break;
+                            default:
+                              taskCol = Colors.greenAccent;
+                          }
+                        }
                         return InkWell(
                           borderRadius: BorderRadius.circular(8),
                           onTap: () {
@@ -1636,6 +1672,52 @@ class _OfficeDashboardScreenState extends State<OfficeDashboardScreen> {
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    if (nextTask != null && taskCol != null) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2.5,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: nextTask.isBlinking
+                                              ? taskCol
+                                              : taskCol.withAlpha(35),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                          border: Border.all(
+                                            color: taskCol,
+                                            width: 1.1,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              nextTask.isBlinking
+                                                  ? Icons.notifications_active
+                                                  : Icons.event_note,
+                                              size: 11,
+                                              color: nextTask.isBlinking
+                                                  ? Colors.white
+                                                  : taskCol,
+                                            ),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              nextTask.shortLabel,
+                                              style: TextStyle(
+                                                color: nextTask.isBlinking
+                                                    ? Colors.white
+                                                    : taskCol,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                    ],
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 8,

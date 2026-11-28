@@ -270,67 +270,226 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isOnline = widget.repository.isOnline;
+    return ListenableBuilder(
+      listenable: widget.repository,
+      builder: (context, _) {
+        final bool hasIssue = widget.repository.hasConnectionIssue;
+        final bool isOnline = !hasIssue;
+        final int pendingOffline = widget.repository.offlineQueueLength;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF141428),
-        foregroundColor: Colors.amberAccent,
-        title: const Row(
-          children: [
-            Icon(Icons.settings, color: Colors.amberAccent, size: 22),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Rendszer Beállítások & Firmware (OTA)',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 14),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: isOnline
-                  ? Colors.green.withAlpha(50)
-                  : Colors.red.withAlpha(50),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isOnline ? Colors.greenAccent : Colors.redAccent,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+        return Scaffold(
+          backgroundColor: const Color(0xFF0F172A),
+          appBar: AppBar(
+            backgroundColor: const Color(0xFF141428),
+            foregroundColor: Colors.amberAccent,
+            title: const Row(
               children: [
-                Icon(
-                  isOnline ? Icons.cloud_done : Icons.cloud_off,
-                  color: isOnline ? Colors.greenAccent : Colors.redAccent,
-                  size: 15,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  isOnline
-                      ? 'Online'
-                      : 'Offline (${widget.repository.offlineQueueLength})',
-                  style: TextStyle(
-                    color: isOnline ? Colors.greenAccent : Colors.redAccent,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
+                Icon(Icons.settings, color: Colors.amberAccent, size: 22),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Rendszer Beállítások & Firmware (OTA)',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
             ),
+            actions: [
+              Container(
+                margin: const EdgeInsets.only(right: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: isOnline
+                      ? Colors.green.withAlpha(50)
+                      : Colors.red.withAlpha(50),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isOnline ? Colors.greenAccent : Colors.redAccent,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isOnline ? Icons.cloud_done : Icons.cloud_off,
+                      color: isOnline ? Colors.greenAccent : Colors.redAccent,
+                      size: 15,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      isOnline
+                          ? 'Online'
+                          : 'Hiba / Offline ($pendingOffline)',
+                      style: TextStyle(
+                        color: isOnline ? Colors.greenAccent : Colors.redAccent,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // --- 0. SZERVER & RENDSZER KONFIGURÁCIÓ KÁRTYA ---
+          body: SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // --- KAPCSOLATI DIAGNOSZTIKA & OFFLINE MENTÉS ÁLLAPOTKÁRTYA ---
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: hasIssue
+                        ? const Color(0xFF2A0A10)
+                        : const Color(0xFF0E2923),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: hasIssue ? Colors.redAccent : Colors.greenAccent,
+                      width: hasIssue ? 2.0 : 1.3,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            hasIssue
+                                ? Icons.error_outline_rounded
+                                : Icons.check_circle_rounded,
+                            color: hasIssue
+                                ? Colors.redAccent
+                                : Colors.greenAccent,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              hasIssue
+                                  ? widget.repository.connectionErrorTitle
+                                  : 'Szerverkapcsolat aktív és szinkronizált',
+                              style: TextStyle(
+                                color: hasIssue
+                                    ? Colors.redAccent
+                                    : Colors.greenAccent,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 14.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        hasIssue
+                            ? widget.repository.connectionErrorDetails
+                            : 'A telefon rendben eléri a Supabase szervert. Minden kaptárkonfiguráció, kezelés és naplóbejegyzés naprakész.',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          height: 1.4,
+                        ),
+                      ),
+                      if (pendingOffline > 0) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black26,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.amberAccent.withAlpha(130),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.inventory_2_outlined,
+                                color: Colors.amberAccent,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Helyileg eltárolt változások: $pendingOffline db vár automatikus szinkronizálásra.',
+                                  style: const TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (hasIssue || pendingOffline > 0) ...[
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: _isTesting
+                                ? null
+                                : () async {
+                                    setState(() => _isTesting = true);
+                                    await widget.repository.setSupabaseConfig(
+                                      _urlController.text,
+                                      _keyController.text,
+                                    );
+                                    final res = await widget.repository
+                                        .testSupabaseConnection();
+                                    if (res['success'] == true) {
+                                      await widget.repository
+                                          .syncWithSupabase();
+                                    }
+                                    if (mounted) {
+                                      setState(() => _isTesting = false);
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            res['message'].toString(),
+                                          ),
+                                          backgroundColor:
+                                              res['success'] == true
+                                              ? Colors.green
+                                              : Colors.red.shade800,
+                                        ),
+                                      );
+                                    }
+                                  },
+                            icon: const Icon(Icons.sync, size: 18),
+                            label: const Text(
+                              'Kapcsolat ellenőrzése & Szinkronizálás most',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                // --- 0. SZERVER & RENDSZER KONFIGURÁCIÓ KÁRTYA ---
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -457,6 +616,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() => _isAdvancedMode = val);
                       widget.onAdvancedModeChanged(val);
                     },
+                  ),
+                  const Divider(color: Colors.white12, height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.redAccent,
+                        side: const BorderSide(color: Colors.redAccent),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: () {
+                        if (widget.repository.hives.isEmpty) return;
+                        Navigator.pop(context);
+                        widget.repository.triggerHiveTiltEmergency(
+                          widget.repository.hives.first,
+                          tiltDegrees: 48.0,
+                          isTest: true,
+                        );
+                      },
+                      icon: const Icon(Icons.warning_amber_rounded, size: 20),
+                      label: const Text(
+                        'Borulás vészjelzés teszt (Villog + Csipog OK-ig)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -751,6 +941,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ),
+    );
+      },
     );
   }
 }

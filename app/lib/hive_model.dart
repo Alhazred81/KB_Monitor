@@ -638,6 +638,68 @@ class ScheduledTask {
   );
 }
 
+/// Kiszámítja egy teendő sürgősségi színkódját a hátralévő naptári napok alapján:
+/// - `'green'`:           1 hét+ (`diffDays >= 7`) -> Zöld
+/// - `'yellow'`:          3 nap+ (`3 <= diffDays < 7`) -> Sárga
+/// - `'orange'`:          1 nap+ (`diffDays == 2`, azaz több mint másnap) -> Narancs
+/// - `'flashing_orange'`: Aznapi / másnapi (`diffDays == 0 || diffDays == 1`) -> Villogó narancs
+/// - `'red'`:             Lejárt normál teendő (`diffDays < 0`) -> Folyamatos piros (nem villog)
+/// - `'flashing_red'`:    Kizárólag súlyos vészhelyzet (`isSevereEmergency == true`) -> Villogó piros
+String computeTaskUrgencyCode(
+  DateTime dueDate, {
+  DateTime? now,
+  bool isSevereEmergency = false,
+}) {
+  if (isSevereEmergency) return 'flashing_red';
+  final DateTime ref = now ?? DateTime.now();
+  final DateTime today = DateTime(ref.year, ref.month, ref.day);
+  final DateTime targetDay = DateTime(dueDate.year, dueDate.month, dueDate.day);
+  final int diffDays = targetDay.difference(today).inDays;
+
+  if (diffDays < 0) return 'red';
+  if (diffDays <= 1) return 'flashing_orange';
+  if (diffDays < 3) return 'orange';
+  if (diffDays < 7) return 'yellow';
+  return 'green';
+}
+
+int computeTaskDiffDays(DateTime dueDate, {DateTime? now}) {
+  final DateTime ref = now ?? DateTime.now();
+  final DateTime today = DateTime(ref.year, ref.month, ref.day);
+  final DateTime targetDay = DateTime(dueDate.year, dueDate.month, dueDate.day);
+  return targetDay.difference(today).inDays;
+}
+
+class HiveTaskOverview {
+  final String id;
+  final String title;
+  final String description;
+  final DateTime dueDate;
+  final String type;
+  final int diffDays;
+  final String urgencyCode;
+
+  const HiveTaskOverview({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.dueDate,
+    required this.type,
+    required this.diffDays,
+    required this.urgencyCode,
+  });
+
+  bool get isBlinking =>
+      urgencyCode == 'flashing_orange' || urgencyCode == 'flashing_red';
+
+  String get shortLabel {
+    if (diffDays < 0) return 'LEJÁRT';
+    if (diffDays == 0) return 'MA';
+    if (diffDays == 1) return 'HOLNAP';
+    return '$diffDays nap';
+  }
+}
+
 const Map<String, String> kHiveDiseaseLabels = {
   'nyulos': 'Nyúlós költésrothadás',
   'varroa': 'Varroatózis',
@@ -655,6 +717,23 @@ const Map<String, String> kHiveDiseaseLabels = {
   'amoba': 'Amőbás kór',
   'teli_hasmenes': 'Téli hasmenés',
 };
+
+/// Eltávolítja a kaptárnévből az ellentmondásos, beégetett állapotjelzőket
+/// (pl. "(Bővülő)", "(Gyenge)", "(Kritikus)", "(Beteg)", "(Felerősített)"),
+/// hogy a név soha ne mondjon ellent a valós diagnosztikai állapotnak.
+String sanitizeHiveDisplayName(String rawName) {
+  final cleaned = rawName
+      .replaceAll(
+        RegExp(
+          r'\s*\(\s*(bővülő|bovulo|gyenge|kritikus|beteg|felerősített|felerositett)\s*\)',
+          caseSensitive: false,
+        ),
+        '',
+      )
+      .replaceAll(RegExp(r'\s{2,}'), ' ')
+      .trim();
+  return cleaned.isEmpty ? rawName.trim() : cleaned;
+}
 
 class HiveData {
   final String id;
@@ -1163,23 +1242,28 @@ class HiveData {
   String get micStatus => acousticColonyStatus;
 
   String get signalStatus {
-    final lower = serverConnection.toLowerCase();
-    if (lower.contains('ok') ||
+    final lower = serverConnection.trim().toLowerCase();
+    if (lower.isEmpty ||
+        lower.contains('ok') ||
         lower.contains('párosítva') ||
-        lower.contains('supabase')) {
+        lower.contains('parositva') ||
+        lower.contains('supabase') ||
+        lower.contains('helyi') ||
+        lower.contains('szinkron')) {
       return 'green';
     }
-    if (lower.contains('gyenge')) return 'yellow';
-    if (lower.contains('kritikus') || lower.contains('hiba')) {
-      return 'flashing_red';
+    if (lower.contains('kritikus') ||
+        lower.contains('hiba') ||
+        lower.contains('szakadt') ||
+        lower.contains('elveszett')) {
+      return 'red';
     }
-    return 'red';
+    return 'yellow';
   }
 
   String get batteryStatus {
     if (batteryVoltage >= 3.8) return 'green';
     if (batteryVoltage >= 3.55) return 'yellow';
-    if (batteryVoltage < 3.4) return 'flashing_red';
     return 'red';
   }
 
@@ -1237,7 +1321,6 @@ class HiveData {
     final statuses = [
       status,
       nestCalculatedStatus,
-      extTempStatus,
       if (isRelapsedAfterStrengthening) 'orange',
       if (isWeakOrSick || reportedDiseases.isNotEmpty) 'yellow',
       for (var box in boxes) box.status,
@@ -1329,6 +1412,8 @@ class HiveData {
   }
 
   // --- GYENGE / BETEG CSALÁD DETEKTÁLÁSA (BŐVÍTÉS ÉS MEGCSAPOLÁS VÉDELEM) ---
+  static bool containsWeakKeyword(String text) => _containsWeakKeyword(text);
+
   static bool _containsWeakKeyword(String text) {
     final t = text.toLowerCase();
     return t.contains('beteg') ||
@@ -1830,7 +1915,10 @@ String canonicalizeHiveElementType(String rawType, {String rawName = ''}) {
       n.contains('excluder')) {
     return 'queen_excluder';
   }
-  if (t == 'vent' || t == '12' || t.contains('szelloz') || n.contains('szelloz')) {
+  if (t == 'vent' ||
+      t == '12' ||
+      t.contains('szelloz') ||
+      n.contains('szelloz')) {
     return 'vent';
   }
   if (t == 'treatment_strip' || t.contains('strip') || t.contains('kezel')) {
@@ -1925,7 +2013,9 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
     final bool hasBroodAlready =
         ignoreExistingBroodCheck ||
         hive.boxes.any(
-          (b) => canonicalizeHiveElementType(b.type, rawName: b.name) == 'brood_box',
+          (b) =>
+              canonicalizeHiveElementType(b.type, rawName: b.name) ==
+              'brood_box',
         );
     if (!hasBroodAlready) return null;
     if (fnCat == 'cull') {
@@ -1933,10 +2023,8 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         functionLabel: fnLabel,
         elementLabel: elemLabel,
         badgeText: 'Család feladata: $fnLabel • Elem: $elemLabel',
-        primaryMessage:
-            'Selejtezésre kijelölt család fészkét nem javasolt plusz fészekfiókkal bővíteni!',
-        explanation:
-            'A selejt család feladata a felszámolás / más családok felerősítése. A fészek bővítése széthúzza a népet és megnehezíti az egyesítést.',
+        primaryMessage: 'Selejtezésre kijelölt család fészkét nem javasolt plusz fészekfiókkal bővíteni!',
+        explanation: 'A selejt család feladata a felszámolás / más családok felerősítése. A fészek bővítése széthúzza a népet és megnehezíti az egyesítést.',
       );
     }
     return null;
@@ -1949,16 +2037,13 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
     String explanation;
     switch (fnCat) {
       case 'pollen':
-        explanation =
-            'A virágporgyűjtő családon a pollenrács lelassítja a forgalmat és visszafogja a nektárbehordást. A méztér üresen maradhat és feleslegesen hűti a fészket.';
+        explanation = 'A virágporgyűjtő családon a pollenrács lelassítja a forgalmat és visszafogja a nektárbehordást. A méztér üresen maradhat és feleslegesen hűti a fészket.';
         break;
       case 'propolis':
-        explanation =
-            'A propolisztermelő család feladata a propoliszrács beépítése, nem az áruméz gyűjtése. A méztéri fiók elvonja a méheket a propoliszgyűjtéstől.';
+        explanation = 'A propolisztermelő család feladata a propoliszrács beépítése, nem az áruméz gyűjtése. A méztéri fiók elvonja a méheket a propoliszgyűjtéstől.';
         break;
       case 'nurse':
-        explanation =
-            'A dajka- / anyanevelő családot sűrített fészekben, folyamatos serkentő etetés mellett kell tartani az anyabölcsők bőséges pempőzéséhez. A méztér lehűti a fészket, elvonja a dajkaméheket, és a serkentő szirup is bekerülne a lépekbe!';
+        explanation = 'A dajka- / anyanevelő családot sűrített fészekben, folyamatos serkentő etetés mellett kell tartani az anyabölcsők bőséges pempőzéséhez. A méztér lehűti a fészket, elvonja a dajkaméheket, és a serkentő szirup is bekerülne a lépekbe!';
         break;
       case 'breeder':
       case 'drone_breeder':
@@ -1967,12 +2052,10 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
             'A(z) $fnLabel feladata a tenyészanyag, fias keretek vagy életképes herék biztosítása, nem pedig az áruméz-termelés. A méztéri terhelés kimeríti a családot.';
         break;
       case 'reserve':
-        explanation =
-            'A tartalék / fejlődő raj feladata a saját fészek kiépítése és megerősödése. A korán felrakott méztér lehűti a fiasítást és megtöri a fejlődést.';
+        explanation = 'A tartalék / fejlődő raj feladata a saját fészek kiépítése és megerősödése. A korán felrakott méztér lehűti a fiasítást és megtöri a fejlődést.';
         break;
       case 'cull':
-        explanation =
-            'A selejt család felszámolásra vagy más családok erősítésére vár, nem méztermelésre.';
+        explanation = 'A selejt család felszámolásra vagy más családok erősítésére vár, nem méztermelésre.';
         break;
       default:
         explanation =
@@ -1998,8 +2081,7 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
       badgeText: 'Család feladata: $fnLabel • Kellék: Méhszöktető',
       primaryMessage:
           'Ennek a családnak nem a méztermelés a feladata ($fnLabel) – a méhszöktető nem ide való!',
-      explanation:
-          'A méhszöktető a pergetendő méztéri fiókok méhtelenítésére szolgál. Nem méztermelő családon feleslegesen elzárja a méhek útját a kaptártérben.',
+      explanation: 'A méhszöktető a pergetendő méztéri fiókok méhtelenítésére szolgál. Nem méztermelő családon feleslegesen elzárja a méhek útját a kaptártérben.',
     );
   }
 
@@ -2013,20 +2095,16 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         functionLabel: fnLabel,
         elementLabel: elemLabel,
         badgeText: 'Apacsalád (Herenevelés) • Kellék: Anyarács',
-        primaryMessage:
-            'Apacsaládra tilos anyarácsot helyezni – a herék beszorulnak és elpusztulnak a rácsban!',
-        explanation:
-            'Az apacsalád feladata az erős, párzóképes herék nevelése és szabad kirepülése. Az anyarács nyílásain a herék nem férnek át, tömegesen fennakadnak és elzárják a rácsot!',
+        primaryMessage: 'Apacsaládra tilos anyarácsot helyezni – a herék beszorulnak és elpusztulnak a rácsban!',
+        explanation: 'Az apacsalád feladata az erős, párzóképes herék nevelése és szabad kirepülése. Az anyarács nyílásain a herék nem férnek át, tömegesen fennakadnak és elzárják a rácsot!',
       );
     }
     return FamilyFunctionBoxMismatch(
       functionLabel: fnLabel,
       elementLabel: elemLabel,
       badgeText: 'Család feladata: $fnLabel • Kellék: Anyarács',
-      primaryMessage:
-          'A(z) "$fnLabel" feladathoz nem szükséges anyarács!',
-      explanation:
-          'Méztér vagy anyás bölcsődajkálás nélkül az anyarács feleslegesen kopasztja a méhek szárnyát és lassítja a közlekedést a kaptárban.',
+      primaryMessage: 'A(z) "$fnLabel" feladathoz nem szükséges anyarács!',
+      explanation: 'Méztér vagy anyás bölcsődajkálás nélkül az anyarács feleslegesen kopasztja a méhek szárnyát és lassítja a közlekedést a kaptárban.',
     );
   }
 
@@ -2036,8 +2114,7 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
 
     String explanation;
     if (fnCat == 'honey') {
-      explanation =
-          'Ennek a családnak a méztermelés a feladata! A pollengyűjtő rács lefékezi a hordó méhek kijárását és érezhetően csökkenti a mézhozamot.';
+      explanation = 'Ennek a családnak a méztermelés a feladata! A pollengyűjtő rács lefékezi a hordó méhek kijárását és érezhetően csökkenti a mézhozamot.';
     } else if (fnCat == 'nurse' ||
         fnCat == 'breeder' ||
         fnCat == 'drone_breeder' ||
@@ -2068,8 +2145,7 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         badgeText: 'Család feladata: Méztermelés • Kellék: Tetőetető',
         primaryMessage:
             'Méztermelő családra tetőetető felhelyezése nem javasolt!',
-        explanation:
-            'Méztermelés feladatnál a cukorszirup-etetés veszélyezteti az áruméz tisztaságát (bekeveredés / hamisítás kockázata). Serkentő etetés előtt állítsd át a család feladatát és vedd le a méztereket!',
+        explanation: 'Méztermelés feladatnál a cukorszirup-etetés veszélyezteti az áruméz tisztaságát (bekeveredés / hamisítás kockázata). Serkentő etetés előtt állítsd át a család feladatát és vedd le a méztereket!',
       );
     }
     if (fnCat == 'propolis') {
@@ -2077,10 +2153,8 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         functionLabel: fnLabel,
         elementLabel: elemLabel,
         badgeText: 'Család feladata: Propolisztermelés • Kellék: Tetőetető',
-        primaryMessage:
-            'Propolisztermelő családon a tetőetető rontja a propolisz tisztaságát!',
-        explanation:
-            'Szirupetetés hatására a méhek viasztermelésbe kezdenek, és tiszta propolisz helyett viasszal építik be a propoliszrácsot.',
+        primaryMessage: 'Propolisztermelő családon a tetőetető rontja a propolisz tisztaságát!',
+        explanation: 'Szirupetetés hatására a méhek viasztermelésbe kezdenek, és tiszta propolisz helyett viasszal építik be a propoliszrácsot.',
       );
     }
     if (fnCat == 'cull') {
@@ -2088,10 +2162,8 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         functionLabel: fnLabel,
         elementLabel: elemLabel,
         badgeText: 'Család feladata: Selejt család • Kellék: Tetőetető',
-        primaryMessage:
-            'Selejtezésre kijelölt családra nem javasolt külön tetőetetőt tenni!',
-        explanation:
-            'A selejt család felszámolásra / egyesítésre vár; a szirupkészletet érdemesebb a megtartandó termelő és tartalék családoknak adni.',
+        primaryMessage: 'Selejtezésre kijelölt családra nem javasolt külön tetőetetőt tenni!',
+        explanation: 'A selejt család felszámolásra / egyesítésre vár; a szirupkészletet érdemesebb a megtartandó termelő és tartalék családoknak adni.',
       );
     }
     return null;
@@ -2104,10 +2176,8 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         functionLabel: fnLabel,
         elementLabel: elemLabel,
         badgeText: 'Család feladata: $fnLabel • Elem: Lépépítő fiók',
-        primaryMessage:
-            'Dajka- / anyanevelő családra nem javasolt lépépítő fiókot helyezni!',
-        explanation:
-            'A dajkacsalád fiatal méheinek minden energiáját a méhpempő termelésére és az anyabölcsők gondozására kell fordítaniuk, nem pedig egy egész fióknyi műlép kiépítésére.',
+        primaryMessage: 'Dajka- / anyanevelő családra nem javasolt lépépítő fiókot helyezni!',
+        explanation: 'A dajkacsalád fiatal méheinek minden energiáját a méhpempő termelésére és az anyabölcsők gondozására kell fordítaniuk, nem pedig egy egész fióknyi műlép kiépítésére.',
       );
     }
     if (fnCat == 'cull') {
@@ -2117,8 +2187,7 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         badgeText: 'Család feladata: Selejt család • Elem: Lépépítő fiók',
         primaryMessage:
             'Selejt családdal nem célszerű új lépépítő fiókot építtetni!',
-        explanation:
-            'A selejtezésre kijelölt család építőereje gyenge vagy egyenetlen (sok sejthiba / hereépítmény keletkezhet).',
+        explanation: 'A selejtezésre kijelölt család építőereje gyenge vagy egyenetlen (sok sejthiba / hereépítmény keletkezhet).',
       );
     }
     return null;
@@ -2131,10 +2200,8 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         functionLabel: fnLabel,
         elementLabel: elemLabel,
         badgeText: 'Család feladata: Selejt család • Elem: Szaporító (Demaree)',
-        primaryMessage:
-            'Selejt családról nem szabad szaporítani (Demaree fiók nem javasolt)!',
-        explanation:
-            'A selejtezésre kijelölt család gyenge vagy kedvezőtlen tulajdonságait tilos szaporítással továbbörökíteni az állományban.',
+        primaryMessage: 'Selejt családról nem szabad szaporítani (Demaree fiók nem javasolt)!',
+        explanation: 'A selejtezésre kijelölt család gyenge vagy kedvezőtlen tulajdonságait tilos szaporítással továbbörökíteni az állományban.',
       );
     }
     if (fnCat == 'reserve') {
@@ -2144,8 +2211,7 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         badgeText: 'Család feladata: $fnLabel • Elem: Szaporító (Demaree)',
         primaryMessage:
             'Tartalék / fejlődő rajra Demaree szaporító fiók még nem való!',
-        explanation:
-            'A tartalék család feladata a saját megerősödése; a fészek kettéosztása (Demaree) csak erős, kifejlett családokon alkalmazható biztonságosan.',
+        explanation: 'A tartalék család feladata a saját megerősödése; a fészek kettéosztása (Demaree) csak erős, kifejlett családokon alkalmazható biztonságosan.',
       );
     }
     if (fnCat == 'nurse') {
@@ -2155,8 +2221,7 @@ FamilyFunctionBoxMismatch? evaluateFamilyFunctionBoxMismatch({
         badgeText: 'Család feladata: $fnLabel • Elem: Szaporító (Demaree)',
         primaryMessage:
             'Aktív dajkacsaládon a Demaree-fiók megbontja a dajkanépességet!',
-        explanation:
-            'Az anyabölcsők sikeres neveléséhez koncentrált, tömör dajkanépességre van szükség, nem megosztott fészekre.',
+        explanation: 'Az anyabölcsők sikeres neveléséhez koncentrált, tömör dajkanépességre van szükség, nem megosztott fészekre.',
       );
     }
     return null;
@@ -2276,8 +2341,8 @@ class HistoryLogEntry {
   /// Automatikus ESP32 / SIM7000G szenzormérés (`public.hive_meters` sor) átalakítása időrendi naplóelemmé
   factory HistoryLogEntry.fromHiveMeterRow(Map<String, dynamic> row) {
     final int? meterId = (row['id'] as num?)?.toInt();
-    final String mac =
-        (row['monitor_mac'] ?? row['mac_address'] ?? 'HIVE_01').toString();
+    final String mac = (row['monitor_mac'] ?? row['mac_address'] ?? 'HIVE_01')
+        .toString();
     final DateTime ts =
         DateTime.tryParse(
           (row['created_at'] ?? row['measured_at'] ?? row['timestamp'] ?? '')
@@ -2303,8 +2368,7 @@ class HistoryLogEntry {
 
     return HistoryLogEntry(
       dbId: meterId,
-      localId:
-          'METER_${meterId ?? "${mac}_${ts.millisecondsSinceEpoch}"}',
+      localId: 'METER_${meterId ?? "${mac}_${ts.millisecondsSinceEpoch}"}',
       monitorMac: mac,
       eventType: 'automata_meres',
       description: parts.isNotEmpty
@@ -2313,11 +2377,11 @@ class HistoryLogEntry {
       createdAt: ts,
       metadata: {
         'source': 'hive_meters',
-        if (temp != null) 'inner_temp': temp,
-        if (hum != null) 'humidity': hum,
-        if (weight != null) 'weight': weight,
-        if (noise != null) 'noise': noise,
-        if (battery != null) 'battery_voltage': battery,
+        'inner_temp': ?temp,
+        'humidity': ?hum,
+        'weight': ?weight,
+        'noise': ?noise,
+        'battery_voltage': ?battery,
       },
     );
   }
@@ -2371,9 +2435,7 @@ class HistoryLogEntry {
     final descNorm = _normalizeBoxToken(description);
 
     // 1. Kifejezett Zubehör (kellék) események
-    if (ev == 'pollengyujto' ||
-        ev == 'atkaellenorzes' ||
-        ev == 'szoktetes') {
+    if (ev == 'pollengyujto' || ev == 'atkaellenorzes' || ev == 'szoktetes') {
       return 'zubehor';
     }
 
@@ -2570,10 +2632,7 @@ class WeatherLogPoint {
   bool get isGoodBeeFlightHour {
     final bool isDaylight =
         lightLux >= 1500 || (timestamp.hour >= 7 && timestamp.hour <= 19);
-    return isDaylight &&
-        tempC >= 12.0 &&
-        rainMm < 0.2 &&
-        windSpeedMs < 7.5;
+    return isDaylight && tempC >= 12.0 && rainMm < 0.2 && windSpeedMs < 7.5;
   }
 
   Map<String, dynamic> toJson() => {
@@ -2635,4 +2694,3 @@ class WeatherLogPoint {
     );
   }
 }
-

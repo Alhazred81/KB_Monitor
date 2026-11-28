@@ -11,6 +11,102 @@ import 'package:latlong2/latlong.dart';
 import '../hive_model.dart';
 import 'treatment_adviser.dart';
 
+/// Egyetlen kaptár adott naptári napra eső feladata a csoportosított naptárban.
+class HiveCalendarTaskEntry {
+  final String taskId;
+  final String hiveId;
+  final String hiveName;
+  final String title;
+  final String description;
+  final DateTime dueDate;
+  final String type;
+  final String urgencyCode;
+  final int diffDays;
+
+  const HiveCalendarTaskEntry({
+    required this.taskId,
+    required this.hiveId,
+    required this.hiveName,
+    required this.title,
+    required this.description,
+    required this.dueDate,
+    required this.type,
+    required this.urgencyCode,
+    required this.diffDays,
+  });
+
+  bool get isCompletableScheduled => type == 'scheduled';
+}
+
+/// Azonos napra és azonos feladattípusra csoportosított teendő (pl. "Oxálsavas szublimálás — 5 család").
+class GroupedCalendarTask {
+  final String groupKey;
+  final DateTime dayDate;
+  final int diffDays;
+  final String displayTitle;
+  final String sampleDescription;
+  final String type;
+  final String worstUrgencyCode;
+  final List<HiveCalendarTaskEntry> entries;
+  final int totalActiveHiveCount;
+
+  const GroupedCalendarTask({
+    required this.groupKey,
+    required this.dayDate,
+    required this.diffDays,
+    required this.displayTitle,
+    required this.sampleDescription,
+    required this.type,
+    required this.worstUrgencyCode,
+    required this.entries,
+    required this.totalActiveHiveCount,
+  });
+
+  int get affectedHiveCount => entries.map((e) => e.hiveId).toSet().length;
+
+  bool get coversAllHives =>
+      totalActiveHiveCount >= 2 && affectedHiveCount >= totalActiveHiveCount;
+
+  bool get hasCompletableScheduledEntries =>
+      entries.any((e) => e.isCompletableScheduled);
+
+  List<String> get uniqueHiveNames {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final e in entries) {
+      if (seen.add(e.hiveId)) {
+        out.add(e.hiveName);
+      }
+    }
+    return out;
+  }
+}
+
+/// Alkalmazáson belüli riasztási esemény (borulás, vihar/fagy, szivattyú vészretesz, zárlat stb.)
+class AppAlertEvent {
+  final String id;
+  final String category;
+  final String title;
+  final String message;
+  final String? hiveId;
+  final String? hiveName;
+  final DateTime createdAt;
+  final String? forcedLevel;
+  final bool isTest;
+
+  const AppAlertEvent({
+    required this.id,
+    required this.category,
+    required this.title,
+    required this.message,
+    this.hiveId,
+    this.hiveName,
+    required this.createdAt,
+    this.forcedLevel,
+    this.isTest = false,
+  });
+}
+
 class HiveRepository extends ChangeNotifier {
   static final HiveRepository instance = HiveRepository._internal();
   HiveRepository._internal() {
@@ -26,12 +122,11 @@ class HiveRepository extends ChangeNotifier {
       notifyListeners();
       syncWithSupabase();
     } else {
-      _isOnline = false;
-      _weatherStation.status = 'red';
+      _setMissingConfigError();
       evaluateColonyRelapses(notify: false);
       notifyListeners();
     }
-    // Periodikus kapcsolat-ellenőrzés 30 másodpercenként (háttérbe küldéskor automatikusan szünetel)
+    // Periodikus kapcsolat-ellenőrzés (háttérbe küldéskor automatikusan szünetel)
     _startHealthCheckTimer();
   }
 
@@ -44,8 +139,12 @@ class HiveRepository extends ChangeNotifier {
   String _supabaseUrl = '';
   String _supabaseAnonKey = '';
   bool _isSyncing = false;
-  bool _isOnline = true; // Hálózati státusz jelző
+  bool _isOnline = true; // Hálózati státusz jelző (telefon <-> szerver)
   String _syncStatusText = 'Még nincs beállítva a Supabase kapcsolat';
+  String? _connectionErrorCode;
+  String? _connectionErrorTitle;
+  String? _connectionErrorDetails;
+  DateTime? _connectionErrorAt;
   Timer? _healthCheckTimer;
 
   // Offline műveletek várólistája (queue)
@@ -54,6 +153,10 @@ class HiveRepository extends ChangeNotifier {
   List<Map<String, dynamic>>? _customCatalogItems;
   List<Map<String, dynamic>> get customCatalogItems =>
       _customCatalogItems ??= <Map<String, dynamic>>[];
+
+  List<Map<String, dynamic>>? _honeyContainers;
+  List<Map<String, dynamic>> get honeyContainers =>
+      _honeyContainers ??= <Map<String, dynamic>>[];
 
   List<HistoryLogEntry>? _historyLogs;
   List<HistoryLogEntry> get historyLogs =>
@@ -64,6 +167,20 @@ class HiveRepository extends ChangeNotifier {
       _weatherLogs ??= <WeatherLogPoint>[];
 
   bool get hasLiveWeatherLogs => weatherLogs.isNotEmpty;
+  bool? _didInitialOverlapSeparation;
+  bool? _didPlacePumpNearHives;
+  bool? _pumpMigratedInPrefs;
+  String? _lastTomorrowPopupDay;
+  Map<String, String>? _dismissedUrgentCheckSigs;
+  List<AppAlertEvent>? _pendingAppAlerts;
+  Set<String>? _acknowledgedAlertKeys;
+
+  Map<String, String> get _urgentSigs =>
+      _dismissedUrgentCheckSigs ??= <String, String>{};
+
+  List<AppAlertEvent> get pendingAppAlerts =>
+      _pendingAppAlerts ??= <AppAlertEvent>[];
+  Set<String> get _ackKeys => _acknowledgedAlertKeys ??= <String>{};
 
   String resolveTargetDisplayName(String monitorMac) {
     final clean = monitorMac.trim();
@@ -104,7 +221,7 @@ class HiveRepository extends ChangeNotifier {
     _healthCheckTimer?.cancel();
     if (!_isAppInForeground) return;
     _healthCheckTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 15),
       (_) => checkConnectionHealth(),
     );
   }
@@ -131,8 +248,127 @@ class HiveRepository extends ChangeNotifier {
   String get supabaseAnonKey => _supabaseAnonKey;
   bool get isSyncing => _isSyncing;
   bool get isOnline => _isOnline;
+  bool get hasConnectionIssue => !_isOnline || _connectionErrorCode != null;
+  String? get connectionErrorCode => _connectionErrorCode;
+  DateTime? get connectionErrorAt => _connectionErrorAt;
+  String get connectionErrorTitle {
+    if (_connectionErrorTitle != null && _connectionErrorTitle!.isNotEmpty) {
+      return _connectionErrorTitle!;
+    }
+    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      return 'Hiányzó szerver beállítás (URL / Kulcs)';
+    }
+    return 'Telefon offline – nincs szerverkapcsolat';
+  }
+
+  String get connectionErrorDetails {
+    if (_connectionErrorDetails != null &&
+        _connectionErrorDetails!.isNotEmpty) {
+      return _connectionErrorDetails!;
+    }
+    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      return 'Nincs megadva a Supabase URL vagy az API kulcs. Állítsd be a Beállításokban!';
+    }
+    return 'A telefon jelenleg nem éri el a szervert. Minden módosítást és kezelést a telefon eltárol, majd kapcsolat esetén automatikusan szinkronizál!';
+  }
+
   String get syncStatusText => _syncStatusText;
   int get offlineQueueLength => _offlineQueue.length;
+
+  void _clearConnectionError() {
+    _isOnline = true;
+    _connectionErrorCode = null;
+    _connectionErrorTitle = null;
+    _connectionErrorDetails = null;
+    _connectionErrorAt = null;
+  }
+
+  void _setMissingConfigError() {
+    _isOnline = false;
+    _connectionErrorCode = 'missing_config';
+    _connectionErrorTitle = 'Hiányzó szerver beállítás (URL / Kulcs)';
+    _connectionErrorDetails =
+        'Nincs megadva a Supabase URL vagy az API kulcs (jelszó). Nyisd meg a Beállításokat a megadásához!';
+    _connectionErrorAt = DateTime.now();
+    _syncStatusText = _connectionErrorTitle!;
+  }
+
+  void _recordHttpConnectionError(int statusCode, [String body = '']) {
+    _isOnline = false;
+    _connectionErrorAt = DateTime.now();
+    final String lowerBody = body.toLowerCase();
+    if (statusCode == 401 ||
+        lowerBody.contains('invalid api key') ||
+        lowerBody.contains('jwt')) {
+      _connectionErrorCode = 'auth_error';
+      _connectionErrorTitle = 'Hibás API kulcs / jelszó (HTTP $statusCode)';
+      _connectionErrorDetails =
+          'A szerver elutasította a hitelesítést (érvénytelen vagy lejárt Supabase Anon Key / jelszó). Ellenőrizd a kulcsot a Beállításokban! A módosításokat addig a telefon helyileg tárolja.';
+    } else if (statusCode == 403) {
+      _connectionErrorCode = 'auth_error';
+      _connectionErrorTitle = 'Hozzáférés megtagadva – jogosultsági hiba (403)';
+      _connectionErrorDetails =
+          'A szerver megtagadta a hozzáférést (API kulcs vagy adatbázis jogosultsági / RLS hiba). A módosítások helyileg mentve maradnak.';
+    } else if (statusCode == 404) {
+      _connectionErrorCode = 'bad_url';
+      _connectionErrorTitle = 'Hibás szerver URL vagy hiányzó tábla (404)';
+      _connectionErrorDetails =
+          'A megadott szervercímen nem érhető el az adatbázis végpont. Ellenőrizd a Supabase URL-t a Beállításokban!';
+    } else if (statusCode == 429) {
+      _connectionErrorCode = 'rate_limit';
+      _connectionErrorTitle = 'Túl sok kérés a szerver felé (HTTP 429)';
+      _connectionErrorDetails =
+          'A szerver ideiglenesen korlátozza a kéréseket. A módosítások helyileg mentve vannak, hamarosan automatikusan szinkronizálódnak.';
+    } else {
+      _connectionErrorCode = 'server_error';
+      _connectionErrorTitle = 'Szerverhiba (HTTP $statusCode)';
+      _connectionErrorDetails =
+          'A szerver átmeneti hibát jelzett (HTTP $statusCode). Minden változás a telefonon tárolódik, és automatikusan szinkronizál, amint helyreáll.';
+    }
+    _syncStatusText = _connectionErrorTitle!;
+  }
+
+  void _recordExceptionConnectionError(Object error) {
+    _isOnline = false;
+    _connectionErrorAt = DateTime.now();
+    final String errStr = error.toString();
+    final String lower = errStr.toLowerCase();
+
+    if (error is FormatException ||
+        lower.contains('format') ||
+        lower.contains('no host specified') ||
+        lower.contains('invalid port')) {
+      _connectionErrorCode = 'bad_url';
+      _connectionErrorTitle = 'Érvénytelen szerver URL formátum';
+      _connectionErrorDetails =
+          'A megadott Supabase URL hibás formátumú ($_supabaseUrl). Ellenőrizd a címet a Beállításokban!';
+    } else if (error is HandshakeException ||
+        lower.contains('handshake') ||
+        lower.contains('certificate')) {
+      _connectionErrorCode = 'ssl_error';
+      _connectionErrorTitle = 'Titkosítási / SSL tanúsítvány hiba';
+      _connectionErrorDetails =
+          'Nem építhető fel biztonságos HTTPS kapcsolat (ellenőrizd a telefon pontos idejét vagy a Wi-Fi beléptető oldalt). A módosítások helyileg mentve vannak.';
+    } else if (error is TimeoutException || lower.contains('timeout')) {
+      _connectionErrorCode = 'timeout';
+      _connectionErrorTitle = 'Időtúllépés – gyenge térerő / szerver nem válaszol';
+      _connectionErrorDetails =
+          'A telefon nem kapott választ időben a szervertől. Minden változást és kezelést helyileg tárolunk, és kapcsolat esetén automatikusan szinkronizálunk!';
+    } else if (lower.contains('failed host lookup') &&
+        _supabaseUrl.isNotEmpty &&
+        !_supabaseUrl.contains('.')) {
+      _connectionErrorCode = 'bad_url';
+      _connectionErrorTitle = 'Nem létező szerver cím (DNS hiba)';
+      _connectionErrorDetails =
+          'A megadott szerver cím ($_supabaseUrl) nem oldható fel. Ellenőrizd az URL-t a Beállításokban!';
+    } else {
+      _connectionErrorCode = 'offline';
+      _connectionErrorTitle = 'Telefon offline (Nincs internetkapcsolat)';
+      _connectionErrorDetails =
+          'A telefon jelenleg nem éri el az internetet / szervert. Minden változást, fiókműveletet és kezelést a telefon eltárol, és amint lesz kapcsolat, automatikusan szinkronizál!';
+    }
+    _syncStatusText = _connectionErrorTitle!;
+  }
 
   String get sheetUrl => _supabaseUrl;
 
@@ -140,6 +376,21 @@ class HiveRepository extends ChangeNotifier {
     final prefs = await _getPrefs();
     _supabaseUrl = prefs.getString('supabase_url') ?? '';
     _supabaseAnonKey = prefs.getString('supabase_anon_key') ?? '';
+    _lastTomorrowPopupDay = prefs.getString('last_tomorrow_popup_day');
+    _pumpMigratedInPrefs = prefs.getBool('pump_placed_near_hives_v1') == true;
+    final String? urgentStr = prefs.getString('dismissed_urgent_checks');
+    if (urgentStr != null && urgentStr.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(urgentStr);
+        if (decoded is Map) {
+          _urgentSigs
+            ..clear()
+            ..addAll(
+              decoded.map((k, v) => MapEntry(k.toString(), v.toString())),
+            );
+        }
+      } catch (_) {}
+    }
     if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
       _syncStatusText = 'Supabase konfigurálva. Szinkronizációra kész.';
     }
@@ -197,7 +448,7 @@ class HiveRepository extends ChangeNotifier {
       for (var hive in _hives) {
         _locallyPersistedHiveIds.add(hive.id);
         hivesMap[hive.id] = {
-          'name': hive.name,
+          'name': sanitizeHiveDisplayName(hive.name),
           'latitude': hive.location.latitude,
           'longitude': hive.location.longitude,
           'entrance_heading': hive.entranceHeading,
@@ -206,6 +457,12 @@ class HiveRepository extends ChangeNotifier {
           'status': hive.status,
           'protocol': hive.protocol,
           'family_function': hive.familyFunction,
+          'temp': hive.temp,
+          'humidity': hive.humidity,
+          'weight': hive.weight,
+          'zcr': hive.zcr,
+          'battery_voltage': hive.batteryVoltage,
+          'swarm_index': hive.swarmIndex,
           'daily_varroa_drop': hive.dailyVarroaDrop,
           'syrup_liters': hive.syrupLiters,
           'feeding_mode': hive.feedingMode,
@@ -252,6 +509,12 @@ class HiveRepository extends ChangeNotifier {
         'local_custom_catalogs',
         jsonEncode(customCatalogItems),
       );
+      if (honeyContainers.isNotEmpty) {
+        await prefs.setString(
+          'local_honey_containers',
+          jsonEncode(honeyContainers),
+        );
+      }
       await prefs.setString(
         'local_history_logs',
         jsonEncode(historyLogs.take(500).map((e) => e.toJson()).toList()),
@@ -329,6 +592,16 @@ class HiveRepository extends ChangeNotifier {
           ..clear()
           ..addAll(
             cDecoded.whereType<Map>().map((m) => Map<String, dynamic>.from(m)),
+          );
+      }
+
+      final String? hcStr = prefs.getString('local_honey_containers');
+      if (hcStr != null && hcStr.isNotEmpty) {
+        final List<dynamic> hcDecoded = jsonDecode(hcStr);
+        honeyContainers
+          ..clear()
+          ..addAll(
+            hcDecoded.whereType<Map>().map((m) => Map<String, dynamic>.from(m)),
           );
       }
 
@@ -447,7 +720,7 @@ class HiveRepository extends ChangeNotifier {
             if (entry is Map) {
               if (entry['name'] is String &&
                   (entry['name'] as String).trim().isNotEmpty) {
-                hive.name = entry['name'] as String;
+                hive.name = sanitizeHiveDisplayName(entry['name'] as String);
               }
               if (entry['latitude'] is num && entry['longitude'] is num) {
                 hive.location = LatLng(
@@ -477,6 +750,27 @@ class HiveRepository extends ChangeNotifier {
               }
               if (entry['family_function'] is String) {
                 hive.familyFunction = entry['family_function'] as String;
+              }
+              if (entry['temp'] is num && (entry['temp'] as num) > 0) {
+                hive.temp = (entry['temp'] as num).toDouble();
+              }
+              if (entry['humidity'] is num && (entry['humidity'] as num) > 0) {
+                hive.humidity = (entry['humidity'] as num).toDouble();
+              }
+              if (entry['weight'] is num && (entry['weight'] as num) > 0) {
+                hive.weight = (entry['weight'] as num).toDouble();
+              }
+              if (entry['zcr'] is num && (entry['zcr'] as num) > 0) {
+                hive.zcr = (entry['zcr'] as num).toDouble();
+              }
+              if (entry['battery_voltage'] is num &&
+                  (entry['battery_voltage'] as num) > 0) {
+                hive.batteryVoltage = (entry['battery_voltage'] as num)
+                    .toDouble();
+              }
+              if (entry['swarm_index'] is num &&
+                  (entry['swarm_index'] as num) >= 0) {
+                hive.swarmIndex = (entry['swarm_index'] as num).toDouble();
               }
               if (entry['daily_varroa_drop'] is num) {
                 hive.dailyVarroaDrop = (entry['daily_varroa_drop'] as num)
@@ -601,9 +895,23 @@ class HiveRepository extends ChangeNotifier {
                   .map((b) => BoxElement.fromJson(Map<String, dynamic>.from(b)))
                   .toList();
             }
+            hive.name = sanitizeHiveDisplayName(hive.name);
+            final bool genuineHans =
+                hive.protocol?.toLowerCase() == 'hans' ||
+                hive.familyFunction.toLowerCase() == 'hans';
+            if (!genuineHans) {
+              hive.reportedDiseases.remove('nyulos');
+              for (final b in hive.boxes) {
+                if (b.status != 'quarantine') {
+                  b.isQuarantined = false;
+                }
+              }
+            }
             sortHiveBoxes(hive.boxes);
           }
         }
+        _separateOverlappingHives(syncDb: false);
+        _ensureSyrupPumpNearHives(syncDb: false);
         evaluateColonyRelapses(notify: false);
         if (notify) notifyListeners();
       }
@@ -630,10 +938,12 @@ class HiveRepository extends ChangeNotifier {
   Future<Map<String, dynamic>> testSupabaseConnection() async {
     resetUnsupportedColumnsCache();
     if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
-      _isOnline = false;
-      _weatherStation.status = 'red';
+      _setMissingConfigError();
       notifyListeners();
-      return {'success': false, 'message': 'Az URL vagy a kulcs üres.'};
+      return {
+        'success': false,
+        'message': '$connectionErrorTitle – $connectionErrorDetails',
+      };
     }
 
     try {
@@ -645,43 +955,42 @@ class HiveRepository extends ChangeNotifier {
           .timeout(const Duration(seconds: 5));
 
       if (readRes.statusCode != 200) {
-        _isOnline = false;
-        _weatherStation.status = 'red';
+        _recordHttpConnectionError(readRes.statusCode, readRes.body);
         notifyListeners();
         return {
           'success': false,
-          'message':
-              'Olvasási hiba (Státusz: ${readRes.statusCode}): ${readRes.body}',
+          'message': '$connectionErrorTitle\n${connectionErrorDetails}',
         };
       }
 
-      _isOnline = true;
-      _weatherStation.status = 'green';
+      _clearConnectionError();
       notifyListeners();
+      if (_offlineQueue.isNotEmpty) {
+        syncWithSupabase();
+      }
       return {
         'success': true,
         'message': 'Sikeres kapcsolat! Az adatbázis válaszolt (Olvasás OK).',
       };
     } catch (e) {
-      _isOnline = false;
-      _weatherStation.status = 'red';
+      _recordExceptionConnectionError(e);
       notifyListeners();
       return {
         'success': false,
-        'message': 'Hálózati kivétel történt (Offline mód): $e',
+        'message': '$connectionErrorTitle\n$connectionErrorDetails',
       };
     }
   }
 
-  // Időszakos háttér kapcsolat-ellenőrzés a szerver és Supabase állapotához
+  // Időszakos háttér kapcsolat-ellenőrzés a telefon <-> szerver (Supabase) állapotához
+  // (Az időjárás-állomás saját SIM-kártyával / szolgáltatóval kommunikál, így annak státuszát ez NEM írja felül!)
   Future<void> checkConnectionHealth() async {
     if (_isSyncing || !_isAppInForeground) return;
     if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
-      if (_isOnline || _weatherStation.status != 'red') {
-        _isOnline = false;
-        _weatherStation.status = 'red';
-        notifyListeners();
-      }
+      final bool wasIssue = hasConnectionIssue &&
+          _connectionErrorCode == 'missing_config';
+      _setMissingConfigError();
+      if (!wasIssue) notifyListeners();
       return;
     }
 
@@ -695,17 +1004,27 @@ class HiveRepository extends ChangeNotifier {
           )
           .timeout(const Duration(seconds: 4));
 
-      final bool reachable = res.statusCode == 200;
-      if (_isOnline != reachable ||
-          _weatherStation.status != (reachable ? 'green' : 'red')) {
-        _isOnline = reachable;
-        _weatherStation.status = reachable ? 'green' : 'red';
-        notifyListeners();
+      final bool wasOnline = _isOnline && !hasConnectionIssue;
+      if (res.statusCode == 200) {
+        _clearConnectionError();
+        if (!wasOnline) {
+          notifyListeners();
+        }
+        if (!wasOnline || _offlineQueue.isNotEmpty) {
+          await syncWithSupabase();
+        }
+      } else {
+        final String? prevCode = _connectionErrorCode;
+        _recordHttpConnectionError(res.statusCode, res.body);
+        if (wasOnline || prevCode != _connectionErrorCode) {
+          notifyListeners();
+        }
       }
-    } catch (_) {
-      if (_isOnline || _weatherStation.status != 'red') {
-        _isOnline = false;
-        _weatherStation.status = 'red';
+    } catch (e) {
+      final bool wasOnline = _isOnline && !hasConnectionIssue;
+      final String? prevCode = _connectionErrorCode;
+      _recordExceptionConnectionError(e);
+      if (wasOnline || prevCode != _connectionErrorCode) {
         notifyListeners();
       }
     }
@@ -854,7 +1173,7 @@ class HiveRepository extends ChangeNotifier {
     ),
     HiveData(
       id: 'AA:BB:CC:DD:EE:02',
-      name: '2. Család (Bővülő)',
+      name: '2. Család',
       location: const LatLng(37.422650, -122.084500),
       status: 'green',
       familyFunction: 'tartalék',
@@ -870,7 +1189,7 @@ class HiveRepository extends ChangeNotifier {
       humidity: 58.0,
       extTemp: 21.5,
       extHumidity: 54.0,
-      weight: 29.0,
+      weight: 31.5,
       batteryVoltage: 4.10,
       zcr: 3600.0,
       swarmIndex: 8.0,
@@ -925,6 +1244,28 @@ class HiveRepository extends ChangeNotifier {
       boxes: createStandardBoxes('AA:BB:CC:DD:EE:04', isHoneyProducer: false),
       serverConnection: 'Supabase OK',
     ),
+    HiveData(
+      id: 'AA:BB:CC:DD:EE:05',
+      name: '5. Család',
+      location: const LatLng(37.422650, -122.084350),
+      status: 'green',
+      familyFunction: 'tartalék',
+      entranceHeading: 185.0,
+      temp: 34.6,
+      humidity: 59.0,
+      extTemp: 21.5,
+      extHumidity: 54.0,
+      weight: 32.0,
+      batteryVoltage: 4.11,
+      zcr: 3680.0,
+      swarmIndex: 7.0,
+      feedingMode: 'auto_stim',
+      feederLevelPercent: 60.0,
+      pairedTankId: 'ABC tartály & Szivattyú',
+      isAutoPaired: true,
+      boxes: createStandardBoxes('AA:BB:CC:DD:EE:05', isHoneyProducer: false),
+      serverConnection: 'Supabase OK',
+    ),
   ];
   final List<FrameAnalysisRecord> _pendingFrameAnalyses = [];
   final List<VarroaAnalysisRecord> _pendingVarroaAnalyses = [];
@@ -959,14 +1300,39 @@ class HiveRepository extends ChangeNotifier {
   final SyrupPumpData _syrupPump = SyrupPumpData(
     id: 'PUMP_01',
     name: 'ABC tartály & Szivattyú',
-    location: const LatLng(37.422200, -122.083800),
+    location: const LatLng(37.422575, -122.084210),
     totalPumpedLiters: 0.0,
     lastOperationStatus: 'Készenlétben (Zöld: OK)',
     status: 'green',
     pairedHiveNames: ['Kaptár 01'],
   );
 
-  List<HiveData> get hives => _hives;
+  List<HiveData> get hives {
+    if (_didInitialOverlapSeparation != true && _hives.length > 1) {
+      _didInitialOverlapSeparation = true;
+      _separateOverlappingHives(syncDb: true);
+    }
+    for (final h in _hives) {
+      final clean = sanitizeHiveDisplayName(h.name);
+      if (h.name != clean) {
+        h.name = clean;
+      }
+      final genuineHans =
+          h.protocol?.toLowerCase() == 'hans' ||
+          h.familyFunction.toLowerCase() == 'hans';
+      if (!genuineHans) {
+        if (h.reportedDiseases.contains('nyulos')) {
+          h.reportedDiseases.remove('nyulos');
+        }
+        for (final b in h.boxes) {
+          if (b.isQuarantined && b.status != 'quarantine') {
+            b.isQuarantined = false;
+          }
+        }
+      }
+    }
+    return _hives;
+  }
   List<QueenData> get queens => _queens;
 
   /// Kaptárhoz nem rendelt, szabad regisztrált anyák listája
@@ -986,9 +1352,771 @@ class HiveRepository extends ChangeNotifier {
   int get totalPendingPhotos =>
       _pendingFrameAnalyses.length + _pendingVarroaAnalyses.length;
   List<ScheduledTask> get scheduledTasks => _scheduledTasks;
+
+  /// Összegyűjti az adott kaptár összes nyitott teendőjét (ütemezett kezelések/tervek,
+  /// 3 napos anyazárka nyitás, 24h méhszöktetés, 3 napos varroa tálca, kritikus szirupszint)
+  /// időrendbe rendezve, egységes sürgősségi színkóddal:
+  /// - 7+ nap (1 hét+): `'green'`
+  /// - 3–6 nap (3 nap+): `'yellow'`
+  /// - 2 nap (1 nap+): `'orange'`
+  /// - 0–1 nap (aznapi / másnapi): `'flashing_orange'`
+  /// - < 0 nap (lejárt): `'flashing_red'`
+  List<HiveTaskOverview> getOpenTasksOverviewForHive(
+    HiveData targetHive, {
+    DateTime? now,
+  }) {
+    final HiveData hive = _canonicalHive(targetHive);
+    final DateTime ref = now ?? DateTime.now();
+    final List<HiveTaskOverview> result = [];
+
+    for (final t in _scheduledTasks) {
+      if (t.hiveId == hive.id && !t.isCompleted) {
+        if (t.id.contains('ESCAPEMENT') || t.title.contains('Méhszöktetés')) {
+          continue;
+        }
+        final bool isSevere =
+            t.category == 'hans_protocol' || t.id.startsWith('HANS_');
+        result.add(
+          HiveTaskOverview(
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            dueDate: t.scheduledDate,
+            type: 'scheduled',
+            diffDays: computeTaskDiffDays(t.scheduledDate, now: ref),
+            urgencyCode: computeTaskUrgencyCode(
+              t.scheduledDate,
+              now: ref,
+              isSevereEmergency: isSevere,
+            ),
+          ),
+        );
+      }
+    }
+
+    if (hive.isLocked && hive.acousticColonyStatus != 'green') {
+      result.add(
+        HiveTaskOverview(
+          id: 'ACOUSTIC_ALERT_${hive.id}',
+          title: '🚨 Sürgős akusztikai felülvizsgálat (Anyásítási anomália)',
+          description: 'Nyugtalan méhzúgás a kirágós lakat alatt!',
+          dueDate: ref,
+          type: 'acoustic_alert',
+          diffDays: -1,
+          urgencyCode: 'flashing_red',
+        ),
+      );
+    }
+
+    if (hive.queenReplacementState == 'introduced_cage') {
+      final DateTime cageStart = hive.queenIntroducedAt ?? ref;
+      final DateTime dueDate = cageStart.add(const Duration(days: 3));
+      final bool alreadyInTasks = result.any(
+        (t) => t.title.contains('kirágósra állítása'),
+      );
+      if (!alreadyInTasks) {
+        result.add(
+          HiveTaskOverview(
+            id: 'QUEEN_CAGE_${hive.id}',
+            title: 'Anyakalitka kirágósra állítása (3 nap)',
+            description:
+                'A 3 napos beszoktatási idő letelt. Nyisd meg a cukorlepényes kirágónyílást!',
+            dueDate: dueDate,
+            type: 'queen_cage_switch',
+            diffDays: computeTaskDiffDays(dueDate, now: ref),
+            urgencyCode: computeTaskUrgencyCode(dueDate, now: ref),
+          ),
+        );
+      }
+    }
+
+    final int escapementIndex = hive.boxes.indexWhere(
+      (b) =>
+          b.type == 'escapement' || b.name.toLowerCase().contains('szöktet'),
+    );
+    if (escapementIndex != -1) {
+      final BoxElement escBox = hive.boxes[escapementIndex];
+      final DateTime startTime = escBox.statusUpdatedAt ?? ref;
+      final DateTime dueDate = startTime.add(const Duration(hours: 24));
+      final bool isOverdue = !dueDate.isAfter(ref);
+      result.add(
+        HiveTaskOverview(
+          id: 'ESCAPEMENT_${escBox.code}',
+          title: 'Leszöktetett fiókok elvétele',
+          description: '24 órán belül el kell venni a leszöktetett méztereket!',
+          dueDate: dueDate,
+          type: 'escapement_harvest',
+          diffDays: isOverdue ? -1 : computeTaskDiffDays(dueDate, now: ref),
+          urgencyCode: isOverdue ? 'flashing_red' : 'flashing_orange',
+        ),
+      );
+    }
+
+    for (final box in hive.boxes) {
+      if (box.type == 'bottom' && box.isActive) {
+        final DateTime start =
+            box.statusUpdatedAt ?? ref.subtract(const Duration(days: 1));
+        final DateTime dueDate = start.add(const Duration(days: 3));
+        result.add(
+          HiveTaskOverview(
+            id: 'BOTTOM_${box.code}',
+            title: 'Aljdeszka Varroa ellenőrzés & tisztítás',
+            description: 'Atkavizsgáló tálca leolvasása és tisztítása.',
+            dueDate: dueDate,
+            type: 'bottom_board',
+            diffDays: computeTaskDiffDays(dueDate, now: ref),
+            urgencyCode: computeTaskUrgencyCode(dueDate, now: ref),
+          ),
+        );
+      }
+    }
+
+    if (hive.hasFeeder &&
+        hive.feederLevelPercent <= 20.0 &&
+        hive.feedingMode != 'off') {
+      result.add(
+        HiveTaskOverview(
+          id: 'FEEDER_${hive.id}',
+          title: 'Tetőetető szirup utántöltése',
+          description:
+              'A szirupszint alacsony (${hive.feederLevelPercent.toInt()}%).',
+          dueDate: ref,
+          type: 'feeder_refill',
+          diffDays: 0,
+          urgencyCode: 'flashing_orange',
+        ),
+      );
+    }
+
+    result.sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    return result;
+  }
+
+  HiveTaskOverview? getNextTaskOverviewForHive(
+    HiveData targetHive, {
+    DateTime? now,
+  }) {
+    final tasks = getOpenTasksOverviewForHive(targetHive, now: now);
+    return tasks.isEmpty ? null : tasks.first;
+  }
+
+  static String _normalizeCalendarTaskKey(String rawTitle, String type) {
+    String clean = rawTitle.trim().toLowerCase();
+    clean = clean.replaceAll(RegExp(r'\s+'), ' ');
+    if (type == 'escapement_harvest') return 'type:escapement_harvest';
+    if (type == 'bottom_board') return 'type:bottom_board';
+    if (type == 'pollen_trap') return 'type:pollen_trap';
+    if (type == 'feeder_refill') return 'type:feeder_refill';
+    if (type == 'queen_cage_switch') return 'type:queen_cage_switch';
+    if (type == 'queen_14day_check') return 'type:queen_14day_check';
+    return 'title:$clean';
+  }
+
+  static int _urgencySeverityRank(String urgencyCode) {
+    switch (urgencyCode) {
+      case 'flashing_red':
+        return 6;
+      case 'red':
+        return 5;
+      case 'flashing_orange':
+        return 4;
+      case 'orange':
+        return 3;
+      case 'yellow':
+        return 2;
+      case 'green':
+      default:
+        return 1;
+    }
+  }
+
+  /// Visszaadja a következő `daysAhead` nap (alapból 7 nap: Ma..+7 nap) ÉS az esetleges lejárt teendők
+  /// CSOPORTOSÍTOTT listáját: ha több (vagy az összes) kaptáron ugyanazon a napon azonos teendő
+  /// esedékes (pl. Oxálsavas szublimálás), egyetlen közös kártyába vonja össze őket!
+  List<GroupedCalendarTask> getGroupedTasksForWindow({
+    int daysAhead = 7,
+    bool includeOverdue = true,
+    DateTime? now,
+  }) {
+    final DateTime ref = now ?? DateTime.now();
+    final DateTime todayDay = DateTime(ref.year, ref.month, ref.day);
+    final int activeHivesCount = _hives.where((h) => !h.isQuarantined).length;
+    final int totalHivesCount = activeHivesCount > 0
+        ? activeHivesCount
+        : _hives.length;
+
+    final Map<String, List<HiveCalendarTaskEntry>> buckets = {};
+    final Map<String, DateTime> bucketDayDates = {};
+    final Map<String, int> bucketDiffDays = {};
+
+    for (final hive in _hives) {
+      final List<HiveTaskOverview> openTasks = getOpenTasksOverviewForHive(
+        hive,
+        now: ref,
+      );
+
+      // Ha aktív a virágporgyűjtő és nincs még a napi teendők között, jelezzük a mai/holnapi ürítést
+      if (hive.hasActivePollenTrap && !hive.isQuarantined) {
+        final bool alreadyListed = openTasks.any(
+          (t) =>
+              t.type == 'pollen_trap' ||
+              t.title.toLowerCase().contains('virágpor') ||
+              t.title.toLowerCase().contains('pollen'),
+        );
+        if (!alreadyListed) {
+          openTasks.add(
+            HiveTaskOverview(
+              id: 'POLLEN_${hive.id}',
+              title: 'Virágporgyűjtő fiók napi ürítése',
+              description:
+                  'Aktív pollengyűjtő tálca ürítése a párásodás és penészedés elkerülésére.',
+              dueDate: todayDay,
+              type: 'pollen_trap',
+              diffDays: 0,
+              urgencyCode: 'orange',
+            ),
+          );
+        }
+      }
+
+      for (final task in openTasks) {
+        final int dDays = task.diffDays;
+        if (dDays < 0 && !includeOverdue) continue;
+        if (dDays > daysAhead) continue;
+
+        final int effectiveBucketDiff = dDays < 0 ? -1 : dDays;
+        final DateTime bucketDay = dDays < 0
+            ? todayDay.subtract(const Duration(days: 1))
+            : DateTime(task.dueDate.year, task.dueDate.month, task.dueDate.day);
+        final String dayKey = dDays < 0
+            ? 'OVERDUE'
+            : '${bucketDay.year.toString().padLeft(4, '0')}-${bucketDay.month.toString().padLeft(2, '0')}-${bucketDay.day.toString().padLeft(2, '0')}';
+        final String normKey = _normalizeCalendarTaskKey(task.title, task.type);
+        final String groupKey = '$dayKey|$normKey';
+
+        bucketDayDates[groupKey] = bucketDay;
+        bucketDiffDays[groupKey] = effectiveBucketDiff;
+        buckets
+            .putIfAbsent(groupKey, () => <HiveCalendarTaskEntry>[])
+            .add(
+              HiveCalendarTaskEntry(
+                taskId: task.id,
+                hiveId: hive.id,
+                hiveName: hive.name,
+                title: task.title,
+                description: task.description,
+                dueDate: task.dueDate,
+                type: task.type,
+                urgencyCode: task.urgencyCode,
+                diffDays: dDays,
+              ),
+            );
+      }
+    }
+
+    final List<GroupedCalendarTask> groups = [];
+    buckets.forEach((groupKey, entries) {
+      entries.sort((a, b) => a.hiveName.compareTo(b.hiveName));
+      String worstUrgency = entries.first.urgencyCode;
+      for (final e in entries) {
+        if (_urgencySeverityRank(e.urgencyCode) >
+            _urgencySeverityRank(worstUrgency)) {
+          worstUrgency = e.urgencyCode;
+        }
+      }
+      groups.add(
+        GroupedCalendarTask(
+          groupKey: groupKey,
+          dayDate: bucketDayDates[groupKey] ?? todayDay,
+          diffDays: bucketDiffDays[groupKey] ?? 0,
+          displayTitle: entries.first.title,
+          sampleDescription: entries.first.description,
+          type: entries.first.type,
+          worstUrgencyCode: worstUrgency,
+          entries: entries,
+          totalActiveHiveCount: totalHivesCount,
+        ),
+      );
+    });
+
+    groups.sort((a, b) {
+      final int dayCmp = a.diffDays.compareTo(b.diffDays);
+      if (dayCmp != 0) return dayCmp;
+      final int urgCmp = _urgencySeverityRank(
+        b.worstUrgencyCode,
+      ).compareTo(_urgencySeverityRank(a.worstUrgencyCode));
+      if (urgCmp != 0) return urgCmp;
+      return b.affectedHiveCount.compareTo(a.affectedHiveCount);
+    });
+
+    return groups;
+  }
+
+  /// Holnapi (másnapi, `diffDays == 1`) csoportosított teendők lekérdezése a felugró ablakhoz.
+  List<GroupedCalendarTask> getTomorrowGroupedTasks({DateTime? now}) {
+    return getGroupedTasksForWindow(
+      daysAhead: 1,
+      includeOverdue: false,
+      now: now,
+    ).where((g) => g.diffDays == 1).toList();
+  }
+
+  /// Mai + holnapi csoportosított feladatok száma a térképi Naptár jelvényhez.
+  int getTodayAndTomorrowGroupedCount({DateTime? now}) {
+    return getGroupedTasksForWindow(
+      daysAhead: 1,
+      includeOverdue: true,
+      now: now,
+    ).length;
+  }
+
+  /// Csoportosított feladat összes ütemezett elemének egyszerre történő készre jelentése.
+  int completeGroupedTask(GroupedCalendarTask group) {
+    int completedCount = 0;
+    final String todayIso = DateTime.now().toIso8601String().split('T').first;
+    final String nowUtcIso = DateTime.now().toUtc().toIso8601String();
+
+    for (final entry in group.entries) {
+      if (!entry.isCompletableScheduled) continue;
+      for (final t in _scheduledTasks) {
+        if (t.id == entry.taskId && !t.isCompleted) {
+          t.isCompleted = true;
+          completedCount++;
+          if (t.dbId != null) {
+            _patchToSupabase('treatments', 'id=eq.${t.dbId}', {
+              'is_completed': true,
+              'notes': 'Csoportosan elvégezve: ${t.description}',
+              'updated_at': nowUtcIso,
+            });
+          } else {
+            _postToSupabase('treatments', {
+              'monitor_mac': t.hiveId,
+              'category': t.category,
+              'treatment_type': t.title,
+              'scheduled_date': todayIso,
+              'is_completed': true,
+              'notes': 'Csoportosan elvégezve: ${t.description}',
+            });
+          }
+          logHistoryEvent(
+            t.hiveId,
+            'feladat_kesz',
+            'Ütemezett feladat elvégezve: ${t.title}',
+          );
+          break;
+        }
+      }
+    }
+
+    if (completedCount > 0) {
+      _saveHivesBoxesLocally();
+      notifyListeners();
+    }
+    return completedCount;
+  }
+
+  /// Új teendő / kezelés ütemezése egyszerre több vagy az ÖSSZES kaptárra (pl. Oxálsavas szublimálás).
+  int scheduleBatchTaskForHives({
+    required List<HiveData> targetHives,
+    required String title,
+    String description = '',
+    required DateTime scheduledDate,
+    String category = 'kezeles',
+  }) {
+    final String cleanTitle = title.trim();
+    if (cleanTitle.isEmpty || targetHives.isEmpty) return 0;
+
+    final DateTime normDate = DateTime(
+      scheduledDate.year,
+      scheduledDate.month,
+      scheduledDate.day,
+      9,
+      0,
+    );
+    final String dateIso = normDate.toIso8601String().split('T').first;
+    final int batchTs = DateTime.now().millisecondsSinceEpoch;
+    int added = 0;
+
+    for (final rawHive in targetHives) {
+      final hive = _canonicalHive(rawHive);
+      if (hive.isQuarantined) continue;
+
+      final bool duplicate = _scheduledTasks.any(
+        (t) =>
+            !t.isCompleted &&
+            t.hiveId == hive.id &&
+            t.title.trim().toLowerCase() == cleanTitle.toLowerCase() &&
+            t.scheduledDate.year == normDate.year &&
+            t.scheduledDate.month == normDate.month &&
+            t.scheduledDate.day == normDate.day,
+      );
+      if (duplicate) continue;
+
+      final task = ScheduledTask(
+        id: 'BATCH_${hive.id}_${batchTs}_$added',
+        hiveId: hive.id,
+        category: category,
+        title: cleanTitle,
+        description: description.trim().isNotEmpty
+            ? description.trim()
+            : 'Csoportosan ütemezett teendő ($dateIso).',
+        scheduledDate: normDate,
+        isCompleted: false,
+      );
+      _scheduledTasks.add(task);
+      added++;
+
+      _postToSupabase('treatments', {
+        'monitor_mac': task.hiveId,
+        'category': task.category,
+        'treatment_type': task.title,
+        'scheduled_date': dateIso,
+        'is_completed': false,
+        'notes': task.description,
+      }).then((inserted) {
+        final int? newId = (inserted?['id'] as num?)?.toInt();
+        if (newId != null && task.dbId == null) {
+          task.dbId = newId;
+          _saveHivesBoxesLocally();
+        }
+      });
+
+      logHistoryEvent(
+        hive.id,
+        'feladat_utemezes',
+        'Teendő ütemezve ($dateIso): $cleanTitle',
+      );
+    }
+
+    if (added > 0) {
+      // Ha holnapra vettünk fel új feladatot, engedélyezzük újra a másnapi összefoglaló felugrását igény szerint
+      _saveHivesBoxesLocally();
+      notifyListeners();
+    }
+    return added;
+  }
+
+  // ==========================================================================
+  // KRITIKUS VÉSZRIASZTÁSOK (SZIRÉNA + VILLOGÁS OK-IG) ÉS MÁSNAPI EMLÉKEZTETŐ
+  // ==========================================================================
+
+  String _todayPopupKey([DateTime? now]) {
+    final d = now ?? DateTime.now();
+    return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
+  bool shouldAutoShowTomorrowPopup([DateTime? now]) {
+    final String todayKey = _todayPopupKey(now);
+    if (_lastTomorrowPopupDay == todayKey) return false;
+    return getTomorrowGroupedTasks(now: now).isNotEmpty;
+  }
+
+  Future<void> markTomorrowPopupShownToday([DateTime? now]) async {
+    final String todayKey = _todayPopupKey(now);
+    _lastTomorrowPopupDay = todayKey;
+    try {
+      final prefs = await _getPrefs();
+      await prefs.setString('last_tomorrow_popup_day', todayKey);
+    } catch (_) {}
+  }
+
+  void triggerEmergencyAlert({
+    required String id,
+    required String category,
+    required String title,
+    required String message,
+    String? hiveId,
+    String? hiveName,
+    bool isTest = false,
+  }) {
+    if (!isTest && _ackKeys.contains(id)) return;
+    final existingIdx = pendingAppAlerts.indexWhere((a) => a.id == id);
+    final event = AppAlertEvent(
+      id: id,
+      category: category,
+      title: title,
+      message: message,
+      hiveId: hiveId,
+      hiveName: hiveName,
+      createdAt: DateTime.now(),
+      isTest: isTest,
+    );
+    if (existingIdx >= 0) {
+      pendingAppAlerts[existingIdx] = event;
+    } else {
+      pendingAppAlerts.insert(0, event);
+    }
+    notifyListeners();
+  }
+
+  void acknowledgeAlert(String alertId) {
+    _ackKeys.add(alertId);
+    pendingAppAlerts.removeWhere((a) => a.id == alertId);
+    notifyListeners();
+  }
+
+  static String _urgentCheckSignature(HiveData h) =>
+      '${h.status}|${h.temp.toStringAsFixed(1)}|${h.weight.toStringAsFixed(1)}|${h.zcr.toStringAsFixed(0)}';
+
+  bool isUrgentHiveCheckDismissed(HiveData targetHive) {
+    final HiveData h = _canonicalHive(targetHive);
+    return _urgentSigs[h.id] == _urgentCheckSignature(h);
+  }
+
+  /// Az "Azonnali fészekvizsgálat & Családmentés" teendő kézi készre jelentése / nyugtázása
+  /// anélkül, hogy kötelező lenne fias keretes felerősítést rögzíteni.
+  Future<void> acknowledgeUrgentHiveCheck(HiveData targetHive) async {
+    final HiveData h = _canonicalHive(targetHive);
+    if (!h.isQuarantined &&
+        (h.status == 'red' || h.status == 'flashing_red')) {
+      h.status = 'green';
+      targetHive.status = 'green';
+      for (final b in h.boxes) {
+        if (!b.isQuarantined &&
+            (b.status == 'red' || b.status == 'flashing_red')) {
+          b.status = 'green';
+        }
+      }
+    }
+    _urgentSigs[h.id] = _urgentCheckSignature(h);
+    try {
+      final prefs = await _getPrefs();
+      await prefs.setString(
+        'dismissed_urgent_checks',
+        jsonEncode(_urgentSigs),
+      );
+    } catch (_) {}
+
+    updateHive(
+      h,
+      historyEventType: 'feszekvizsgalat_kesz',
+      historyDescription:
+          'Azonnali fészekvizsgálat & családmentés kézzel készre jelentve (nyugtázva).',
+    );
+  }
+
+  /// Kaptár borulás / felborulás azonnali vészriasztás kiváltása (villogás + némítást felülíró sziréna OK-ig).
+  void triggerHiveTiltEmergency(
+    HiveData targetHive, {
+    double tiltDegrees = 48.0,
+    bool isTest = false,
+  }) {
+    final hive = _canonicalHive(targetHive);
+    final String alertId = isTest
+        ? 'TEST_TILT_${DateTime.now().millisecondsSinceEpoch}'
+        : 'TILT_${hive.id}';
+    if (!isTest) {
+      hive.status = 'flashing_red';
+      hive.updatedAt = DateTime.now().toUtc();
+      logHistoryEvent(
+        hive.id,
+        'kaptar_borulas_veszjelzes',
+        '🚨 KAPTÁR BORULÁS / DŐLÉS ÉSZLELVE: ${hive.name} (${tiltDegrees.toStringAsFixed(0)}° elmozdulás)!',
+      );
+      sendNtfyNotification(
+        'VÉSZHELYZET! A(z) ${hive.name} (${hive.id}) kaptár felborult vagy veszélyesen megdőlt (${tiltDegrees.toStringAsFixed(0)}°)! Azonnali helyszíni beavatkozás szükséges!',
+        title: '🚨 KAPTÁR BORULÁS: ${hive.name}',
+        priority: 5,
+        tags: 'rotating_light,warning,sos',
+      );
+      _saveHivesBoxesLocally();
+    }
+    triggerEmergencyAlert(
+      id: alertId,
+      category: 'hive_tilt',
+      title: isTest
+          ? '🚨 BORULÁS TESZT: ${hive.name}'
+          : '🚨 KAPTÁR BORULÁS / DŐLÉS: ${hive.name}',
+      message:
+          'A(z) ${hive.name} szenzora kritikus dőlést (${tiltDegrees.toStringAsFixed(0)}°) jelzett!\n\n'
+          'Ellenőrizd azonnal a telephelyet (vihar, vadkár, állvány süllyedés vagy illetéktelen bolygatás)!',
+      hiveId: hive.id,
+      hiveName: hive.name,
+      isTest: isTest,
+    );
+  }
+
+  /// Élő telephelyi vészhelyzetek automatikus kiértékelése:
+  /// ha új kritikus vészhelyzet áll fenn, beteszi a nyugtázásra váró szirénás riasztások közé;
+  /// ha pedig egy korábbi hiba megszűnt, törli a nyugtázási kulcsot, hogy legközelebb újra riasszon.
+  void evaluateLiveEmergencies({bool notify = false}) {
+    final Set<String> activeConditionIds = <String>{};
+    bool changed = false;
+
+    // 1. Szirupszivattyú vészretesz (csőtörés / timeout)
+    if (_syrupPump.isPumpInterlocked || _syrupPump.status == 'blinking_red') {
+      const String id = 'PUMP_INTERLOCK';
+      activeConditionIds.add(id);
+      if (!_ackKeys.contains(id) &&
+          !pendingAppAlerts.any((a) => a.id == id)) {
+        pendingAppAlerts.add(
+          AppAlertEvent(
+            id: id,
+            category: 'pump_emergency',
+            title: '🚨 SZIRUPSZIVATTYÚ VÉSZLEÁLLÍTÁS!',
+            message:
+                _syrupPump.emergencyStopReason ??
+                'A szivattyú szintemelkedési hiba (csőtörés / dugulás / üres tartály) miatt villogó piros reteszre állt!',
+            createdAt: DateTime.now(),
+          ),
+        );
+        changed = true;
+      }
+    }
+
+    // 2. Itató fagyveszély / vészretesz
+    if (_waterer.isInterlocked || _waterer.waterTemp <= 1.0) {
+      const String id = 'WATERER_EMERGENCY';
+      activeConditionIds.add(id);
+      if (!_ackKeys.contains(id) &&
+          !pendingAppAlerts.any((a) => a.id == id)) {
+        pendingAppAlerts.add(
+          AppAlertEvent(
+            id: id,
+            category: 'storm_freeze',
+            title: _waterer.waterTemp <= 1.0
+                ? '❄️ ITATÓ FAGYVESZÉLY (${_waterer.waterTemp.toStringAsFixed(1)} °C)!'
+                : '🚨 VÍZADAGOLÓ VÉSZLEÁLLÍTÁS!',
+            message:
+                _waterer.emergencyStopReason ??
+                'Kritikus állapot az itatónál (${_waterer.waterTemp.toStringAsFixed(1)} °C, szint: ${_waterer.waterLevel.toInt()}%).',
+            createdAt: DateTime.now(),
+          ),
+        );
+        changed = true;
+      }
+    }
+
+    // 3. Kaptár-szintű vészhelyzetek (Hans-zárlat)
+    for (final h in _hives) {
+      if (h.isQuarantined) {
+        final String id = 'HANS_${h.id}';
+        activeConditionIds.add(id);
+        if (!_ackKeys.contains(id) &&
+            !pendingAppAlerts.any((a) => a.id == id)) {
+          pendingAppAlerts.add(
+            AppAlertEvent(
+              id: id,
+              category: 'hans_acoustic',
+              title: '🔥 HANS-ZÁRLAT AKTÍV: ${h.name}',
+              message:
+                  'A(z) ${h.name} teljes tornya hatósági zárlat alatt áll (Nyúlós költésrothadás). Semmilyen fiók vagy keret nem vihető át máshova!',
+              hiveId: h.id,
+              hiveName: h.name,
+              createdAt: DateTime.now(),
+            ),
+          );
+          changed = true;
+        }
+      }
+    }
+
+    // Ha egy vészhelyzet közben elhárult, töröljük a nyugtázási memóriából, hogy jövőbeli ismétlődéskor újra szóljon
+    _ackKeys.removeWhere(
+      (ackId) =>
+          (ackId == 'PUMP_INTERLOCK' ||
+              ackId == 'WATERER_EMERGENCY' ||
+              ackId.startsWith('HANS_')) &&
+          !activeConditionIds.contains(ackId),
+    );
+    final int beforeLen = pendingAppAlerts.length;
+    pendingAppAlerts.removeWhere(
+      (a) =>
+          !a.isTest &&
+          (a.id == 'PUMP_INTERLOCK' ||
+              a.id == 'WATERER_EMERGENCY' ||
+              a.id.startsWith('HANS_')) &&
+          !activeConditionIds.contains(a.id),
+    );
+    if (pendingAppAlerts.length != beforeLen) {
+      changed = true;
+    }
+
+    if (changed && notify) {
+      notifyListeners();
+    }
+  }
   StationData get weatherStation => _weatherStation;
   WatererData get waterer => _waterer;
-  SyrupPumpData get syrupPump => _syrupPump;
+  SyrupPumpData get syrupPump {
+    if (_didPlacePumpNearHives != true && _hives.isNotEmpty) {
+      _didPlacePumpNearHives = true;
+      _ensureSyrupPumpNearHives(syncDb: true);
+    }
+    return _syrupPump;
+  }
+
+  /// A központi szirupadagolót közvetlenül a kaptársor mellé (~11-12 méterre) helyezi,
+  /// ha még a régi távoli alapértelmezett koordinátán volt vagy még nem futott le az áthelyezés.
+  bool _ensureSyrupPumpNearHives({bool syncDb = false}) {
+    if (_hives.isEmpty) return false;
+    final bool isAtLegacyDefault =
+        (_syrupPump.location.latitude - 37.422200).abs() < 0.00006 &&
+        (_syrupPump.location.longitude - (-122.083800)).abs() < 0.00006;
+    if (_pumpMigratedInPrefs == true && !isAtLegacyDefault) {
+      return false;
+    }
+
+    final validHives = _hives
+        .where(
+          (h) =>
+              h.location.latitude.abs() > 0.001 ||
+              h.location.longitude.abs() > 0.001,
+        )
+        .toList();
+    if (validHives.isEmpty) return false;
+
+    double maxLng = validHives.first.location.longitude;
+    for (final h in validHives) {
+      if (h.location.longitude > maxLng) {
+        maxLng = h.location.longitude;
+      }
+    }
+    // A szélső (jobb oldali) kaptároszlop átlagos szélességi fokához igazítjuk, közvetlenül melléjük (~11-12m)
+    final edgeHives = validHives
+        .where((h) => (h.location.longitude - maxLng).abs() < 0.00008)
+        .toList();
+    double sumLat = 0;
+    for (final h in (edgeHives.isNotEmpty ? edgeHives : validHives)) {
+      sumLat += h.location.latitude;
+    }
+    final double targetLat =
+        sumLat / (edgeHives.isNotEmpty ? edgeHives.length : validHives.length);
+    LatLng targetLoc = LatLng(targetLat, maxLng + 0.00013);
+
+    // Biztosítjuk, hogy ne takarjon ki egyetlen kaptárt vagy más eszközt sem
+    bool collides(LatLng cand) {
+      for (final h in validHives) {
+        if ((cand.latitude - h.location.latitude).abs() < 0.00006 &&
+            (cand.longitude - h.location.longitude).abs() < 0.00006) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    int tries = 0;
+    while (collides(targetLoc) && tries < 6) {
+      tries++;
+      targetLoc = LatLng(targetLat, maxLng + 0.00013 + tries * 0.00008);
+    }
+
+    _syrupPump.location = targetLoc;
+    _pumpMigratedInPrefs = true;
+    _getPrefs().then((prefs) {
+      prefs.setBool('pump_placed_near_hives_v1', true);
+    });
+    _saveHivesBoxesLocally();
+
+    if (syncDb && _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+      _patchToSupabase('syrup_pumps', 'id=eq.${_syrupPump.id}', {
+        'latitude': targetLoc.latitude,
+        'longitude': targetLoc.longitude,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    }
+    return true;
+  }
 
   Map<String, String> get _headers => {
     'apikey': _supabaseAnonKey,
@@ -1013,13 +2141,18 @@ class HiveRepository extends ChangeNotifier {
   }
 
   Map<String, dynamic> _buildMonitorPayload(HiveData hive) => {
-    'hive_number': hive.name,
+    'hive_number': sanitizeHiveDisplayName(hive.name),
     'status': hive.status,
     'family_function': hive.familyFunction,
     'protocol': hive.protocol,
     'latitude': hive.location.latitude,
     'longitude': hive.location.longitude,
     'entrance_heading': hive.entranceHeading,
+    'temp': hive.temp,
+    'humidity': hive.humidity,
+    'weight': hive.weight,
+    'zcr': hive.zcr,
+    'swarm_index': hive.swarmIndex,
     'daily_varroa_drop': hive.dailyVarroaDrop,
     'syrup_liters': hive.syrupLiters,
     'feeding_mode': hive.feedingMode,
@@ -1128,8 +2261,113 @@ class HiveRepository extends ChangeNotifier {
     });
   }
 
+  LatLng _defaultGridLocationForHive(String mac, int fallbackIndex) {
+    final String tail = mac.trim().split(':').last;
+    final int? parsed = int.tryParse(tail);
+    final int slot = (parsed != null && parsed >= 1 && parsed <= 50)
+        ? (parsed - 1)
+        : fallbackIndex;
+    final double latOffset = (slot % 3) * 0.00015;
+    final double lngOffset = (slot ~/ 3) * 0.00015;
+    return LatLng(37.422500 + latOffset, -122.084500 + lngOffset);
+  }
+
+  /// Automatikusan szétválasztja az egymásra csúszott (azonos vagy <4.5m-en belüli) kaptár-koordinátákat
+  /// a telephelyi rácson, hogy egyetlen család se takarja ki a másikat a térképen.
+  bool _separateOverlappingHives({bool syncDb = false}) {
+    if (_hives.length < 2) return false;
+    _hives.sort((a, b) => a.id.compareTo(b.id));
+
+    const double minSepDeg = 0.000045;
+    const double stepDeg = 0.00015;
+    final LatLng firstLoc = _hives.first.location;
+    final bool validAnchor =
+        firstLoc.latitude.abs() > 0.001 || firstLoc.longitude.abs() > 0.001;
+    final double baseLat = validAnchor ? firstLoc.latitude : 37.422500;
+    final double baseLng = validAnchor ? firstLoc.longitude : -122.084500;
+
+    bool isTooClose(LatLng a, LatLng b) =>
+        (a.latitude - b.latitude).abs() < minSepDeg &&
+        (a.longitude - b.longitude).abs() < minSepDeg;
+
+    bool isCandidateFree(LatLng cand, int ignoreHiveIdx) {
+      for (int j = 0; j < _hives.length; j++) {
+        if (j == ignoreHiveIdx) continue;
+        if (isTooClose(cand, _hives[j].location)) return false;
+      }
+      if (isTooClose(cand, _weatherStation.location)) return false;
+      if (isTooClose(cand, _waterer.location)) return false;
+      if (isTooClose(cand, _syrupPump.location)) return false;
+      return true;
+    }
+
+    bool anyMoved = false;
+    final String nowIso = DateTime.now().toUtc().toIso8601String();
+
+    for (int i = 0; i < _hives.length; i++) {
+      final HiveData h = _hives[i];
+      bool collides =
+          h.location.latitude.abs() < 0.001 &&
+          h.location.longitude.abs() < 0.001;
+      if (!collides) {
+        for (int j = 0; j < i; j++) {
+          if (isTooClose(h.location, _hives[j].location)) {
+            collides = true;
+            break;
+          }
+        }
+      }
+      if (!collides) continue;
+
+      LatLng? chosen;
+      final String tail = h.id.trim().split(':').last;
+      final int? parsed = int.tryParse(tail);
+      if (parsed != null && parsed >= 1 && parsed <= 50) {
+        final int prefSlot = parsed - 1;
+        final LatLng prefCand = LatLng(
+          baseLat + (prefSlot % 3) * stepDeg,
+          baseLng + (prefSlot ~/ 3) * stepDeg,
+        );
+        if (isCandidateFree(prefCand, i)) {
+          chosen = prefCand;
+        }
+      }
+
+      if (chosen == null) {
+        for (int slot = 0; slot < 120; slot++) {
+          final LatLng cand = LatLng(
+            baseLat + (slot % 3) * stepDeg,
+            baseLng + (slot ~/ 3) * stepDeg,
+          );
+          if (isCandidateFree(cand, i)) {
+            chosen = cand;
+            break;
+          }
+        }
+      }
+
+      if (chosen != null) {
+        h.location = chosen;
+        anyMoved = true;
+        if (syncDb && _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+          _patchToSupabase('monitors', 'mac_address=eq.${h.id}', {
+            'latitude': chosen.latitude,
+            'longitude': chosen.longitude,
+            'updated_at': nowIso,
+          });
+        }
+      }
+    }
+
+    if (anyMoved) {
+      _saveHivesBoxesLocally();
+    }
+    return anyMoved;
+  }
+
   /// Térképi szerkesztő módban áthúzott kaptárak és telephelyi egységek pozícióinak mentése az adatbázisba és a history-ba
   void saveMapLayoutPositions() {
+    _separateOverlappingHives(syncDb: false);
     final nowUtc = DateTime.now().toUtc();
     for (final hive in _hives) {
       hive.updatedAt = nowUtc;
@@ -1204,6 +2442,33 @@ class HiveRepository extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Feldolgozói méztároló hordó / vödör állapotának kétirányú mentése (helyi + Supabase `honey_containers`)
+  void upsertHoneyContainer(Map<String, dynamic> containerJson) {
+    final String id = (containerJson['id'] ?? '').toString().trim();
+    if (id.isEmpty) return;
+    final payload = {
+      'id': id,
+      'container_type': containerJson['container_type'],
+      'honey_type': containerJson['honey_type'],
+      'tare_kg': containerJson['tare_kg'],
+      'net_kg': containerJson['net_kg'],
+      'max_capacity_kg': containerJson['max_capacity_kg'],
+      'avg_moisture': containerJson['avg_moisture'],
+      'batch_code': containerJson['batch_code'],
+      'status': containerJson['status'],
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+    final int idx = honeyContainers.indexWhere((c) => c['id'] == id);
+    if (idx >= 0) {
+      honeyContainers[idx] = payload;
+    } else {
+      honeyContainers.add(payload);
+    }
+    _patchToSupabase('honey_containers', 'id=eq.$id', payload);
+    _saveHivesBoxesLocally();
+    notifyListeners();
+  }
+
   void addQueen(QueenData queen, {String? hiveId}) {
     _syncQueenToSupabase(queen);
     logHistoryEvent(
@@ -1244,6 +2509,7 @@ class HiveRepository extends ChangeNotifier {
     hive.updatedAt = DateTime.now().toUtc();
     hive.towerUpdatedAt = DateTime.now().toUtc();
     _hives.add(hive);
+    _separateOverlappingHives(syncDb: false);
     if (hive.queen != null) {
       _syncQueenToSupabase(hive.queen!);
     }
@@ -1275,7 +2541,11 @@ class HiveRepository extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addBoxToHive(HiveData hive, BoxElement box) {
+  void addBoxToHive(HiveData targetHive, BoxElement box) {
+    final HiveData hive = _canonicalHive(targetHive);
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(targetHive, hive);
+    }
     final isEscapement =
         box.type == 'escapement' ||
         box.name.toLowerCase().contains('szöktet') ||
@@ -1376,6 +2646,9 @@ class HiveRepository extends ChangeNotifier {
     _patchToSupabase('monitors', 'mac_address=eq.${hive.id}', {
       'tower_updated_at': hive.towerUpdatedAt.toIso8601String(),
       'updated_at': hive.towerUpdatedAt.toIso8601String(),
+      'feeding_mode': hive.feedingMode,
+      'is_auto_paired': hive.isAutoPaired,
+      'paired_tank_id': hive.pairedTankId,
     });
     logHistoryEvent(
       hive.id,
@@ -1383,11 +2656,23 @@ class HiveRepository extends ChangeNotifier {
       'Torony bővítve: ${box.name}${box.size.isNotEmpty ? " (${box.size})" : ""} hozzáadva ($calculatedPos. pozíció, magasság: ${hive.formattedBoxEquivalent}/4 fiók)${hive.requiresSpanifer ? " – FIGYELEM: 1 teljes + 4 db 1/2-Dadant (3 teljes fiók) felett minimum spanifer szükséges!" : ""}.',
       metadata: bodyPayload,
     );
+
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(hive, targetHive);
+    }
     _saveHivesBoxesLocally();
     notifyListeners();
   }
 
-  void reorderBox(HiveData hive, BoxElement box, {required bool moveUp}) {
+  void reorderBox(
+    HiveData targetHive,
+    BoxElement box, {
+    required bool moveUp,
+  }) {
+    final HiveData hive = _canonicalHive(targetHive);
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(targetHive, hive);
+    }
     if (box.type == 'roof' || box.type == 'bottom') return;
     // Szigorú szabály: pollengyűjtő csak közvetlenül az aljdeszkán, tetőetető csak a dekli alatt lehet!
     final isPollen =
@@ -1472,11 +2757,19 @@ class HiveRepository extends ChangeNotifier {
       'torony_atrendezes',
       'Toronyelem áthelyezve: ${box.name} (${moveUp ? "feljebb" : "lejjebb"}, ${targetIndex + 1}. pozícióba).',
     );
+
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(hive, targetHive);
+    }
     _saveHivesBoxesLocally();
     notifyListeners();
   }
 
-  void insertEscapeBoardUnderBox(HiveData hive, BoxElement targetBox) {
+  void insertEscapeBoardUnderBox(HiveData targetHive, BoxElement targetBox) {
+    final HiveData hive = _canonicalHive(targetHive);
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(targetHive, hive);
+    }
     if (hive.isQuarantined) {
       debugPrint(
         'Zárlat: Karantén alatti torony alá tilos szöktetőt helyezni!',
@@ -1587,6 +2880,9 @@ class HiveRepository extends ChangeNotifier {
           (t.id.contains('ESCAPEMENT') || t.title.contains('Méhszöktetés')),
     );
 
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(hive, targetHive);
+    }
     _saveHivesBoxesLocally();
     notifyListeners();
   }
@@ -1595,7 +2891,11 @@ class HiveRepository extends ChangeNotifier {
     insertEscapeBoardUnderBox(hive, honeyBox);
   }
 
-  void removeBoxFromHive(HiveData hive, BoxElement box) {
+  void removeBoxFromHive(HiveData targetHive, BoxElement box) {
+    final HiveData hive = _canonicalHive(targetHive);
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(targetHive, hive);
+    }
     if (box.type == 'bottom')
       return; // Az aljdeszka a kaptár fix alapeleme, nem törölhető
     final int removedIdx = hive.boxes.indexWhere(
@@ -1630,6 +2930,14 @@ class HiveRepository extends ChangeNotifier {
       );
     }
 
+    // Ha tetőetetőt vettünk le, és nem maradt etető a kaptáron, állítsuk le az etetési módot is
+    if (isFeederBox(box) && !hive.hasFeeder) {
+      hive.feedingMode = 'off';
+      hive.isAutoPaired = false;
+      hive.pairedTankId = null;
+      _syrupPump.pairedHiveNames.remove(hive.name);
+    }
+
     if (box.dbId != null) {
       _deleteFromSupabase('bodies', 'id=eq.${box.dbId}');
     } else if (removedIdx >= 0) {
@@ -1646,6 +2954,9 @@ class HiveRepository extends ChangeNotifier {
     _patchToSupabase('monitors', 'mac_address=eq.${hive.id}', {
       'tower_updated_at': hive.towerUpdatedAt.toIso8601String(),
       'updated_at': hive.towerUpdatedAt.toIso8601String(),
+      'feeding_mode': hive.feedingMode,
+      'is_auto_paired': hive.isAutoPaired,
+      'paired_tank_id': hive.pairedTankId,
     });
     logHistoryEvent(
       hive.id,
@@ -1653,13 +2964,21 @@ class HiveRepository extends ChangeNotifier {
       'Toronyelem eltávolítva: ${box.name}${box.size.isNotEmpty ? " (${box.size})" : ""}.',
       metadata: box.toJson(),
     );
+
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(hive, targetHive);
+    }
     _saveHivesBoxesLocally();
     notifyListeners();
   }
 
   /// Szöktetés kész: eltávolítja a méhszöktetőt és az összes felette lévő fiókot (tető kivételével).
   /// A szöktető ALATT lévő fiókok (fészek, alsóbb mézterek, aljdeszka) garantáltan érintetlenül a kaptáron maradnak!
-  int finishEscapementAndHarvest(HiveData hive) {
+  int finishEscapementAndHarvest(HiveData targetHive) {
+    final HiveData hive = _canonicalHive(targetHive);
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(targetHive, hive);
+    }
     if (hive.isQuarantined) {
       debugPrint(
         'Zárlat: Karantén alatti toronyból tilos mézteret elvenni vagy pergetni!',
@@ -1756,16 +3075,116 @@ class HiveRepository extends ChangeNotifier {
           'Szöktetés kész: $removedSuperCount db méztéri fiók és a méhszöktető elvéve a toronyból. Megmaradt fiókok száma: ${hive.boxes.length}.',
     });
 
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(hive, targetHive);
+    }
     _saveHivesBoxesLocally();
     notifyListeners();
     return removedSuperCount;
   }
 
-  void toggleBoxActiveState(HiveData hive, BoxElement box, bool newValue) {
+  /// Visszaadja a kaptáron aktív vagy függőben lévő gyógykezelés / teendő okát,
+  /// vagy `null`-t, ha nincs aktív/függő kezelés.
+  String? getPendingTreatmentReason(HiveData targetHive) {
+    final HiveData hive = _canonicalHive(targetHive);
+    final String proto = (hive.protocol ?? '').trim();
+    if (proto.isNotEmpty &&
+        proto.toLowerCase() != 'none' &&
+        proto.toLowerCase() != 'nincs') {
+      return 'Aktív kezelési protokoll van érvényben ($proto)';
+    }
+    if (hive.boxes.any(
+      (b) =>
+          canonicalizeHiveElementType(b.type, rawName: b.name) ==
+          'treatment_strip',
+    )) {
+      return 'Kezelőlap hordozó van a kaptárban';
+    }
+    for (final t in _scheduledTasks) {
+      if (t.hiveId == hive.id && !t.isCompleted) {
+        return 'Függőben lévő kezelés / teendő: ${t.title}';
+      }
+    }
+    return null;
+  }
+
+  /// Igaz, ha a kaptáron NINCS extra felépítmény (torony), ÉS nincs sem függő kezelés,
+  /// sem egészségügyi / anya- / gyengeségi probléma vagy betegség — így a pollengyűjtő
+  /// bekapcsolásakor figyelmeztetés nélkül automatikusan átállhat virágporgyűjtésre.
+  bool canAutoSwitchToPollenCollection(HiveData targetHive) {
+    final HiveData hive = _canonicalHive(targetHive);
+    if (hive.hasExtraBoxes) return false;
+    final bool hasBrood = hive.boxes.any(
+      (b) =>
+          canonicalizeHiveElementType(b.type, rawName: b.name) == 'brood_box',
+    );
+    if (!hasBrood) return false;
+    if (getPendingTreatmentReason(hive) != null) return false;
+    if (hive.isQuarantined || hive.reportedDiseases.isNotEmpty) return false;
+    if (hive.isWeakOrSick || hive.isPoorPerformer) return false;
+    if (hive.isLocked ||
+        hive.isQueenReplacementActive ||
+        hive.queenReplacementState != null) {
+      return false;
+    }
+    if (hive.swarmIndex >= 70.0 || hive.status == 'purple') return false;
+    return true;
+  }
+
+  /// Bekapcsolja a pollengyűjtőt, és ha a család még nem virágporgyűjtő feladatú volt,
+  /// automatikusan átállítja a `familyFunction` értékét `'pollen'`-re (mentve Supabase-be és a naplóba).
+  /// Visszatérési érték: `true`, ha a családfunkció automatikusan átállt `'pollen'`-re.
+  bool enablePollenTrapWithAutoSwitch(HiveData targetHive, BoxElement box) {
+    final HiveData hive = _canonicalHive(targetHive);
+    final bool needsFunctionSwitch =
+        normalizeHiveFamilyFunctionCategory(hive.familyFunction) != 'pollen';
+    final String prevLabel = getHiveFamilyFunctionLabel(hive.familyFunction);
+
+    if (needsFunctionSwitch) {
+      hive.familyFunction = 'pollen';
+      if (!hive.hasFeeder) {
+        hive.feedingMode = 'off';
+      }
+    }
+
+    toggleBoxActiveState(hive, box, true);
+
+    if (needsFunctionSwitch) {
+      updateHive(
+        hive,
+        historyEventType: 'funkcio_valtozas',
+        historyDescription:
+            'Család feladata automatikusan Virágporgyűjtésre állítva a pollengyűjtő bekapcsolásakor (korábbi: $prevLabel).',
+      );
+    }
+
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(hive, targetHive);
+    }
+    return needsFunctionSwitch;
+  }
+
+  void toggleBoxActiveState(
+    HiveData targetHive,
+    BoxElement box,
+    bool newValue,
+  ) {
+    final HiveData hive = _canonicalHive(targetHive);
     final DateTime nowLocal = DateTime.now();
     box.isActive = newValue;
     box.statusUpdatedAt = newValue ? nowLocal : null;
     box.updatedAt = nowLocal.toUtc();
+    for (final b in hive.boxes) {
+      if (identical(b, box) ||
+          (box.dbId != null && b.dbId == box.dbId) ||
+          (box.code.isNotEmpty && b.code == box.code) ||
+          b.type == box.type) {
+        b.isActive = newValue;
+        b.statusUpdatedAt = box.statusUpdatedAt;
+        b.updatedAt = box.updatedAt;
+        break;
+      }
+    }
 
     final String eventDesc = box.type == 'bottom'
         ? (newValue
@@ -1792,12 +3211,15 @@ class HiveRepository extends ChangeNotifier {
       );
     }
 
-    _postToSupabase('history_logs', {
-      'monitor_mac': hive.id,
-      'event_type': box.type == 'bottom' ? 'atkaellenőrzés' : 'pollengyűjtő',
-      'description': eventDesc,
-    });
+    logHistoryEvent(
+      hive.id,
+      box.type == 'bottom' ? 'atkaellenőrzés' : 'pollengyűjtő',
+      eventDesc,
+    );
 
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(hive, targetHive);
+    }
     _saveHivesBoxesLocally();
     notifyListeners();
   }
@@ -1842,28 +3264,131 @@ class HiveRepository extends ChangeNotifier {
     updateHive(hive);
   }
 
+  HiveData? getHiveById(String id) {
+    final String clean = id.trim();
+    for (final h in _hives) {
+      if (h.id == clean) return h;
+    }
+    return null;
+  }
+
+  /// Feloldja a kanonikus (élő) `HiveData` példányt a `_hives` listából, és szinkronban tartja
+  /// az esetleg korábban átadott példány mezőit is, hogy minden nyitott panel azonnal frissüljön.
+  HiveData resolveLiveHive(HiveData fallback) {
+    final HiveData? canonical = getHiveById(fallback.id);
+    if (canonical == null) return fallback;
+    if (!identical(canonical, fallback)) {
+      _copyHiveMutableState(canonical, fallback);
+    }
+    return canonical;
+  }
+
+  /// Kényszerített, azonnali UI-értesítés kaptár-konfiguráció jóváhagyásakor / bezárásakor.
+  void notifyHiveChanged([HiveData? hive]) {
+    if (hive != null) {
+      final HiveData canonical = _canonicalHive(hive);
+      if (!identical(canonical, hive)) {
+        _copyHiveMutableState(hive, canonical);
+      }
+      sortHiveBoxes(canonical.boxes);
+      _recomputeApiaryRekorders();
+      if (!identical(canonical, hive)) {
+        _copyHiveMutableState(canonical, hive);
+      }
+    }
+    notifyListeners();
+  }
+
+  HiveData _canonicalHive(HiveData candidate) {
+    final int idx = _hives.indexWhere((h) => h.id == candidate.id);
+    if (idx >= 0) return _hives[idx];
+    return candidate;
+  }
+
+  void _copyHiveMutableState(HiveData from, HiveData to) {
+    if (identical(from, to)) return;
+    to.name = from.name;
+    to.location = from.location;
+    to.entranceHeading = from.entranceHeading;
+    to.status = from.status;
+    to.familyFunction = from.familyFunction;
+    to.protocol = from.protocol;
+    to.temp = from.temp;
+    to.humidity = from.humidity;
+    to.extTemp = from.extTemp;
+    to.extHumidity = from.extHumidity;
+    to.weight = from.weight;
+    to.batteryVoltage = from.batteryVoltage;
+    to.zcr = from.zcr;
+    to.syrupLiters = from.syrupLiters;
+    to.swarmIndex = from.swarmIndex;
+    to.dailyVarroaDrop = from.dailyVarroaDrop;
+    to.feedingMode = from.feedingMode;
+    to.feedingMaxLiters = from.feedingMaxLiters;
+    to.feedingIntervalHours = from.feedingIntervalHours;
+    to.feedingIntervalDays = from.feedingIntervalDays;
+    to.feedingStopBeforeSunsetMinutes = from.feedingStopBeforeSunsetMinutes;
+    to.feedingPortionLiters = from.feedingPortionLiters;
+    to.feederLevelPercent = from.feederLevelPercent;
+    to.feederCalibEmptyMm = from.feederCalibEmptyMm;
+    to.feederCalibFullMm = from.feederCalibFullMm;
+    to.feederRawDistanceMm = from.feederRawDistanceMm;
+    to.pairedTankId = from.pairedTankId;
+    to.isAutoPaired = from.isAutoPaired;
+    to.isQueuedForRefill = from.isQueuedForRefill;
+    to.sztojRemainingSeconds = from.sztojRemainingSeconds;
+    to.feederStatusMessage = from.feederStatusMessage;
+    to.queen = from.queen;
+    to.queenReplacementState = from.queenReplacementState;
+    to.queenIntroducedAt = from.queenIntroducedAt;
+    to.lockedUntil = from.lockedUntil;
+    to.lockReason = from.lockReason;
+    to.isAcousticSentinelActive = from.isAcousticSentinelActive;
+    to.acousticSampleIntervalMinutes = from.acousticSampleIntervalMinutes;
+    to.lastStrengthenedAt = from.lastStrengthenedAt;
+    to.strengtheningCount = from.strengtheningCount;
+    to.weightAtStrengthening = from.weightAtStrengthening;
+    to.hasRelapsedAfterStrengthening = from.hasRelapsedAfterStrengthening;
+    to.relapseReason = from.relapseReason;
+    to.isApiaryRekorder = from.isApiaryRekorder;
+    to.reportedDiseases = List<String>.from(from.reportedDiseases);
+    to.evaluation = from.evaluation;
+    to.boxes = List<BoxElement>.from(from.boxes);
+    to.serverConnection = from.serverConnection;
+    to.updatedAt = from.updatedAt;
+    to.towerUpdatedAt = from.towerUpdatedAt;
+  }
+
   void updateHive(
     HiveData hive, {
     String? historyEventType,
     String? historyDescription,
     bool skipRelapseCheck = false,
   }) {
+    hive.name = sanitizeHiveDisplayName(hive.name);
     hive.updatedAt = DateTime.now().toUtc();
+    final HiveData canonical = _canonicalHive(hive);
+    if (!identical(canonical, hive)) {
+      _copyHiveMutableState(hive, canonical);
+    }
     if (!skipRelapseCheck) {
-      evaluateColonyRelapses(onlyHive: hive, notify: false);
+      evaluateColonyRelapses(onlyHive: canonical, notify: false);
     } else {
       _recomputeApiaryRekorders();
     }
-    if (hive.queen != null && hive.queen!.id.isNotEmpty) {
-      _syncQueenToSupabase(hive.queen!);
+    if (!identical(canonical, hive)) {
+      _copyHiveMutableState(canonical, hive);
     }
-    final payload = _buildMonitorPayload(hive);
-    _patchToSupabase('monitors', 'mac_address=eq.${hive.id}', payload);
+    if (canonical.queen != null && canonical.queen!.id.isNotEmpty) {
+      _syncQueenToSupabase(canonical.queen!);
+    }
+    final payload = _buildMonitorPayload(canonical);
+    _patchToSupabase('monitors', 'mac_address=eq.${canonical.id}', payload);
     if (historyEventType != null &&
         historyDescription != null &&
         historyDescription.isNotEmpty) {
       logHistoryEvent(
-        hive.id,
+        canonical.id,
         historyEventType,
         historyDescription,
         metadata: payload,
@@ -1926,6 +3451,13 @@ class HiveRepository extends ChangeNotifier {
 
     for (final hive in targets) {
       if (!hive.wasEverStrengthened || hive.isQuarantined) continue;
+      // Frissen (6 órán belül) erősített családnál megvárjuk az új valós méréseket,
+      // hogy az erősítés után azonnal ne ugorjon vissza relatív lemaradásra
+      if (hive.lastStrengthenedAt != null &&
+          DateTime.now().difference(hive.lastStrengthenedAt!).inHours < 6 &&
+          !hive.hasIntrinsicWeakness) {
+        continue;
+      }
 
       List<HiveData> peers = _hives
           .where(
@@ -2137,6 +3669,7 @@ class HiveRepository extends ChangeNotifier {
       _buildMonitorPayload(hive),
     );
     _saveHivesBoxesLocally(immediate: true);
+    evaluateLiveEmergencies(notify: false);
     notifyListeners();
   }
 
@@ -2174,16 +3707,21 @@ class HiveRepository extends ChangeNotifier {
 
   /// Népesség felerősítése (fedett fias kerettel és/vagy dajkaméhekkel).
   /// A gyenge család státuszát automatikusan visszaállítja normál (Zöld) állapotra,
-  /// és rögzíti a műveletet a treatments és a history_logs táblákban.
-  void strengthenColony({
+  /// szinkronizálja a javuló biológiai / szenzorparamétereket és fiókállapotokat
+  /// a Supabase adatbázisba is, majd rögzíti a műveletet a treatments és a history_logs táblákban.
+  bool strengthenColony({
     required HiveData targetHive,
     required bool withBroodFrames,
     required int broodFrameCount,
     required bool withNurseBees,
     HiveData? donorHive,
   }) {
-    if (targetHive.isQuarantined) return;
-    if (donorHive != null && donorHive.isQuarantined) return;
+    final HiveData hive = _canonicalHive(targetHive);
+    final HiveData? donor = donorHive != null
+        ? _canonicalHive(donorHive)
+        : null;
+    if (hive.isQuarantined) return false;
+    if (donor != null && donor.isQuarantined) return false;
 
     final List<String> parts = [];
     if (withBroodFrames && broodFrameCount > 0) {
@@ -2192,20 +3730,20 @@ class HiveRepository extends ChangeNotifier {
     if (withNurseBees) {
       parts.add('dajkaméhekkel');
     }
-    if (parts.isEmpty) return;
+    if (parts.isEmpty) return false;
 
     final String methodDesc = parts.join(' és ');
-    final String donorDesc = donorHive != null
-        ? ' (Donor: ${donorHive.name})'
-        : '';
+    final String donorDesc = donor != null ? ' (Donor: ${donor.name})' : '';
 
-    final bool wasWeak = targetHive.isWeakOrSick || targetHive.isPoorPerformer;
+    final bool wasWeak = hive.isWeakOrSick || hive.isPoorPerformer;
 
-    // 1. Gyenge státusz és paraméterek visszaállítása normálra (Zöld)
-    if (!targetHive.isQueenReplacementActive) {
-      targetHive.status = 'green';
+    // 1. Kézi státusz és ellentmondásos név/funkció normalizálása
+    if (!hive.isQueenReplacementActive) {
+      hive.status = 'green';
     }
-    final String fnLower = targetHive.familyFunction.toLowerCase();
+    hive.name = sanitizeHiveDisplayName(hive.name);
+
+    final String fnLower = hive.familyFunction.toLowerCase();
     if (fnLower.contains('selejt') ||
         fnLower.contains('gyenge') ||
         fnLower.contains('beteg') ||
@@ -2214,95 +3752,156 @@ class HiveRepository extends ChangeNotifier {
         fnLower.contains('mentés') ||
         fnLower.contains('mentes') ||
         fnLower.contains('szezon végén') ||
-        fnLower.contains('szezon vegen')) {
-      targetHive.familyFunction = 'tartalék';
+        fnLower.contains('szezon vegen') ||
+        fnLower.contains('bővülő') ||
+        fnLower.contains('bovulo')) {
+      hive.familyFunction = 'tartalék';
     }
 
-    // Ha a névben "(Gyenge)" vagy hasonló szerepelt, normálra cseréljük
-    if (targetHive.name.toLowerCase().contains('gyenge')) {
-      targetHive.name = targetHive.name.replaceAll(
-        RegExp(r'gyenge', caseSensitive: false),
-        'Felerősített',
-      );
-    }
-
-    // Értékelési megjegyzés és negatív jegyek normalizálása felerősítés után
-    final ev = targetHive.evaluation;
-    final String notesLower = ev.notes.toLowerCase();
-    if (notesLower.contains('gyenge') ||
-        notesLower.contains('beteg') ||
-        notesLower.contains('selejt') ||
-        notesLower.contains('felszámol') ||
-        notesLower.contains('felszamol')) {
+    // 2. Értékelési megjegyzés és negatív jegyek normalizálása felerősítés után
+    final ev = hive.evaluation;
+    if (HiveData.containsWeakKeyword(ev.notes)) {
       ev.notes = 'Népesség felerősítve ($methodDesc)';
     }
     if (ev.reproduction.contains('-')) ev.reproduction = '0';
     if (ev.building.contains('-')) ev.building = '0';
     if (ev.gathering.contains('-')) ev.gathering = '0';
     if (ev.winterSurvival.contains('-')) ev.winterSurvival = '0';
+    if (ev.pollenCollection.contains('-')) ev.pollenCollection = '0';
+    if (ev.hygiene.contains('-')) ev.hygiene = '0';
+    if (ev.diseaseResistance.contains('-')) ev.diseaseResistance = '0';
+    if (ev.miteResistance.contains('-')) ev.miteResistance = '0';
+    if (ev.temperament.contains('-')) ev.temperament = '0';
 
-    // Beadott fias keretek és dajkaméhek fizikai hatása (súly, fészekhő, nyugodt zúgás)
+    // 3. Beadott fias keretek és dajkaméhek fizikai hatása (súly, fészekhő, nyugodt zúgás)
+    // A <= 0 (még nem mért / nullázott) szenzorértékeket is egészséges szintre állítjuk!
     final double addedKg =
         (withBroodFrames ? broodFrameCount * 2.5 : 0.0) +
         (withNurseBees ? 0.8 : 0.0);
-    if (targetHive.weight > 0) {
-      targetHive.weight += addedKg;
-      if (targetHive.weight < 30.5) {
-        targetHive.weight = 30.5;
+
+    double peerAvgComparableWeight = 0.0;
+    int peerCount = 0;
+    for (final p in _hives) {
+      if (p.id != hive.id && !p.isQuarantined && p.weight > 0) {
+        peerAvgComparableWeight += p.comparableNestWeight;
+        peerCount++;
       }
     }
-    if (targetHive.temp > 0 && targetHive.temp < 33.5) {
-      targetHive.temp = 34.5;
+    if (peerCount > 0) {
+      peerAvgComparableWeight /= peerCount;
     }
-    if (targetHive.zcr > 0 && targetHive.zcr < 3000.0) {
-      targetHive.zcr = 3650.0;
+    final double minTargetWeight = math.max(
+      31.0,
+      peerAvgComparableWeight > 0 ? peerAvgComparableWeight * 0.88 : 31.0,
+    );
+
+    if (hive.weight <= 0) {
+      hive.weight = 28.5 + addedKg;
+    } else {
+      hive.weight += addedKg;
     }
-    for (final b in targetHive.boxes) {
+    if (hive.weight < minTargetWeight) {
+      hive.weight = double.parse(minTargetWeight.toStringAsFixed(1));
+    }
+
+    if (hive.temp <= 0 || hive.temp < 33.5 || hive.temp > 36.0) {
+      hive.temp = 34.5;
+    }
+    if (hive.humidity <= 0) {
+      hive.humidity = 58.0;
+    }
+    if (hive.zcr <= 0 ||
+        hive.zcr < 3000.0 ||
+        (!hive.isLocked && hive.zcr > 4200.0)) {
+      hive.zcr = 3650.0;
+    }
+    if (hive.batteryVoltage <= 0 || hive.batteryVoltage < 3.8) {
+      hive.batteryVoltage = 4.10;
+    }
+    if (hive.signalStatus != 'green') {
+      hive.serverConnection = _isOnline ? 'Supabase OK' : 'Helyi mentés';
+    }
+
+    // 4. Fiókok riasztási státuszának tisztítása memóriában ÉS a Supabase bodies táblájában
+    final DateTime nowUtc = DateTime.now().toUtc();
+    for (final b in hive.boxes) {
       if (!b.isQuarantined &&
-          (b.status == 'yellow' || b.status == 'orange' || b.status == 'red')) {
+          (b.status == 'yellow' ||
+              b.status == 'orange' ||
+              b.status == 'red' ||
+              b.status == 'flashing_red')) {
         b.status = 'green';
+        b.updatedAt = nowUtc;
+        if (b.dbId != null) {
+          _patchToSupabase('bodies', 'id=eq.${b.dbId}', {
+            'status': 'green',
+            'is_quarantined': false,
+            'updated_at': nowUtc.toIso8601String(),
+          });
+        } else {
+          _patchToSupabase(
+            'bodies',
+            'monitor_mac=eq.${hive.id}&body_function=eq.${b.type}',
+            {
+              'status': 'green',
+              'is_quarantined': false,
+              'updated_at': nowUtc.toIso8601String(),
+            },
+          );
+        }
       }
     }
 
-    // Felerősítés tényének, idejének és bázissúlyának rögzítése:
+    // 5. Felerősítés tényének, idejének és bázissúlyának rögzítése:
     // - 60 napig nem kaphat Rekorder státuszt
     // - Ha ezután a többi családhoz képest ismét legyengül, felkiáltójelet (❗) kap!
-    targetHive.lastStrengthenedAt = DateTime.now();
-    targetHive.strengtheningCount += 1;
-    targetHive.weightAtStrengthening = targetHive.weight;
-    targetHive.hasRelapsedAfterStrengthening = false;
-    targetHive.relapseReason = null;
+    hive.lastStrengthenedAt = DateTime.now();
+    hive.strengtheningCount += 1;
+    hive.weightAtStrengthening = hive.weight;
+    hive.hasRelapsedAfterStrengthening = false;
+    hive.relapseReason = null;
 
-    final String statusNote = wasWeak
-        ? ' Státusz visszaállítva normál (Zöld) állapotra (Rekorder státusz zárolva).'
-        : ' (Frissen erősített család: Rekorder státusz zárolva).';
+    final String statusNote = hive.worstStatus == 'green'
+        ? (wasWeak
+              ? ' Státusz visszaállítva normál (Zöld) állapotra (Rekorder státusz zárolva).'
+              : ' (Frissen erősített család: Rekorder státusz zárolva).')
+        : ' (Népesség erősítve, további nyitott állapot: ${hive.specificHealthDescription}).';
 
     _postToSupabase('treatments', {
-      'monitor_mac': targetHive.id,
+      'monitor_mac': hive.id,
       'treatment_type': 'Népesség felerősítése ($methodDesc)',
       'scheduled_date': DateTime.now().toIso8601String().split('T').first,
       'is_completed': true,
       'notes': 'Beadva: $methodDesc$donorDesc.$statusNote',
     });
 
-    if (donorHive != null) {
+    if (donor != null) {
       logHistoryEvent(
-        donorHive.id,
+        donor.id,
         'donor_megcsapolas',
-        'Megcsapolva (${targetHive.name} felerősítéséhez): $methodDesc átadva.',
+        'Megcsapolva (${hive.name} felerősítéséhez): $methodDesc átadva.',
       );
     }
 
     updateHive(
-      targetHive,
+      hive,
       historyEventType: 'felerosites',
       historyDescription:
-          'Népesség felerősítve (${targetHive.strengtheningCount}. alkalommal): $methodDesc$donorDesc.$statusNote',
+          'Népesség felerősítve (${hive.strengtheningCount}. alkalommal): $methodDesc$donorDesc.$statusNote',
       skipRelapseCheck: true,
     );
+
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(hive, targetHive);
+    }
+    return true;
   }
 
-  void updateHiveFeedingSettings(HiveData hive) {
+  void updateHiveFeedingSettings(HiveData targetHive) {
+    final HiveData hive = _canonicalHive(targetHive);
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(targetHive, hive);
+    }
     hive.updatedAt = DateTime.now().toUtc();
     _patchToSupabase(
       'monitors',
@@ -2404,13 +4003,6 @@ class HiveRepository extends ChangeNotifier {
       hive.feederStatusMessage =
           'SZTOJ: Várakozás másik adagoló (${busyHive.name}) feltöltésére (5 perc)';
       notifyListeners();
-
-      await sendNtfyNotification(
-        'SZTOJ JELZÉS: ${hive.name} kaptár utántöltése 5 percre várakoztatva, mert ${busyHive.name} töltése éppen folyamatban van.',
-        title: 'Szirup Ütközésvédelem (SZTOJ)',
-        priority: 2,
-        tags: 'hourglass,warning',
-      );
       return;
     }
 
@@ -2489,13 +4081,6 @@ class HiveRepository extends ChangeNotifier {
     );
     _saveHivesBoxesLocally();
     notifyListeners();
-
-    await sendNtfyNotification(
-      'Sikeres auto-párosítás és adagolás: ${hive.name} <-> ${_syrupPump.name} összerendelve! (+${liters.toStringAsFixed(1)}L beadagolva)',
-      title: 'Szirup Párosítás & Adagolás OK',
-      priority: 3,
-      tags: 'white_check_mark,droplet',
-    );
   }
 
   /// VÉSZLEÁLLÍTÁS: Szintemelkedési timeout -> Villogó Piros és Szivattyú Reteszelése
@@ -2521,6 +4106,7 @@ class HiveRepository extends ChangeNotifier {
       'Szirup vészleállítás (${pump.name}): $reason',
     );
     _saveHivesBoxesLocally();
+    evaluateLiveEmergencies(notify: false);
     notifyListeners();
 
     // Sürgős NTFY riasztás
@@ -2553,14 +4139,8 @@ class HiveRepository extends ChangeNotifier {
       'Szirup szivattyú (${pump.name}) vészretesz feloldva a gazda által.',
     );
     _saveHivesBoxesLocally();
+    evaluateLiveEmergencies(notify: false);
     notifyListeners();
-
-    sendNtfyNotification(
-      'A szirup szivattyú (${pump.name}) vészretesze feloldva a gazda által. A rendszer újra üzemkész.',
-      title: 'Szirup Retesz Törölve',
-      priority: 3,
-      tags: 'wrench,green_circle',
-    );
   }
 
   void pumpSyrup(SyrupPumpData pump, double liters, String targetHiveName) {
@@ -2611,6 +4191,7 @@ class HiveRepository extends ChangeNotifier {
           : 'Szirupszivattyú retesz feloldva.',
     );
     _saveHivesBoxesLocally();
+    evaluateLiveEmergencies(notify: false);
     notifyListeners();
   }
 
@@ -2655,6 +4236,7 @@ class HiveRepository extends ChangeNotifier {
       'Itató vízhőmérséklet frissítve: ${_waterer.waterTemp.toStringAsFixed(1)} °C.',
     );
     _saveHivesBoxesLocally();
+    evaluateLiveEmergencies(notify: false);
     notifyListeners();
   }
 
@@ -2682,6 +4264,7 @@ class HiveRepository extends ChangeNotifier {
           : 'Itató vészretesz feloldva.',
     );
     _saveHivesBoxesLocally();
+    evaluateLiveEmergencies(notify: false);
     notifyListeners();
   }
 
@@ -2701,6 +4284,7 @@ class HiveRepository extends ChangeNotifier {
       'Itató (${_waterer.name}) vészretesz feloldva.',
     );
     _saveHivesBoxesLocally();
+    evaluateLiveEmergencies(notify: false);
     notifyListeners();
   }
 
@@ -2884,23 +4468,63 @@ class HiveRepository extends ChangeNotifier {
     );
   }
 
+  /// Lezárja az adott kaptárhoz tartozó korábbi anyacserés / kalitkás feladatokat
+  /// a memóriában ÉS a Supabase `treatments` táblájában is, hogy a következő szinkron
+  /// ne töltse vissza a már meghaladott lépést (pl. "Anyakalitka kirágósra állítása").
+  void clearOpenQueenReplacementTasks(
+    String hiveId, {
+    bool onlyCageTasks = false,
+  }) {
+    final String nowUtcIso = DateTime.now().toUtc().toIso8601String();
+    final List<ScheduledTask> toClose = _scheduledTasks.where((t) {
+      if (t.hiveId != hiveId) return false;
+      if (onlyCageTasks) {
+        return t.id.contains('QUEEN_CAGE') ||
+            t.title.contains('Anyakalitka') ||
+            t.title.contains('kirágósra állítása');
+      }
+      return t.id.contains('QUEEN') ||
+          t.title.contains('Anyakalitka') ||
+          t.title.contains('Anya elfogadás') ||
+          t.title.contains('Anyásítás vizsgálata');
+    }).toList();
+
+    for (final oldTask in toClose) {
+      oldTask.isCompleted = true;
+      if (oldTask.dbId != null) {
+        _patchToSupabase('treatments', 'id=eq.${oldTask.dbId}', {
+          'is_completed': true,
+          'updated_at': nowUtcIso,
+        });
+      }
+    }
+
+    // Ha esetleg dbId nélküli árva sor maradt a szerveren, névszűrővel is lezárjuk
+    _patchToSupabase(
+      'treatments',
+      onlyCageTasks
+          ? 'monitor_mac=eq.$hiveId&is_completed=eq.false&treatment_type=ilike.*Anyakalitka*'
+          : 'monitor_mac=eq.$hiveId&is_completed=eq.false&treatment_type=ilike.*Any*',
+      {'is_completed': true, 'updated_at': nowUtcIso},
+    );
+
+    _scheduledTasks.removeWhere((t) => toClose.contains(t));
+  }
+
   void scheduleQueenReplacementTasks(
-    HiveData hive, {
+    HiveData targetHive, {
     required bool isCageMode,
     DateTime? custom14DayDate,
   }) {
+    final HiveData hive = _canonicalHive(targetHive);
+    if (!identical(hive, targetHive)) {
+      _copyHiveMutableState(targetHive, hive);
+    }
     final now = DateTime.now();
     final inspection3Day = DateTime(now.year, now.month, now.day + 3, 10, 0);
 
-    // Eltávolítjuk a korábbi anyacserés teendőket ennél a kaptárnál a duplikáció elkerülésére
-    _scheduledTasks.removeWhere(
-      (t) =>
-          t.hiveId == hive.id &&
-          (t.id.contains('QUEEN') ||
-              t.title.contains('Anyakalitka') ||
-              t.title.contains('Anya elfogadás') ||
-              t.title.contains('Anyásítás vizsgálata')),
-    );
+    // Lezárjuk és eltávolítjuk a korábbi anyacserés teendőket memóriában ÉS Supabase-ben is!
+    clearOpenQueenReplacementTasks(hive.id);
 
     if (isCageMode) {
       // Szoktatós mód: 3 nap múlva kalitka átállítása kirágósra
@@ -3254,10 +4878,11 @@ class HiveRepository extends ChangeNotifier {
             ...payload,
           });
         }
-      } else if (table == 'syrup_pumps' && queryFilter.startsWith('id=eq.')) {
+      } else if ((table == 'syrup_pumps' || table == 'honey_containers') &&
+          queryFilter.startsWith('id=eq.')) {
         final String pId = queryFilter.substring('id=eq.'.length);
         if (pId.isNotEmpty) {
-          res = await _postWithSchemaFallback('syrup_pumps', {
+          res = await _postWithSchemaFallback(table, {
             'id': pId,
             ...payload,
           });
@@ -3268,13 +4893,22 @@ class HiveRepository extends ChangeNotifier {
   }
 
   Future<void> _processOfflineQueue() async {
-    if (_offlineQueue.isEmpty || !_isOnline || _isProcessingQueue) return;
+    if (_offlineQueue.isEmpty ||
+        _isProcessingQueue ||
+        _supabaseUrl.isEmpty ||
+        _supabaseAnonKey.isEmpty) {
+      return;
+    }
     _isProcessingQueue = true;
 
-    final List<Map<String, dynamic>> failedItems = [];
+    final List<Map<String, dynamic>> originalItems = List<Map<String, dynamic>>.from(
+      _offlineQueue,
+    );
+    final List<Map<String, dynamic>> remainingItems = [];
 
     try {
-      for (var item in List.from(_offlineQueue)) {
+      for (int idx = 0; idx < originalItems.length; idx++) {
+        final item = originalItems[idx];
         final String method = item['method'];
         final String table = item['table'];
         final String? queryFilter = item['queryFilter'];
@@ -3284,9 +4918,11 @@ class HiveRepository extends ChangeNotifier {
 
         try {
           int statusCode = 200;
+          String respBody = '';
           if (method == 'POST') {
             final res = await _postWithSchemaFallback(table, data);
             statusCode = res.statusCode;
+            respBody = res.body;
           } else if (method == 'PATCH') {
             final res = await _patchWithSchemaFallback(
               table,
@@ -3294,6 +4930,7 @@ class HiveRepository extends ChangeNotifier {
               data,
             );
             statusCode = res.statusCode;
+            respBody = res.body;
           } else if (method == 'DELETE') {
             final res = await _httpClient
                 .delete(
@@ -3302,18 +4939,26 @@ class HiveRepository extends ChangeNotifier {
                 )
                 .timeout(const Duration(seconds: 4));
             statusCode = res.statusCode;
+            respBody = res.body;
           }
 
-          // Csak 5xx szerverhiba esetén tartjuk meg a sorban; 4xx séma/kliens hiba ne ragadjon be végtelen ciklusba!
-          if (statusCode >= 500) {
-            failedItems.add(item);
+          if (statusCode == 401 ||
+              statusCode == 403 ||
+              statusCode == 408 ||
+              statusCode == 429 ||
+              statusCode >= 500) {
+            _recordHttpConnectionError(statusCode, respBody);
+            remainingItems.addAll(originalItems.sublist(idx));
+            break;
           }
         } catch (e) {
-          failedItems.add(item);
+          _recordExceptionConnectionError(e);
+          remainingItems.addAll(originalItems.sublist(idx));
+          break;
         }
       }
 
-      _offlineQueue = failedItems;
+      _offlineQueue = remainingItems;
       await _saveOfflineQueue();
     } finally {
       _isProcessingQueue = false;
@@ -3426,6 +5071,14 @@ class HiveRepository extends ChangeNotifier {
     }
   }
 
+  static double? _validPositiveSensor(dynamic raw) {
+    if (raw is num) {
+      final d = raw.toDouble();
+      if (d > 0.0 && d.isFinite) return d;
+    }
+    return null;
+  }
+
   /// Irodai History nézet gyors frissítése közvetlenül a Supabase history_logs ÉS hive_meters tábláiból
   Future<bool> refreshHistoryFromSupabase({int limit = 300}) async {
     if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) return false;
@@ -3488,17 +5141,21 @@ class HiveRepository extends ChangeNotifier {
         for (final hive in _hives) {
           final latest = latestByMac[hive.id];
           if (latest != null) {
-            if (latest['inner_temp'] is num) {
-              hive.temp = (latest['inner_temp'] as num).toDouble();
-            }
-            if (latest['humidity'] is num) {
-              hive.humidity = (latest['humidity'] as num).toDouble();
-            }
-            if (latest['noise'] is num) {
-              hive.zcr = (latest['noise'] as num).toDouble();
-            }
-            if (latest['weight'] is num) {
-              hive.weight = (latest['weight'] as num).toDouble();
+            final DateTime? meterTs = latest['created_at'] != null
+                ? DateTime.tryParse(latest['created_at'].toString())?.toLocal()
+                : null;
+            final bool isNewerThanStrengthening =
+                hive.lastStrengthenedAt == null ||
+                (meterTs != null && meterTs.isAfter(hive.lastStrengthenedAt!));
+            if (isNewerThanStrengthening) {
+              final mTemp = _validPositiveSensor(latest['inner_temp']);
+              final mHum = _validPositiveSensor(latest['humidity']);
+              final mZcr = _validPositiveSensor(latest['noise']);
+              final mWeight = _validPositiveSensor(latest['weight']);
+              if (mTemp != null) hive.temp = mTemp;
+              if (mHum != null) hive.humidity = mHum;
+              if (mZcr != null) hive.zcr = mZcr;
+              if (mWeight != null) hive.weight = mWeight;
             }
           }
         }
@@ -3681,7 +5338,10 @@ class HiveRepository extends ChangeNotifier {
     }
 
     if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
-      if (localHistoryEntry != null) notifyListeners();
+      _setMissingConfigError();
+      _offlineQueue.add({'method': 'POST', 'table': table, 'data': data});
+      await _saveOfflineQueue();
+      notifyListeners();
       return null;
     }
 
@@ -3694,18 +5354,25 @@ class HiveRepository extends ChangeNotifier {
 
     try {
       final res = await _postWithSchemaFallback(table, data);
-      _isOnline = true;
       if (res.statusCode < 200 || res.statusCode >= 300) {
         debugPrint(
           'Supabase POST elutasítva ($table, ${res.statusCode}): ${res.body}',
         );
-        if (res.statusCode >= 500) {
+        if (res.statusCode == 401 ||
+            res.statusCode == 403 ||
+            res.statusCode == 408 ||
+            res.statusCode == 429 ||
+            res.statusCode >= 500) {
+          _recordHttpConnectionError(res.statusCode, res.body);
           _offlineQueue.add({'method': 'POST', 'table': table, 'data': data});
           await _saveOfflineQueue();
+          notifyListeners();
+          return null;
         }
         if (localHistoryEntry != null) notifyListeners();
         return null;
       }
+      _clearConnectionError();
       Map<String, dynamic>? insertedRow;
       if (res.body.isNotEmpty) {
         final decoded = jsonDecode(res.body);
@@ -3729,7 +5396,7 @@ class HiveRepository extends ChangeNotifier {
       }
       return insertedRow;
     } catch (e) {
-      _isOnline = false;
+      _recordExceptionConnectionError(e);
       _offlineQueue.add({'method': 'POST', 'table': table, 'data': data});
       await _saveOfflineQueue();
       debugPrint('Supabase offline rögzítés ($table): $e');
@@ -3743,7 +5410,18 @@ class HiveRepository extends ChangeNotifier {
     String queryFilter,
     Map<String, dynamic> data,
   ) async {
-    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) return;
+    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      _setMissingConfigError();
+      _offlineQueue.add({
+        'method': 'PATCH',
+        'table': table,
+        'queryFilter': queryFilter,
+        'data': data,
+      });
+      await _saveOfflineQueue();
+      notifyListeners();
+      return;
+    }
 
     if (!_isOnline) {
       _offlineQueue.add({
@@ -3759,12 +5437,16 @@ class HiveRepository extends ChangeNotifier {
 
     try {
       final res = await _patchWithSchemaFallback(table, queryFilter, data);
-      _isOnline = true;
       if (res.statusCode < 200 || res.statusCode >= 300) {
         debugPrint(
           'Supabase PATCH elutasítva ($table, ${res.statusCode}): ${res.body}',
         );
-        if (res.statusCode >= 500) {
+        if (res.statusCode == 401 ||
+            res.statusCode == 403 ||
+            res.statusCode == 408 ||
+            res.statusCode == 429 ||
+            res.statusCode >= 500) {
+          _recordHttpConnectionError(res.statusCode, res.body);
           _offlineQueue.add({
             'method': 'PATCH',
             'table': table,
@@ -3772,10 +5454,13 @@ class HiveRepository extends ChangeNotifier {
             'data': data,
           });
           await _saveOfflineQueue();
+          notifyListeners();
         }
+        return;
       }
+      _clearConnectionError();
     } catch (e) {
-      _isOnline = false;
+      _recordExceptionConnectionError(e);
       _offlineQueue.add({
         'method': 'PATCH',
         'table': table,
@@ -3829,7 +5514,18 @@ class HiveRepository extends ChangeNotifier {
   }
 
   Future<void> _deleteFromSupabase(String table, String queryFilter) async {
-    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) return;
+    if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
+      _setMissingConfigError();
+      _offlineQueue.add({
+        'method': 'DELETE',
+        'table': table,
+        'queryFilter': queryFilter,
+        'data': {},
+      });
+      await _saveOfflineQueue();
+      notifyListeners();
+      return;
+    }
 
     if (!_isOnline) {
       _offlineQueue.add({
@@ -3852,11 +5548,26 @@ class HiveRepository extends ChangeNotifier {
           .timeout(const Duration(seconds: 4));
 
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw Exception('Server status: ${res.statusCode}');
+        if (res.statusCode == 401 ||
+            res.statusCode == 403 ||
+            res.statusCode == 408 ||
+            res.statusCode == 429 ||
+            res.statusCode >= 500) {
+          _recordHttpConnectionError(res.statusCode, res.body);
+          _offlineQueue.add({
+            'method': 'DELETE',
+            'table': table,
+            'queryFilter': queryFilter,
+            'data': {},
+          });
+          await _saveOfflineQueue();
+          notifyListeners();
+        }
+        return;
       }
-      _isOnline = true;
+      _clearConnectionError();
     } catch (e) {
-      _isOnline = false;
+      _recordExceptionConnectionError(e);
       _offlineQueue.add({
         'method': 'DELETE',
         'table': table,
@@ -3872,7 +5583,7 @@ class HiveRepository extends ChangeNotifier {
   Future<void> syncWithSupabase() async {
     if (_isSyncing) return;
     if (_supabaseUrl.isEmpty || _supabaseAnonKey.isEmpty) {
-      _syncStatusText = 'Hiba: Add meg a Supabase URL-t és a kulcsot!';
+      _setMissingConfigError();
       notifyListeners();
       return;
     }
@@ -3934,6 +5645,14 @@ class HiveRepository extends ChangeNotifier {
           .timeout(const Duration(seconds: 5))
           .then<http.Response?>((r) => r, onError: (_) => null);
 
+      final Future<http.Response?> containersFuture = _httpClient
+          .get(
+            Uri.parse('$_supabaseUrl/rest/v1/honey_containers?select=*'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 5))
+          .then<http.Response?>((r) => r, onError: (_) => null);
+
       final Future<http.Response?> recentHistoryFuture = _httpClient
           .get(
             Uri.parse(
@@ -3956,14 +5675,15 @@ class HiveRepository extends ChangeNotifier {
 
       final monitorsRes = await _httpClient
           .get(
-            Uri.parse('$_supabaseUrl/rest/v1/monitors?select=*'),
+            Uri.parse(
+              '$_supabaseUrl/rest/v1/monitors?select=*&order=mac_address.asc',
+            ),
             headers: _headers,
           )
           .timeout(const Duration(seconds: 6));
 
       if (monitorsRes.statusCode == 200) {
-        _isOnline = true;
-        _weatherStation.status = 'green';
+        _clearConnectionError();
         final List<dynamic> data = jsonDecode(monitorsRes.body);
         final Map<String, HiveData> existingHivesMap = {
           for (var h in _hives) h.id: h,
@@ -4116,6 +5836,30 @@ class HiveRepository extends ChangeNotifier {
           debugPrint('Kötegelt catalogs lekérés hiba: $e');
         }
 
+        // 4/B. Feldolgozói méztároló edények szinkronizálása (public.honey_containers)
+        try {
+          final http.Response? hcRes = await containersFuture;
+          if (hcRes != null && hcRes.statusCode == 200) {
+            final List<dynamic> hcList = jsonDecode(hcRes.body);
+            for (final hcRow in hcList) {
+              if (hcRow is Map) {
+                final String cId = (hcRow['id'] ?? '').toString().trim();
+                if (cId.isNotEmpty) {
+                  final map = Map<String, dynamic>.from(hcRow);
+                  final idx = honeyContainers.indexWhere((c) => c['id'] == cId);
+                  if (idx >= 0) {
+                    honeyContainers[idx] = map;
+                  } else {
+                    honeyContainers.add(map);
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Kötegelt honey_containers lekérés hiba: $e');
+        }
+
         final Map<String, List<dynamic>> bodiesByMac = {};
         try {
           final http.Response? allBodiesRes = await allBodiesFuture;
@@ -4193,7 +5937,14 @@ class HiveRepository extends ChangeNotifier {
         int index = 0;
         for (var row in data) {
           final String mac = row['mac_address'] ?? 'HIVE_01';
-          final String name = row['hive_number'] ?? 'Család ($mac)';
+          final String rawName = (row['hive_number'] ?? 'Család ($mac)')
+              .toString();
+          final String name = sanitizeHiveDisplayName(rawName);
+          if (rawName.trim().isNotEmpty && rawName.trim() != name) {
+            _patchToSupabase('monitors', 'mac_address=eq.$mac', {
+              'hive_number': name,
+            });
+          }
           final double swarmIdx =
               (row['swarm_index'] as num?)?.toDouble() ?? 0.0;
           final String feedingMode = row['feeding_mode'] ?? 'off';
@@ -4436,8 +6187,7 @@ class HiveRepository extends ChangeNotifier {
                   : 'green';
               final bool resolvedBoxQuarantined =
                   (bRow['is_quarantined'] as bool?) ??
-                  (resolvedBoxStatus == 'flashing_red' ||
-                      resolvedBoxStatus == 'quarantine');
+                  (resolvedBoxStatus == 'quarantine');
 
               loadedBoxes.add(
                 BoxElement(
@@ -4581,10 +6331,7 @@ class HiveRepository extends ChangeNotifier {
               row['protocol']?.toString() ?? prevHive?.protocol;
           final bool isHansHive =
               protocol?.toLowerCase() == 'hans' ||
-              familyFunction.toLowerCase() == 'hans' ||
-              resolvedStatus == 'flashing_red' ||
-              (prevHive?.isQuarantined ?? false) ||
-              (prevHive?.reportedDiseases.contains('nyulos') ?? false);
+              familyFunction.toLowerCase() == 'hans';
 
           if (isHansHive) {
             resolvedStatus = 'flashing_red';
@@ -4599,6 +6346,12 @@ class HiveRepository extends ChangeNotifier {
                 b.isActive = false;
               }
             }
+          } else {
+            for (final b in loadedBoxes) {
+              if (b.status != 'quarantine') {
+                b.isQuarantined = false;
+              }
+            }
           }
           final double dailyVarroa =
               (row['daily_varroa_drop'] as num?)?.toDouble() ??
@@ -4608,39 +6361,120 @@ class HiveRepository extends ChangeNotifier {
               (row['syrup_liters'] as num?)?.toDouble() ??
               prevHive?.syrupLiters ??
               0.0;
+          final double? resolvedWeightAtStrengthening =
+              _validPositiveSensor(row['weight_at_strengthening']) ??
+              prevHive?.weightAtStrengthening;
+
           final latestMeter = latestMeterByMac[mac];
-          final double temp =
-              (latestMeter?['inner_temp'] as num?)?.toDouble() ??
-              (row['temp'] as num?)?.toDouble() ??
-              (row['temperature'] as num?)?.toDouble() ??
-              prevHive?.temp ??
+          final double? rawTiltDeg =
+              (latestMeter?['tilt_deg'] as num?)?.toDouble() ??
+              (latestMeter?['tilt'] as num?)?.toDouble() ??
+              (row['tilt_deg'] as num?)?.toDouble();
+          final bool telemetryTilted =
+              latestMeter?['is_tilted'] == true ||
+              row['is_tilted'] == true ||
+              (rawTiltDeg != null && rawTiltDeg.abs() >= 25.0);
+          if (telemetryTilted) {
+            final String tiltKey = 'TILT_$mac';
+            if (!_ackKeys.contains(tiltKey) &&
+                !pendingAppAlerts.any((a) => a.id == tiltKey)) {
+              pendingAppAlerts.insert(
+                0,
+                AppAlertEvent(
+                  id: tiltKey,
+                  category: 'hive_tilt',
+                  title: '🚨 KAPTÁR BORULÁS / DŐLÉS: $name',
+                  message:
+                      'A(z) $name szenzora kritikus dőlést (${(rawTiltDeg ?? 45.0).toStringAsFixed(0)}°) jelzett! Azonnali helyszíni ellenőrzés szükséges!',
+                  hiveId: mac,
+                  hiveName: name,
+                  createdAt: DateTime.now(),
+                ),
+              );
+            }
+          }
+          final DateTime? latestMeterTs = latestMeter?['created_at'] != null
+              ? DateTime.tryParse(
+                  latestMeter!['created_at'].toString(),
+                )?.toLocal()
+              : null;
+          final bool meterIsNewerThanStrengthening =
+              dbLastStrengthenedAt == null ||
+              (latestMeterTs != null &&
+                  latestMeterTs.isAfter(dbLastStrengthenedAt));
+
+          double temp =
+              (meterIsNewerThanStrengthening
+                  ? _validPositiveSensor(latestMeter?['inner_temp'])
+                  : null) ??
+              _validPositiveSensor(row['temp']) ??
+              _validPositiveSensor(row['temperature']) ??
+              _validPositiveSensor(prevHive?.temp) ??
               34.5;
           final double resolvedHumidity =
-              (latestMeter?['humidity'] as num?)?.toDouble() ??
-              (row['humidity'] as num?)?.toDouble() ??
-              prevHive?.humidity ??
+              (meterIsNewerThanStrengthening
+                  ? _validPositiveSensor(latestMeter?['humidity'])
+                  : null) ??
+              _validPositiveSensor(row['humidity']) ??
+              _validPositiveSensor(prevHive?.humidity) ??
               60.0;
-          final double resolvedZcr =
-              (latestMeter?['noise'] as num?)?.toDouble() ??
-              (row['zcr'] as num?)?.toDouble() ??
-              prevHive?.zcr ??
+          double resolvedZcr =
+              (meterIsNewerThanStrengthening
+                  ? _validPositiveSensor(latestMeter?['noise'])
+                  : null) ??
+              _validPositiveSensor(row['zcr']) ??
+              _validPositiveSensor(prevHive?.zcr) ??
               3800.0;
-          final double weight =
-              (latestMeter?['weight'] as num?)?.toDouble() ??
-              (row['weight'] as num?)?.toDouble() ??
-              prevHive?.weight ??
+          double weight =
+              (meterIsNewerThanStrengthening
+                  ? _validPositiveSensor(latestMeter?['weight'])
+                  : null) ??
+              _validPositiveSensor(row['weight']) ??
+              _validPositiveSensor(prevHive?.weight) ??
               35.0;
+
+          // Ha a családot már felerősítették, és még nem érkezett ennél frissebb ESP32 telemetria,
+          // a régi (felerősítés előtti) adatbázis-értékek ne írják felül az erősített állapotot!
+          if (dbLastStrengthenedAt != null &&
+              !meterIsNewerThanStrengthening &&
+              !dbHasRelapsed) {
+            if (resolvedWeightAtStrengthening != null &&
+                weight < resolvedWeightAtStrengthening) {
+              weight = resolvedWeightAtStrengthening;
+            }
+            if (temp < 33.5 || temp > 36.0) {
+              temp = _validPositiveSensor(prevHive?.temp) != null &&
+                      prevHive!.temp >= 33.5 &&
+                      prevHive.temp <= 36.0
+                  ? prevHive.temp
+                  : 34.5;
+            }
+            if (resolvedZcr < 3000.0 || resolvedZcr > 4200.0) {
+              resolvedZcr = _validPositiveSensor(prevHive?.zcr) != null &&
+                      prevHive!.zcr >= 3000.0 &&
+                      prevHive.zcr <= 4200.0
+                  ? prevHive.zcr
+                  : 3650.0;
+            }
+          }
           final String notes = (row['notes'] ?? row['comment'] ?? '')
               .toString();
 
-          double latOffset = (index % 3) * 0.00015;
-          double lngOffset = (index ~/ 3) * 0.00015;
           final double? dbLat = (row['latitude'] as num?)?.toDouble();
           final double? dbLng = (row['longitude'] as num?)?.toDouble();
-          final LatLng resolvedLocation = (dbLat != null && dbLng != null)
+          final bool hasValidDbCoords =
+              dbLat != null &&
+              dbLng != null &&
+              (dbLat.abs() > 0.001 || dbLng.abs() > 0.001);
+          final LatLng resolvedLocation = hasValidDbCoords
               ? LatLng(dbLat, dbLng)
-              : (prevHive?.location ??
-                    LatLng(37.422500 + latOffset, -122.084500 + lngOffset));
+              : (prevHive?.location ?? _defaultGridLocationForHive(mac, index));
+          if (!hasValidDbCoords) {
+            _patchToSupabase('monitors', 'mac_address=eq.$mac', {
+              'latitude': resolvedLocation.latitude,
+              'longitude': resolvedLocation.longitude,
+            });
+          }
 
           final double resolvedEntranceHeading =
               (row['entrance_heading'] as num?)?.toDouble() ??
@@ -4691,6 +6525,8 @@ class HiveRepository extends ChangeNotifier {
           }
           if (isHansHive && !resolvedDiseases.contains('nyulos')) {
             resolvedDiseases.add('nyulos');
+          } else if (!isHansHive) {
+            resolvedDiseases.remove('nyulos');
           }
 
           final String? dbQueenId = row['queen_id']?.toString().trim();
@@ -4705,20 +6541,70 @@ class HiveRepository extends ChangeNotifier {
                     ))
               : prevHive?.queen;
 
-          final String? resolvedQueenRepState =
+          String? resolvedQueenRepState =
               row['queen_replacement_state']?.toString() ??
               prevHive?.queenReplacementState;
-          final DateTime? resolvedQueenIntroAt =
-              row['queen_introduced_at'] != null
+          DateTime? resolvedQueenIntroAt = row['queen_introduced_at'] != null
               ? DateTime.tryParse(
                   row['queen_introduced_at'].toString(),
                 )?.toLocal()
               : prevHive?.queenIntroducedAt;
-          final DateTime? resolvedLockedUntil = row['locked_until'] != null
+          DateTime? resolvedLockedUntil = row['locked_until'] != null
               ? DateTime.tryParse(row['locked_until'].toString())?.toLocal()
               : prevHive?.lockedUntil;
-          final String? resolvedLockReason =
+          String? resolvedLockReason =
               row['lock_reason']?.toString() ?? prevHive?.lockReason;
+
+          // Ha a monitors táblában még nem létezik a queen_replacement_state / locked_until oszlop
+          // (vagy elavult értéket tárol), a history_logs legutóbbi anyacserés eseményéből pontosítjuk!
+          final List<Map<String, dynamic>>? macLogs = historyByMac[mac];
+          if (macLogs != null && macLogs.isNotEmpty) {
+            for (final logRow in macLogs) {
+              final String ev = (logRow['event_type'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              final String desc = (logRow['description'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              if (ev == 'anyasitas' ||
+                  ev == 'anyacsere' ||
+                  ev == 'anyacsere_jeloles' ||
+                  ev == 'felszamolas') {
+                final DateTime? evAt = logRow['created_at'] != null
+                    ? DateTime.tryParse(
+                        logRow['created_at'].toString(),
+                      )?.toLocal()
+                    : null;
+                if (ev == 'anyasitas' && desc.contains('kirágósra állítva')) {
+                  resolvedQueenRepState = 'introduced_chewout';
+                  resolvedQueenIntroAt ??= evAt;
+                  if (evAt != null) {
+                    final calcLock = evAt.add(const Duration(days: 14));
+                    if (calcLock.isAfter(DateTime.now())) {
+                      resolvedLockedUntil ??= calcLock;
+                      resolvedLockReason ??=
+                          'Új anya kirágósra adva (Ne nyúlj hozzá!)';
+                    }
+                  }
+                  // Ha már kirágósra lett állítva, egy esetleg bent ragadt régi kalitkás feladatot is zárjunk le
+                  _scheduledTasks.removeWhere(
+                    (t) =>
+                        t.hiveId == mac &&
+                        !t.isCompleted &&
+                        (t.title.contains('Anyakalitka') ||
+                            t.title.contains('kirágósra állítása')),
+                  );
+                } else if (ev == 'anyasitas' &&
+                    desc.contains('szoktatósra beadva')) {
+                  resolvedQueenRepState = 'introduced_cage';
+                  resolvedQueenIntroAt ??= evAt;
+                } else if (ev == 'felszamolas') {
+                  resolvedQueenRepState = null;
+                }
+                break;
+              }
+            }
+          }
           final bool resolvedAcousticSentinel =
               (row['acoustic_sentinel_active'] as bool?) ??
               prevHive?.isAcousticSentinelActive ??
@@ -4727,79 +6613,127 @@ class HiveRepository extends ChangeNotifier {
               (row['acoustic_sample_interval_min'] as num?)?.toInt() ??
               prevHive?.acousticSampleIntervalMinutes ??
               60;
-          final double? resolvedWeightAtStrengthening =
-              (row['weight_at_strengthening'] as num?)?.toDouble() ??
-              prevHive?.weightAtStrengthening;
 
-          syncedHives.add(
-            HiveData(
-              id: mac,
-              name: name,
-              location: resolvedLocation,
-              status: resolvedStatus,
-              entranceHeading: resolvedEntranceHeading,
-              familyFunction: familyFunction,
-              protocol: protocol,
-              dailyVarroaDrop: dailyVarroa,
-              syrupLiters: syrupLiters,
-              temp: temp,
-              humidity: resolvedHumidity,
-              extTemp: _weatherStation.temp,
-              extHumidity: _weatherStation.humidity,
-              weight: weight,
-              batteryVoltage: 4.1,
-              zcr: resolvedZcr,
-              swarmIndex: swarmIdx,
-              feedingMode: effectiveFeedingMode,
-              feedingMaxLiters: feedingMaxLiters,
-              feedingIntervalHours: feedingIntervalHours,
-              feedingIntervalDays: feedingIntervalDays,
-              feedingStopBeforeSunsetMinutes: feedingStopSunsetMin,
-              feedingPortionLiters: feedingPortionLiters,
-              feederLevelPercent: effectiveFeederLevel,
-              feederCalibEmptyMm: feederCalibEmptyMm,
-              feederCalibFullMm: feederCalibFullMm,
-              feederRawDistanceMm: feederRawDistanceMm,
-              pairedTankId: (row['paired_tank_id']?.toString()) ?? pairedTank,
-              isAutoPaired: (row['is_auto_paired'] as bool?) ?? isAutoPaired,
-              boxes: loadedBoxes,
-              serverConnection: 'Supabase OK',
-              queen: resolvedQueen,
-              queenReplacementState: resolvedQueenRepState,
-              queenIntroducedAt: resolvedQueenIntroAt,
-              lockedUntil: resolvedLockedUntil,
-              lockReason: resolvedLockReason,
-              isAcousticSentinelActive: resolvedAcousticSentinel,
-              acousticSampleIntervalMinutes: resolvedAcousticInterval,
-              lastStrengthenedAt: dbLastStrengthenedAt,
-              strengtheningCount: dbStrengtheningCount,
-              weightAtStrengthening: resolvedWeightAtStrengthening,
-              hasRelapsedAfterStrengthening: dbHasRelapsed,
-              relapseReason: dbRelapseReason,
-              reportedDiseases: resolvedDiseases,
-              evaluation: mergedEvaluation,
-            ),
-          );
+          if (prevHive != null) {
+            prevHive.name = name;
+            prevHive.location = resolvedLocation;
+            prevHive.status = resolvedStatus;
+            prevHive.entranceHeading = resolvedEntranceHeading;
+            prevHive.familyFunction = familyFunction;
+            prevHive.protocol = protocol;
+            prevHive.dailyVarroaDrop = dailyVarroa;
+            prevHive.syrupLiters = syrupLiters;
+            prevHive.temp = temp;
+            prevHive.humidity = resolvedHumidity;
+            prevHive.extTemp = _weatherStation.temp;
+            prevHive.extHumidity = _weatherStation.humidity;
+            prevHive.weight = weight;
+            prevHive.batteryVoltage = 4.1;
+            prevHive.zcr = resolvedZcr;
+            prevHive.swarmIndex = swarmIdx;
+            prevHive.feedingMode = effectiveFeedingMode;
+            prevHive.feedingMaxLiters = feedingMaxLiters;
+            prevHive.feedingIntervalHours = feedingIntervalHours;
+            prevHive.feedingIntervalDays = feedingIntervalDays;
+            prevHive.feedingStopBeforeSunsetMinutes = feedingStopSunsetMin;
+            prevHive.feedingPortionLiters = feedingPortionLiters;
+            prevHive.feederLevelPercent = effectiveFeederLevel;
+            prevHive.feederCalibEmptyMm = feederCalibEmptyMm;
+            prevHive.feederCalibFullMm = feederCalibFullMm;
+            prevHive.feederRawDistanceMm = feederRawDistanceMm;
+            prevHive.pairedTankId =
+                (row['paired_tank_id']?.toString()) ?? pairedTank;
+            prevHive.isAutoPaired =
+                (row['is_auto_paired'] as bool?) ?? isAutoPaired;
+            prevHive.boxes = loadedBoxes;
+            prevHive.serverConnection = 'Supabase OK';
+            prevHive.queen = resolvedQueen;
+            prevHive.queenReplacementState = resolvedQueenRepState;
+            prevHive.queenIntroducedAt = resolvedQueenIntroAt;
+            prevHive.lockedUntil = resolvedLockedUntil;
+            prevHive.lockReason = resolvedLockReason;
+            prevHive.isAcousticSentinelActive = resolvedAcousticSentinel;
+            prevHive.acousticSampleIntervalMinutes = resolvedAcousticInterval;
+            prevHive.lastStrengthenedAt = dbLastStrengthenedAt;
+            prevHive.strengtheningCount = dbStrengtheningCount;
+            prevHive.weightAtStrengthening = resolvedWeightAtStrengthening;
+            prevHive.hasRelapsedAfterStrengthening = dbHasRelapsed;
+            prevHive.relapseReason = dbRelapseReason;
+            prevHive.reportedDiseases = resolvedDiseases;
+            prevHive.evaluation = mergedEvaluation;
+            syncedHives.add(prevHive);
+          } else {
+            syncedHives.add(
+              HiveData(
+                id: mac,
+                name: name,
+                location: resolvedLocation,
+                status: resolvedStatus,
+                entranceHeading: resolvedEntranceHeading,
+                familyFunction: familyFunction,
+                protocol: protocol,
+                dailyVarroaDrop: dailyVarroa,
+                syrupLiters: syrupLiters,
+                temp: temp,
+                humidity: resolvedHumidity,
+                extTemp: _weatherStation.temp,
+                extHumidity: _weatherStation.humidity,
+                weight: weight,
+                batteryVoltage: 4.1,
+                zcr: resolvedZcr,
+                swarmIndex: swarmIdx,
+                feedingMode: effectiveFeedingMode,
+                feedingMaxLiters: feedingMaxLiters,
+                feedingIntervalHours: feedingIntervalHours,
+                feedingIntervalDays: feedingIntervalDays,
+                feedingStopBeforeSunsetMinutes: feedingStopSunsetMin,
+                feedingPortionLiters: feedingPortionLiters,
+                feederLevelPercent: effectiveFeederLevel,
+                feederCalibEmptyMm: feederCalibEmptyMm,
+                feederCalibFullMm: feederCalibFullMm,
+                feederRawDistanceMm: feederRawDistanceMm,
+                pairedTankId: (row['paired_tank_id']?.toString()) ?? pairedTank,
+                isAutoPaired: (row['is_auto_paired'] as bool?) ?? isAutoPaired,
+                boxes: loadedBoxes,
+                serverConnection: 'Supabase OK',
+                queen: resolvedQueen,
+                queenReplacementState: resolvedQueenRepState,
+                queenIntroducedAt: resolvedQueenIntroAt,
+                lockedUntil: resolvedLockedUntil,
+                lockReason: resolvedLockReason,
+                isAcousticSentinelActive: resolvedAcousticSentinel,
+                acousticSampleIntervalMinutes: resolvedAcousticInterval,
+                lastStrengthenedAt: dbLastStrengthenedAt,
+                strengtheningCount: dbStrengtheningCount,
+                weightAtStrengthening: resolvedWeightAtStrengthening,
+                hasRelapsedAfterStrengthening: dbHasRelapsed,
+                relapseReason: dbRelapseReason,
+                reportedDiseases: resolvedDiseases,
+                evaluation: mergedEvaluation,
+              ),
+            );
+          }
           index++;
         }
         _hives
           ..clear()
           ..addAll(syncedHives);
+        _separateOverlappingHives(syncDb: true);
+        _ensureSyrupPumpNearHives(syncDb: true);
         evaluateColonyRelapses(notify: false);
+        evaluateLiveEmergencies(notify: false);
       } else {
-        _isOnline = false;
-        _weatherStation.status = 'red';
+        _recordHttpConnectionError(monitorsRes.statusCode, monitorsRes.body);
       }
 
       _syncStatusText = _isOnline
           ? 'Sikeres Supabase szinkron! (${_hives.length} kaptár betöltve)'
-          : 'Offline mód: Helyi adatok használatban (${_offlineQueue.length} várakozó művelet)';
+          : '$connectionErrorTitle (${_offlineQueue.length} helyi művelet vár szinkronra)';
       await _saveHivesBoxesLocally(immediate: true);
     } catch (e) {
-      _isOnline = false;
-      _weatherStation.status = 'red';
+      _recordExceptionConnectionError(e);
       _syncStatusText =
-          'Offline mód (Nincs net): ${_offlineQueue.length} elem vár szinkronra.';
+          '$connectionErrorTitle (${_offlineQueue.length} helyi elem vár szinkronra)';
     } finally {
       _isSyncing = false;
       notifyListeners();
